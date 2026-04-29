@@ -38,8 +38,12 @@ var (
 	styleQuitPromptText  = lipgloss.NewStyle().Background(colorFooterBg).Foreground(colorText)
 	styleQuitPromptYes   = lipgloss.NewStyle().Background(colorFooterBg).Foreground(colorDanger).Bold(true)
 	styleQuitPromptNo    = lipgloss.NewStyle().Background(colorFooterBg).Foreground(colorOK).Bold(true)
-	styleNewTaskTitle    = lipgloss.NewStyle().Foreground(colorWarn).Italic(true)
-	styleInputUnderline  = lipgloss.NewStyle().Border(lipgloss.NormalBorder(), false, false, true, false).BorderForeground(colorWarn)
+	colorPopupBg = lipgloss.Color("#11111b")
+
+	stylePopupLabel  = lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Background(colorPopupBg)
+	stylePopupHint   = lipgloss.NewStyle().Foreground(colorMuted).Italic(true).Background(colorPopupBg)
+	stylePopupFill   = lipgloss.NewStyle().Background(colorPopupBg)
+	stylePopupBorder = lipgloss.NewStyle().Foreground(colorAccent).Background(colorPopupBg)
 )
 
 func statusStyle(s task.Status) lipgloss.Style {

@@ -10,8 +10,7 @@ import (
 )
 
 // renderList は左ペインを描画する。focused=true なら現在のカーソル行を強調表示。
-// pendingNewTask が非 nil の場合、最下段に「(入力中…) [todo]」のプレースホルダを差し込む。
-func renderList(tasks []task.Task, cursor int, focused bool, width, height int, pendingNewTask *string) string {
+func renderList(tasks []task.Task, cursor int, focused bool, width, height int) string {
 	if width <= 0 {
 		width = 32
 	}
@@ -19,9 +18,6 @@ func renderList(tasks []task.Task, cursor int, focused bool, width, height int, 
 	var lines []string
 	for i, t := range tasks {
 		lines = append(lines, renderRow(t, i == cursor, focused, width))
-	}
-	if pendingNewTask != nil {
-		lines = append(lines, renderPendingRow(width))
 	}
 
 	return lipgloss.NewStyle().
@@ -72,18 +68,6 @@ func renderRow(t task.Task, isCursor, listFocused bool, width int) string {
 		gap = 1
 	}
 	return left + strings.Repeat(" ", gap) + statusRendered
-}
-
-func renderPendingRow(width int) string {
-	title := styleNewTaskTitle.Render("(入力中…)")
-	status := lipgloss.NewStyle().Foreground(colorWarn).Bold(true).Render("[todo]")
-	left := "  " + title
-	leftW := lipgloss.Width(left)
-	gap := width - leftW - lipgloss.Width(status) - 1
-	if gap < 1 {
-		gap = 1
-	}
-	return left + strings.Repeat(" ", gap) + status
 }
 
 func truncate(s string, w int) string {

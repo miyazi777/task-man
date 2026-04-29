@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/miyazi777/task-man/internal/storage"
 	"github.com/miyazi777/task-man/internal/task"
@@ -157,7 +158,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.NewTask):
-			m.input = newTitleInput()
+			// ポップアップ内の入力欄幅 = ポップアップ外形 - (border 2 + padding 2 + 余裕 2)。
+			inputW := popupWidth(m.width) - 6
+			m.input = newTitleInput(inputW)
 			m.mode = ModeNewTask
 			return m, textinput.Blink
 		}
@@ -183,26 +186,14 @@ func (m Model) View() string {
 
 	listFocused := m.mode == ModeList || m.mode == ModeQuitConfirm
 
-	var pendingPlaceholder *string
-	if m.mode == ModeNewTask {
-		s := ""
-		pendingPlaceholder = &s
-	}
+	left := renderList(m.tasks, m.cursor, listFocused, leftW, bodyH)
 
-	left := renderList(m.tasks, m.cursor, listFocused, leftW, bodyH, pendingPlaceholder)
-
-	var right string
-	switch m.mode {
-	case ModeNewTask:
-		right = renderNewTaskDetail(m.input.View(), rightW, bodyH)
-	default:
-		var current *task.Task
-		if len(m.tasks) > 0 && m.cursor < len(m.tasks) {
-			t := m.tasks[m.cursor]
-			current = &t
-		}
-		right = renderDetail(current, m.mode == ModeDetail, rightW, bodyH)
+	var current *task.Task
+	if len(m.tasks) > 0 && m.cursor < len(m.tasks) {
+		t := m.tasks[m.cursor]
+		current = &t
 	}
+	right := renderDetail(current, m.mode == ModeDetail, rightW, bodyH)
 
 	divider := strings.Repeat("│\n", bodyH)
 	divider = styleDivider.Render(strings.TrimRight(divider, "\n"))
@@ -213,8 +204,69 @@ func (m Model) View() string {
 
 	view := lipgloss.JoinVertical(lipgloss.Left, body, footer)
 
+	// 新規タスク入力中はポップアップを画面中央にオーバーレイ。
+	if m.mode == ModeNewTask {
+		view = overlayNewTaskPopup(view, m.input.View(), m.width, m.height-1)
+	}
+
 	if m.saveErr != nil {
 		view += "\n" + lipgloss.NewStyle().Foreground(colorDanger).Render(fmt.Sprintf("save error: %v", m.saveErr))
 	}
 	return view
+}
+
+func overlayNewTaskPopup(bg, inputView string, screenW, screenH int) string {
+	popupOuterW := popupWidth(screenW)
+	// 内側コンテンツ幅 = 外形 - border(2) - padding(2)。
+	contentW := popupOuterW - 4
+	if contentW < 4 {
+		contentW = 4
+	}
+	// 罫線の内側 (左右コーナー間) の cell 数。
+	innerW := popupOuterW - 2
+
+	topRow := buildBorderRow("╭", "╮", stylePopupLabel.Render("New task"), innerW)
+	bottomRow := buildBorderRow("╰", "╯", stylePopupHint.Render("Enter:save  Esc:discard"), innerW)
+
+	// 入力行: │ {input padded to contentW} │
+	inputPadded := stylePopupFill.Width(contentW).Render(inputView)
+	inputRow := stylePopupBorder.Render("│") +
+		stylePopupFill.Render(" ") +
+		inputPadded +
+		stylePopupFill.Render(" ") +
+		stylePopupBorder.Render("│")
+
+	popup := lipgloss.JoinVertical(lipgloss.Left, topRow, inputRow, bottomRow)
+
+	popupH := lipgloss.Height(popup)
+	popupRenderedW := lipgloss.Width(popup)
+
+	x := (screenW - popupRenderedW) / 2
+	y := (screenH - popupH) / 2
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
+	return PlaceOverlay(x, y, popup, bg)
+}
+
+// buildBorderRow は両端のコーナー文字とラベル埋め込みからなる罫線行を構築する。
+// パターン: {leftCorner}─{label}─...─{rightCorner}
+// label は左寄せ (1 cell の罫線文字を挟んだ直後) で配置する。
+func buildBorderRow(leftCorner, rightCorner, label string, innerW int) string {
+	labelW := ansi.StringWidth(label)
+	if labelW > innerW-2 {
+		label = ansi.Truncate(label, innerW-2, "")
+		labelW = ansi.StringWidth(label)
+	}
+	const leadDashes = 1
+	tailDashes := innerW - leadDashes - labelW
+	if tailDashes < 0 {
+		tailDashes = 0
+	}
+	return stylePopupBorder.Render(leftCorner+strings.Repeat("─", leadDashes)) +
+		label +
+		stylePopupBorder.Render(strings.Repeat("─", tailDashes)+rightCorner)
 }
