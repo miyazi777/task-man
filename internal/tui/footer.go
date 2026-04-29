@@ -18,11 +18,11 @@ func renderFooter(mode Mode, width int) string {
 		content = renderQuitPrompt()
 	case ModeList:
 		content = renderHints([]hintItem{
-			{"k", "up"}, {"j", "down"}, {"enter", "detail"}, {"a", "new"}, {"q", "quit"},
+			{"k/↑", "up"}, {"j/↓", "down"}, {"l/→", "detail"}, {"a", "new"}, {"q", "quit"},
 		})
 	case ModeDetail:
 		content = renderHints([]hintItem{
-			{"k", "status prev"}, {"j", "status next"}, {"esc", "back to list"}, {"q", "quit"},
+			{"k/↑", "status prev"}, {"j/↓", "status next"}, {"h/←", "back to list"}, {"q", "quit"},
 		})
 	case ModeNewTask:
 		content = renderHints([]hintItem{
