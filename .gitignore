@@ -1,5 +1,6 @@
 # プロジェクト固有
 private/
+tasks.yaml
 
 # Go ビルド成果物
 /task-man

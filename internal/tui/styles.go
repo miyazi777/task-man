@@ -39,7 +39,7 @@ var (
 	styleQuitPromptYes   = lipgloss.NewStyle().Background(colorFooterBg).Foreground(colorDanger).Bold(true)
 	styleQuitPromptNo    = lipgloss.NewStyle().Background(colorFooterBg).Foreground(colorOK).Bold(true)
 	styleNewTaskTitle    = lipgloss.NewStyle().Foreground(colorWarn).Italic(true)
-	styleInputBox        = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colorWarn).Padding(0, 1)
+	styleInputUnderline  = lipgloss.NewStyle().Border(lipgloss.NormalBorder(), false, false, true, false).BorderForeground(colorWarn)
 )
 
 func statusStyle(s task.Status) lipgloss.Style {

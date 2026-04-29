@@ -42,6 +42,7 @@ func renderDetail(t *task.Task, focused bool, width, height int) string {
 
 // renderNewTaskDetail は新規タスク作成中の右ペイン。
 // inputView は textinput.View() の結果。
+// レイアウト: 「Title」ラベルの右に入力欄、入力欄の下にだけ下線を描画する。
 func renderNewTaskDetail(inputView string, width, height int) string {
 	if width <= 0 {
 		width = 40
@@ -50,9 +51,14 @@ func renderNewTaskDetail(inputView string, width, height int) string {
 	statusLabel := styleLabel.Render("Status")
 	statusValue := styleValueDim.Render("todo") + " " + lipgloss.NewStyle().Foreground(colorDim).Italic(true).Render("(default)")
 
+	inputRendered := styleInputUnderline.Render(inputView)
+	titleRow := lipgloss.JoinHorizontal(lipgloss.Top,
+		"  "+titleLabel+"  ",
+		inputRendered,
+	)
+
 	body := strings.Join([]string{
-		"  " + titleLabel,
-		"  " + styleInputBox.Render(inputView),
+		titleRow,
 		"",
 		"  " + statusLabel + "  " + statusValue,
 	}, "\n")
