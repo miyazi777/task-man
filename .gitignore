@@ -1,0 +1,17 @@
+# プロジェクト固有
+private/
+
+# Go ビルド成果物
+/task-man
+*.exe
+*.test
+*.out
+
+# 依存ベンダリング (使う場合のみ)
+/vendor/
+
+# OS / エディタ
+.DS_Store
+*.swp
+.idea/
+.vscode/

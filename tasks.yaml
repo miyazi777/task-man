@@ -1,0 +1,13 @@
+tasks:
+    - task:
+        id: 1
+        title: タスク1
+        status: doing
+    - task:
+        id: 2
+        title: タスク2
+        status: todo
+    - task:
+        id: 3
+        title: タスク3
+        status: todo
