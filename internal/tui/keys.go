@@ -22,6 +22,6 @@ func newKeyMap() keyMap {
 		Quit:     key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
 		Back:     key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "back")),
 		ConfirmY: key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "yes")),
-		ConfirmN: key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "no")),
+		ConfirmN: key.NewBinding(key.WithKeys("n", "esc"), key.WithHelp("n/esc", "no")),
 	}
 }

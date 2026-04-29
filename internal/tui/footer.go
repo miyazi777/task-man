@@ -54,6 +54,6 @@ func renderQuitPrompt() string {
 	return styleQuitPromptText.Render("quit?  ") +
 		styleQuitPromptYes.Render("y") +
 		styleQuitPromptText.Render(":quit  ") +
-		styleQuitPromptNo.Render("n") +
+		styleQuitPromptNo.Render("n/esc") +
 		styleQuitPromptText.Render(":cancel")
 }
