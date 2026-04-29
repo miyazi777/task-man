@@ -22,11 +22,19 @@ func renderFooter(mode Mode, width int) string {
 		})
 	case ModeDetail:
 		content = renderHints([]hintItem{
-			{"k/↑", "status prev"}, {"j/↓", "status next"}, {"h/←", "back to list"}, {"q", "quit"},
+			{"k/↑", "up"}, {"j/↓", "down"}, {"enter", "edit"}, {"h/←", "back"}, {"q", "quit"},
 		})
 	case ModeNewTask:
 		content = renderHints([]hintItem{
 			{"Enter", "save"}, {"Esc", "discard"},
+		})
+	case ModeEditTitle:
+		content = renderHints([]hintItem{
+			{"Enter", "save"}, {"Esc", "discard"},
+		})
+	case ModeEditStatus:
+		content = renderHints([]hintItem{
+			{"k/↑", "up"}, {"j/↓", "down"}, {"Enter", "save"}, {"Esc", "discard"},
 		})
 	}
 

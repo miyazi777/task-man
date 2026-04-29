@@ -6,6 +6,8 @@ const (
 	ModeList Mode = iota
 	ModeDetail
 	ModeNewTask
+	ModeEditTitle
+	ModeEditStatus
 	ModeQuitConfirm
 )
 
@@ -17,6 +19,10 @@ func (m Mode) String() string {
 		return "detail"
 	case ModeNewTask:
 		return "newtask"
+	case ModeEditTitle:
+		return "edittitle"
+	case ModeEditStatus:
+		return "editstatus"
 	case ModeQuitConfirm:
 		return "quitconfirm"
 	default:

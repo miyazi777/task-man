@@ -8,8 +8,10 @@ import (
 	"github.com/miyazi777/task-man/internal/task"
 )
 
-// renderDetail は右ペインを描画する。focused=true で Detail モード時のステータス行を強調。
-func renderDetail(t *task.Task, focused bool, width, height int) string {
+// renderDetail は右ペインを描画する。
+// focused=true で詳細モード時のフィールド (Title/Status) が強調される。
+// fieldCursor は 0=Title, 1=Status のどちらにカーソルがあるかを示す。
+func renderDetail(t *task.Task, focused bool, fieldCursor, width, height int) string {
 	if width <= 0 {
 		width = 40
 	}
@@ -17,26 +19,29 @@ func renderDetail(t *task.Task, focused bool, width, height int) string {
 		return lipgloss.NewStyle().Width(width).Height(height).Render("")
 	}
 
-	titleLabel := styleLabel.Render("Title")
-	titleValue := styleValue.Render(t.Title)
-	titleRow := titleLabel + "  " + titleValue
-
+	titleLabelText := "Title"
 	statusLabelText := "Status"
-	statusValueText := string(t.Status)
 
-	var statusRow string
+	var titleValue, statusValue string
 	if focused {
-		left := lipgloss.NewStyle().Foreground(colorAccent).Render("│ ") + styleLabelFocused.Render(statusLabelText)
-		statusRow = left + "  " + statusStyle(t.Status).Render(statusValueText)
+		titleValue = styleValue.Render(t.Title)
+		statusValue = statusStyle(t.Status).Render(string(t.Status))
 	} else {
-		statusRow = "  " + styleLabel.Render(statusLabelText) + "  " + styleValueDim.Render(statusValueText)
+		titleValue = styleValueDim.Render(t.Title)
+		statusValue = styleValueDim.Render(string(t.Status))
 	}
 
-	body := strings.Join([]string{
-		"  " + titleRow,
-		statusRow,
-	}, "\n")
+	titleRow := renderDetailField(titleLabelText, titleValue, focused && fieldCursor == 0)
+	statusRow := renderDetailField(statusLabelText, statusValue, focused && fieldCursor == 1)
 
+	body := strings.Join([]string{titleRow, statusRow}, "\n")
 	return lipgloss.NewStyle().Width(width).Height(height).Render(body)
 }
 
+func renderDetailField(label, valueRendered string, hasCursor bool) string {
+	if hasCursor {
+		marker := lipgloss.NewStyle().Foreground(colorAccent).Render("│ ")
+		return marker + styleLabelFocused.Render(label) + "  " + valueRendered
+	}
+	return "  " + styleLabel.Render(label) + "  " + valueRendered
+}

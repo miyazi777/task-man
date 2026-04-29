@@ -14,7 +14,7 @@ func TestPopupEmbedsLabelInBorder(t *testing.T) {
 	const screenH = 30
 	bg := strings.Repeat(strings.Repeat(" ", screenW)+"\n", screenH)
 	bg = strings.TrimSuffix(bg, "\n")
-	overlaid := overlayNewTaskPopup(bg, "> sample", screenW, screenH)
+	overlaid := overlayInputPopup(bg, "Title:", "> sample", screenW, screenH)
 
 	var topRow, bottomRow string
 	for _, line := range strings.Split(overlaid, "\n") {
@@ -73,7 +73,7 @@ func TestPopupWithRealTextInput(t *testing.T) {
 	bg := strings.Repeat(strings.Repeat(" ", screenW)+"\n", screenH)
 	bg = strings.TrimSuffix(bg, "\n")
 
-	overlaid := overlayNewTaskPopup(bg, ti.View(), screenW, screenH)
+	overlaid := overlayInputPopup(bg, "Title:", ti.View(), screenW, screenH)
 
 	// 全行が画面幅に揃っていること。
 	for i, line := range strings.Split(overlaid, "\n") {
@@ -111,7 +111,7 @@ func TestPopupHasUniformInnerWidth(t *testing.T) {
 	const screenH = 30
 	bg := strings.Repeat(strings.Repeat(" ", screenW)+"\n", screenH)
 	bg = strings.TrimSuffix(bg, "\n")
-	overlaid := overlayNewTaskPopup(bg, "> sample", screenW, screenH)
+	overlaid := overlayInputPopup(bg, "Title:", "> sample", screenW, screenH)
 
 	wantOuter := popupWidth(screenW)
 
@@ -161,7 +161,7 @@ func TestPopupLinesHaveUniformWidth(t *testing.T) {
 	bg := strings.Repeat(strings.Repeat(" ", screenW)+"\n", screenH)
 	bg = strings.TrimSuffix(bg, "\n")
 
-	overlaid := overlayNewTaskPopup(bg, inputView, screenW, screenH)
+	overlaid := overlayInputPopup(bg, "Title:", inputView, screenW, screenH)
 
 	wantW := popupWidth(screenW)
 

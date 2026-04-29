@@ -14,6 +14,15 @@ import (
 	"github.com/miyazi777/task-man/internal/task"
 )
 
+// 詳細画面でカーソルを当てる対象フィールド。
+const (
+	detailFieldTitle  = 0
+	detailFieldStatus = 1
+)
+
+// ステータスピッカーで選択肢として並べる順序。
+var statusOrder = []task.Status{task.StatusTodo, task.StatusDoing, task.StatusDone}
+
 type Model struct {
 	repo     storage.Repository
 	tasks    []task.Task
@@ -23,6 +32,9 @@ type Model struct {
 
 	keys  keyMap
 	input textinput.Model
+
+	detailCursor       int // 0=Title, 1=Status
+	statusPickerCursor int // 0..len(statusOrder)-1
 
 	width  int
 	height int
@@ -53,7 +65,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	}
 
-	if m.mode == ModeNewTask {
+	// textinput の cursor blink などを反映するため、入力中のモードでは Update を委譲する。
+	if m.mode == ModeNewTask || m.mode == ModeEditTitle {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		return m, cmd
@@ -78,7 +91,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "enter":
 			title := strings.TrimSpace(m.input.Value())
 			if title == "" {
-				// 空タイトルは許可しない (バリデーションエラー回避)。
 				return m, nil
 			}
 			t := task.Task{
@@ -108,6 +120,64 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.input, cmd = m.input.Update(msg)
 		return m, cmd
 
+	case ModeEditTitle:
+		switch msg.String() {
+		case "enter":
+			title := strings.TrimSpace(m.input.Value())
+			if title == "" {
+				return m, nil
+			}
+			updated := m.tasks[m.cursor]
+			updated.Title = title
+			if err := updated.Validate(); err != nil {
+				m.saveErr = err
+				return m, nil
+			}
+			m.tasks[m.cursor] = updated
+			if err := m.repo.Save(m.tasks); err != nil {
+				m.saveErr = err
+				return m, nil
+			}
+			m.mode = ModeDetail
+			m.input = textinput.Model{}
+			return m, nil
+		case "esc":
+			m.mode = ModeDetail
+			m.input = textinput.Model{}
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		return m, cmd
+
+	case ModeEditStatus:
+		switch {
+		case key.Matches(msg, m.keys.Up):
+			if m.statusPickerCursor > 0 {
+				m.statusPickerCursor--
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			if m.statusPickerCursor < len(statusOrder)-1 {
+				m.statusPickerCursor++
+			}
+			return m, nil
+		}
+		switch msg.String() {
+		case "enter":
+			m.tasks[m.cursor].Status = statusOrder[m.statusPickerCursor]
+			if err := m.repo.Save(m.tasks); err != nil {
+				m.saveErr = err
+				return m, nil
+			}
+			m.mode = ModeDetail
+			return m, nil
+		case "esc":
+			m.mode = ModeDetail
+			return m, nil
+		}
+		return m, nil
+
 	case ModeDetail:
 		if len(m.tasks) == 0 {
 			m.mode = ModeList
@@ -122,15 +192,31 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = ModeList
 			return m, nil
 		case key.Matches(msg, m.keys.Up):
-			m.tasks[m.cursor].Status = m.tasks[m.cursor].Status.Prev()
-			if err := m.repo.Save(m.tasks); err != nil {
-				m.saveErr = err
+			if m.detailCursor > 0 {
+				m.detailCursor--
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.Down):
-			m.tasks[m.cursor].Status = m.tasks[m.cursor].Status.Next()
-			if err := m.repo.Save(m.tasks); err != nil {
-				m.saveErr = err
+			if m.detailCursor < detailFieldStatus {
+				m.detailCursor++
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Confirm):
+			switch m.detailCursor {
+			case detailFieldTitle:
+				inputW := popupWidth(m.width) - 7
+				if inputW < 1 {
+					inputW = 1
+				}
+				m.input = newTitleInput(inputW)
+				m.input.SetValue(m.tasks[m.cursor].Title)
+				m.input.CursorEnd()
+				m.mode = ModeEditTitle
+				return m, textinput.Blink
+			case detailFieldStatus:
+				m.statusPickerCursor = statusIndex(m.tasks[m.cursor].Status)
+				m.mode = ModeEditStatus
+				return m, nil
 			}
 			return m, nil
 		}
@@ -155,11 +241,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Enter):
 			if len(m.tasks) > 0 {
 				m.mode = ModeDetail
+				m.detailCursor = detailFieldTitle
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.NewTask):
-			// 入力フィールド値の最大幅 = contentW (= popupOuterW - 4) - prompt(2) - cursor(1)。
-			// textinput.View() は m.Width + 3 cell を返すため、ここから 3 を差し引く。
 			inputW := popupWidth(m.width) - 7
 			if inputW < 1 {
 				inputW = 1
@@ -171,6 +256,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+func statusIndex(s task.Status) int {
+	for i, v := range statusOrder {
+		if v == s {
+			return i
+		}
+	}
+	return 0
 }
 
 func (m Model) View() string {
@@ -185,10 +279,11 @@ func (m Model) View() string {
 	if leftW > m.width-20 {
 		leftW = m.width - 20
 	}
-	rightW := m.width - leftW - 1 // divider 1 桁分
-	bodyH := m.height - 1         // フッター 1 行分
+	rightW := m.width - leftW - 1
+	bodyH := m.height - 1
 
 	listFocused := m.mode == ModeList || m.mode == ModeQuitConfirm
+	detailFocused := m.mode == ModeDetail || m.mode == ModeEditTitle || m.mode == ModeEditStatus
 
 	left := renderList(m.tasks, m.cursor, listFocused, leftW, bodyH)
 
@@ -197,7 +292,7 @@ func (m Model) View() string {
 		t := m.tasks[m.cursor]
 		current = &t
 	}
-	right := renderDetail(current, m.mode == ModeDetail, rightW, bodyH)
+	right := renderDetail(current, detailFocused, m.detailCursor, rightW, bodyH)
 
 	divider := strings.Repeat("│\n", bodyH)
 	divider = styleDivider.Render(strings.TrimRight(divider, "\n"))
@@ -208,9 +303,11 @@ func (m Model) View() string {
 
 	view := lipgloss.JoinVertical(lipgloss.Left, body, footer)
 
-	// 新規タスク入力中はポップアップを画面中央にオーバーレイ。
-	if m.mode == ModeNewTask {
-		view = overlayNewTaskPopup(view, m.input.View(), m.width, m.height-1)
+	switch m.mode {
+	case ModeNewTask, ModeEditTitle:
+		view = overlayInputPopup(view, "Title:", m.input.View(), m.width, m.height-1)
+	case ModeEditStatus:
+		view = overlayStatusPicker(view, m.statusPickerCursor, m.width, m.height-1)
 	}
 
 	if m.saveErr != nil {
@@ -219,21 +316,19 @@ func (m Model) View() string {
 	return view
 }
 
-func overlayNewTaskPopup(bg, inputView string, screenW, screenH int) string {
+// overlayInputPopup は単一行入力ポップアップを画面中央にオーバーレイする。
+// 上枠ラベル / 下枠ヒントは既存のポップアップと共通スタイル。
+func overlayInputPopup(bg, label, inputView string, screenW, screenH int) string {
 	popupOuterW := popupWidth(screenW)
-	// 内側コンテンツ幅 = 外形 - border(2) - padding(2)。
 	contentW := popupOuterW - 4
 	if contentW < 4 {
 		contentW = 4
 	}
-	// 罫線の内側 (左右コーナー間) の cell 数。
 	innerW := popupOuterW - 2
 
-	topRow := buildBorderRow("╭", "╮", stylePopupLabel.Render("Title:"), innerW)
+	topRow := buildBorderRow("╭", "╮", stylePopupLabel.Render(label), innerW)
 	bottomRow := buildBorderRow("╰", "╯", stylePopupHint.Render("Enter:save  Esc:discard"), innerW)
 
-	// 入力行: │ {input clamped/padded to contentW} │
-	// textinput.View() の幅が contentW を超えないように切り詰め、不足分はポップアップ背景色で埋める。
 	if w := ansi.StringWidth(inputView); w > contentW {
 		inputView = ansi.Truncate(inputView, contentW, "")
 	}
@@ -245,10 +340,49 @@ func overlayNewTaskPopup(bg, inputView string, screenW, screenH int) string {
 		stylePopupBorder.Render("│")
 
 	popup := lipgloss.JoinVertical(lipgloss.Left, topRow, inputRow, bottomRow)
+	return centerOverlay(popup, bg, screenW, screenH)
+}
 
+// overlayStatusPicker は status の選択肢リストをポップアップとして中央オーバーレイする。
+func overlayStatusPicker(bg string, currentIdx, screenW, screenH int) string {
+	popupOuterW := popupWidth(screenW)
+	contentW := popupOuterW - 4
+	if contentW < 4 {
+		contentW = 4
+	}
+	innerW := popupOuterW - 2
+
+	topRow := buildBorderRow("╭", "╮", stylePopupLabel.Render("Status:"), innerW)
+	bottomRow := buildBorderRow("╰", "╯", stylePopupHint.Render("Enter:save  Esc:discard"), innerW)
+
+	rows := []string{topRow}
+	for i, s := range statusOrder {
+		var line string
+		if i == currentIdx {
+			line = stylePopupLabel.Render("> " + string(s))
+		} else {
+			line = stylePopupFill.Foreground(colorText).Render("  " + string(s))
+		}
+		if w := ansi.StringWidth(line); w > contentW {
+			line = ansi.Truncate(line, contentW, "")
+		}
+		padded := stylePopupFill.Width(contentW).Render(line)
+		row := stylePopupBorder.Render("│") +
+			stylePopupFill.Render(" ") +
+			padded +
+			stylePopupFill.Render(" ") +
+			stylePopupBorder.Render("│")
+		rows = append(rows, row)
+	}
+	rows = append(rows, bottomRow)
+
+	popup := lipgloss.JoinVertical(lipgloss.Left, rows...)
+	return centerOverlay(popup, bg, screenW, screenH)
+}
+
+func centerOverlay(popup, bg string, screenW, screenH int) string {
 	popupH := lipgloss.Height(popup)
 	popupRenderedW := lipgloss.Width(popup)
-
 	x := (screenW - popupRenderedW) / 2
 	y := (screenH - popupH) / 2
 	if x < 0 {
