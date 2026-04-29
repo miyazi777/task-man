@@ -158,8 +158,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.NewTask):
-			// ポップアップ内の入力欄幅 = ポップアップ外形 - (border 2 + padding 2 + 余裕 2)。
-			inputW := popupWidth(m.width) - 6
+			// 入力フィールド値の最大幅 = contentW (= popupOuterW - 4) - prompt(2) - cursor(1)。
+			// textinput.View() は m.Width + 3 cell を返すため、ここから 3 を差し引く。
+			inputW := popupWidth(m.width) - 7
+			if inputW < 1 {
+				inputW = 1
+			}
 			m.input = newTitleInput(inputW)
 			m.mode = ModeNewTask
 			return m, textinput.Blink
@@ -225,10 +229,14 @@ func overlayNewTaskPopup(bg, inputView string, screenW, screenH int) string {
 	// 罫線の内側 (左右コーナー間) の cell 数。
 	innerW := popupOuterW - 2
 
-	topRow := buildBorderRow("╭", "╮", stylePopupLabel.Render("New task"), innerW)
+	topRow := buildBorderRow("╭", "╮", stylePopupLabel.Render("Title:"), innerW)
 	bottomRow := buildBorderRow("╰", "╯", stylePopupHint.Render("Enter:save  Esc:discard"), innerW)
 
-	// 入力行: │ {input padded to contentW} │
+	// 入力行: │ {input clamped/padded to contentW} │
+	// textinput.View() の幅が contentW を超えないように切り詰め、不足分はポップアップ背景色で埋める。
+	if w := ansi.StringWidth(inputView); w > contentW {
+		inputView = ansi.Truncate(inputView, contentW, "")
+	}
 	inputPadded := stylePopupFill.Width(contentW).Render(inputView)
 	inputRow := stylePopupBorder.Render("│") +
 		stylePopupFill.Render(" ") +

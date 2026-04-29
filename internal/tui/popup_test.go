@@ -30,8 +30,8 @@ func TestPopupEmbedsLabelInBorder(t *testing.T) {
 		t.Fatalf("could not find top/bottom rows; top=%q bottom=%q", topRow, bottomRow)
 	}
 
-	// 上罫線: ╭─New task─...─╮
-	if !strings.Contains(topRow, "New task") {
+	// 上罫線: ╭─Title:─...─╮
+	if !strings.Contains(topRow, "Title:") {
 		t.Errorf("top border missing label: %q", topRow)
 	}
 	if !strings.Contains(topRow, "╮") {
@@ -39,7 +39,7 @@ func TestPopupEmbedsLabelInBorder(t *testing.T) {
 	}
 	// 左寄せ: ╭ の直後の ─ から数えてすぐにラベルが現れること。
 	startIdx := strings.Index(topRow, "╭")
-	labelIdx := strings.Index(topRow, "New task")
+	labelIdx := strings.Index(topRow, "Title:")
 	// runes ベースで距離を確認。╭ から最大 2 文字以内 (= ╭─ の直後) に label があれば左寄せ。
 	prefix := topRow[startIdx:labelIdx]
 	if got := len([]rune(prefix)); got > 2 {
@@ -66,16 +66,40 @@ func TestPopupEmbedsLabelInBorder(t *testing.T) {
 func TestPopupWithRealTextInput(t *testing.T) {
 	const screenW = 120
 	const screenH = 30
-	ti := newTitleInput(popupWidth(screenW) - 6)
+	wantOuter := popupWidth(screenW)
+	// app.go と同じ計算式で textinput を作る。
+	ti := newTitleInput(wantOuter - 7)
 
 	bg := strings.Repeat(strings.Repeat(" ", screenW)+"\n", screenH)
 	bg = strings.TrimSuffix(bg, "\n")
 
 	overlaid := overlayNewTaskPopup(bg, ti.View(), screenW, screenH)
 
+	// 全行が画面幅に揃っていること。
 	for i, line := range strings.Split(overlaid, "\n") {
 		if got := ansi.StringWidth(line); got != screenW {
 			t.Errorf("line %d width = %d, want %d, content=%q", i, got, screenW, ansi.Strip(line))
+		}
+	}
+
+	// ポップアップ各行の外形幅 (左境界文字〜右境界文字) が popupWidth と一致すること。
+	for _, line := range strings.Split(overlaid, "\n") {
+		stripped := ansi.Strip(line)
+		runes := []rune(stripped)
+		firstR, lastR := -1, -1
+		for i, r := range runes {
+			if firstR == -1 && (r == '│' || r == '╭' || r == '╰') {
+				firstR = i
+			}
+			if r == '│' || r == '╮' || r == '╯' {
+				lastR = i
+			}
+		}
+		if firstR < 0 || lastR < 0 {
+			continue
+		}
+		if got := ansi.StringWidth(string(runes[firstR : lastR+1])); got != wantOuter {
+			t.Errorf("popup outer width with real textinput = %d, want %d, line=%q", got, wantOuter, stripped)
 		}
 	}
 }

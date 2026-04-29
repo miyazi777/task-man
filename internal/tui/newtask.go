@@ -2,16 +2,24 @@ package tui
 
 import (
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func newTitleInput(width int) textinput.Model {
 	ti := textinput.New()
-	ti.Placeholder = "タスク名を入力"
 	ti.CharLimit = 200
 	if width < 10 {
 		width = 10
 	}
 	ti.Width = width
+
+	bg := lipgloss.NewStyle().Background(colorPopupBg)
+	ti.PromptStyle = bg.Foreground(colorAccent)
+	ti.TextStyle = bg.Foreground(colorText)
+	ti.PlaceholderStyle = bg.Foreground(colorDim)
+	ti.Cursor.Style = bg.Foreground(colorText)
+	ti.Cursor.TextStyle = bg.Foreground(colorText)
+
 	ti.Focus()
 	return ti
 }
