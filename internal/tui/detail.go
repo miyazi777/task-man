@@ -9,7 +9,7 @@ import (
 )
 
 // renderDetail は右ペインを描画する。
-// focused=true で詳細モード時のフィールド (Title/Status/Files) が強調される。
+// focused=true で詳細モード時のフィールド (Title/Status/Files) が反転カーソルで強調される。
 // fieldCursor は 0=Title, 1=Status, 2=Files。fileCursor は Files 内のインデックス。
 func renderDetail(t *task.Task, statuses task.StatusList, files []string, focused bool, fieldCursor, fileCursor, width, height int) string {
 	if width <= 0 {
@@ -25,29 +25,35 @@ func renderDetail(t *task.Task, statuses task.StatusList, files []string, focuse
 		statusText = status.Label
 	}
 
-	var titleValue, statusValue string
-	if focused {
-		titleValue = styleValue.Render(t.Title)
-		statusValue = statusStyleFor(status).Render(statusText)
-	} else {
-		titleValue = styleValueDim.Render(t.Title)
-		statusValue = styleValueDim.Render(statusText)
-	}
-
-	titleRow := renderDetailField("Title", titleValue, focused && fieldCursor == detailFieldTitle)
-	statusRow := renderDetailField("Status", statusValue, focused && fieldCursor == detailFieldStatus)
-	filesBlock := renderFilesBlock(files, focused, fieldCursor == detailFieldFiles, fileCursor)
+	titleRow := renderDetailField("Title", t.Title, focused, focused && fieldCursor == detailFieldTitle, statusStyleFor(status), false, width)
+	statusRow := renderDetailField("Status", statusText, focused, focused && fieldCursor == detailFieldStatus, statusStyleFor(status), true, width)
+	filesBlock := renderFilesBlock(files, focused, fieldCursor == detailFieldFiles, fileCursor, width)
 
 	body := strings.Join([]string{titleRow, statusRow, "", filesBlock}, "\n")
 	return lipgloss.NewStyle().Width(width).Height(height).Render(body)
 }
 
-func renderDetailField(label, valueRendered string, hasCursor bool) string {
+// renderDetailField は label と value の 1 行を描画する。
+// hasCursor=true なら行幅いっぱいを反転背景にする (yazi 風)。
+// valueStatusStyle は Status 行の値だけに適用する色 (それ以外は無視)。
+func renderDetailField(label, value string, focused, hasCursor bool, valueStatusStyle lipgloss.Style, useValueStatusStyle bool, width int) string {
 	if hasCursor {
-		marker := lipgloss.NewStyle().Foreground(colorAccent).Render("│ ")
-		return marker + styleLabelFocused.Render(label) + "  " + valueRendered
+		raw := "  " + label + "  " + value
+		return styleCursorRow.Width(width).Render(raw)
 	}
-	return "  " + styleLabel.Render(label) + "  " + valueRendered
+	var labelRendered, valueRendered string
+	if focused {
+		labelRendered = styleLabel.Render(label)
+		if useValueStatusStyle {
+			valueRendered = valueStatusStyle.Render(value)
+		} else {
+			valueRendered = styleValue.Render(value)
+		}
+	} else {
+		labelRendered = styleLabel.Render(label)
+		valueRendered = styleValueDim.Render(value)
+	}
+	return "  " + labelRendered + "  " + valueRendered
 }
 
 // renderFilesBlock は Files: セクションをヘッダ + 区切り線 + ファイル行で描画する。
@@ -55,12 +61,8 @@ func renderDetailField(label, valueRendered string, hasCursor bool) string {
 //   - fileCursor: Files 内の選択行
 //
 // ファイルが 0 件のときは "(no files)" を 1 行表示する。
-func renderFilesBlock(files []string, focused, blockFocused bool, fileCursor int) string {
+func renderFilesBlock(files []string, focused, blockFocused bool, fileCursor, width int) string {
 	header := "  " + styleLabel.Render("Files:")
-	if blockFocused && focused {
-		marker := lipgloss.NewStyle().Foreground(colorAccent).Render("│ ")
-		header = marker + styleLabelFocused.Render("Files:")
-	}
 	divider := "  " + styleDivider.Render(strings.Repeat("─", 14))
 
 	var rows []string
@@ -73,13 +75,14 @@ func renderFilesBlock(files []string, focused, blockFocused bool, fileCursor int
 
 	for i, name := range files {
 		isCursor := blockFocused && focused && i == fileCursor
+		if isCursor {
+			rows = append(rows, styleCursorRow.Width(width).Render("    "+name))
+			continue
+		}
 		var line string
-		switch {
-		case isCursor:
-			line = styleCursorMarker.Render("  > ") + styleValue.Render(name)
-		case focused:
+		if focused {
 			line = "    " + styleValue.Render(name)
-		default:
+		} else {
 			line = "    " + styleValueDim.Render(name)
 		}
 		rows = append(rows, line)

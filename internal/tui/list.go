@@ -9,7 +9,7 @@ import (
 	"github.com/miyazi777/task-man/internal/task"
 )
 
-// renderList は左ペインを描画する。focused=true なら現在のカーソル行を強調表示。
+// renderList は左ペインを描画する。focused=true なら現在のカーソル行を反転表示。
 func renderList(tasks []task.Task, statuses task.StatusList, cursor int, focused bool, width, height int) string {
 	if width <= 0 {
 		width = 32
@@ -28,47 +28,45 @@ func renderList(tasks []task.Task, statuses task.StatusList, cursor int, focused
 
 func renderRow(t task.Task, statuses task.StatusList, isCursor, listFocused bool, width int) string {
 	status, ok := statuses.ByID(t.StatusID)
-	label := "?"
+	statusText := "?"
 	if ok {
-		label = status.Label
+		statusText = status.Label
 	}
-	statusLabel := fmt.Sprintf("[%s]", label)
+	statusLabel := fmt.Sprintf("[%s]", statusText)
 
-	// 内部余白(padding 1)とマーカー領域 2、ステータス、間隔を考慮し title 部の幅を決める。
-	const markerW = 2
+	// 左 padding 2 cell + 右 padding 1 cell + ラベル幅 を引いた残りが title の使用可能幅。
+	const leftPad, rightPad = 2, 1
 	statusW := lipgloss.Width(statusLabel)
-	titleW := width - markerW - statusW - 4
+	titleW := width - leftPad - rightPad - statusW - 1
 	if titleW < 4 {
 		titleW = 4
 	}
-
 	title := truncate(t.Title, titleW)
 
-	var marker, titleRendered, statusRendered string
-	switch {
-	case isCursor && listFocused:
-		marker = styleCursorMarker.Render("▶ ")
-		titleRendered = styleListItemCursor.Inline(true).Render(title)
-		statusRendered = statusStyleFor(status).Render(statusLabel)
-	case isCursor && !listFocused:
-		// 詳細フォーカス時はリスト全体を dim 表示。カーソル行も色控えめに。
-		marker = lipgloss.NewStyle().Foreground(colorDivider).Render("│ ")
-		titleRendered = styleListItemDim.Inline(true).Render(title)
-		statusRendered = lipgloss.NewStyle().Foreground(colorDim).Bold(true).Render(statusLabel)
-	default:
-		marker = "  "
-		if listFocused {
-			titleRendered = styleListItem.Inline(true).Render(title)
-			statusRendered = statusStyleFor(status).Render(statusLabel)
-		} else {
-			titleRendered = styleListItemDim.Inline(true).Render(title)
-			statusRendered = lipgloss.NewStyle().Foreground(colorDim).Bold(true).Render(statusLabel)
+	// カーソル行 (フォーカス中): 行全体を反転背景にする。
+	if isCursor && listFocused {
+		left := strings.Repeat(" ", leftPad) + title
+		gap := width - lipgloss.Width(left) - statusW - rightPad
+		if gap < 1 {
+			gap = 1
 		}
+		raw := left + strings.Repeat(" ", gap) + statusLabel + strings.Repeat(" ", rightPad)
+		return styleCursorRow.Width(width).Render(raw)
 	}
 
-	left := marker + titleRendered
+	// それ以外 (非カーソル / フォーカス外): マーカーは置かず padding のみで揃える。
+	var titleRendered, statusRendered string
+	if listFocused {
+		titleRendered = styleListItem.Inline(true).Render(title)
+		statusRendered = statusStyleFor(status).Render(statusLabel)
+	} else {
+		titleRendered = styleListItemDim.Inline(true).Render(title)
+		statusRendered = lipgloss.NewStyle().Foreground(colorDim).Render(statusLabel)
+	}
+
+	left := strings.Repeat(" ", leftPad) + titleRendered
 	leftW := lipgloss.Width(left)
-	gap := width - leftW - lipgloss.Width(statusRendered) - 1
+	gap := width - leftW - lipgloss.Width(statusRendered) - rightPad
 	if gap < 1 {
 		gap = 1
 	}

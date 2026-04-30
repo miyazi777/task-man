@@ -625,16 +625,16 @@ func overlayStatusPicker(bg string, sortedStatuses task.StatusList, currentIdx, 
 
 	rows := []string{topRow}
 	for i, s := range sortedStatuses {
-		var line string
+		raw := "  " + s.Label
+		if w := ansi.StringWidth(raw); w > contentW {
+			raw = ansi.Truncate(raw, contentW, "")
+		}
+		var padded string
 		if i == currentIdx {
-			line = stylePopupLabel.Render("> " + s.Label)
+			padded = stylePopupCursorRow.Width(contentW).Render(raw)
 		} else {
-			line = stylePopupFill.Foreground(colorText).Render("  " + s.Label)
+			padded = stylePopupFill.Foreground(colorText).Width(contentW).Render(raw)
 		}
-		if w := ansi.StringWidth(line); w > contentW {
-			line = ansi.Truncate(line, contentW, "")
-		}
-		padded := stylePopupFill.Width(contentW).Render(line)
 		row := stylePopupBorder.Render("│") +
 			stylePopupFill.Render(" ") +
 			padded +

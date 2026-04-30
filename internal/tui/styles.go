@@ -13,6 +13,7 @@ var (
 	colorDim      = lipgloss.Color("#7f849c")
 	colorSubtle   = lipgloss.Color("#6c7086")
 	colorAccent   = lipgloss.Color("#89b4fa") // フォーカス・カーソル
+	colorBase     = lipgloss.Color("#1e1e2e") // カーソル反転時の前景 (= 通常背景色)
 	colorWarn     = lipgloss.Color("#f9e2af") // 入力中・終了確認アクセント
 	colorDanger   = lipgloss.Color("#f38ba8") // y:quit
 	colorOK       = lipgloss.Color("#a6e3a1") // n:cancel
@@ -23,13 +24,10 @@ var (
 var _ = colorWarn // 将来的なアクセント用に温存
 
 var (
-	styleListItem       = lipgloss.NewStyle().Foreground(colorText).Padding(0, 1)
-	styleListItemDim    = lipgloss.NewStyle().Foreground(colorDim).Padding(0, 1)
-	styleListItemCursor = lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Padding(0, 1)
-	styleCursorMarker   = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
-	styleLabel          = lipgloss.NewStyle().Foreground(colorSubtle)
-	styleLabelFocused   = lipgloss.NewStyle().Foreground(colorAccent)
-	styleValue          = lipgloss.NewStyle().Foreground(colorText)
+	styleListItem    = lipgloss.NewStyle().Foreground(colorText).Padding(0, 0)
+	styleListItemDim = lipgloss.NewStyle().Foreground(colorDim).Padding(0, 0)
+	styleLabel       = lipgloss.NewStyle().Foreground(colorSubtle)
+	styleValue       = lipgloss.NewStyle().Foreground(colorText)
 	styleValueDim       = lipgloss.NewStyle().Foreground(colorSubtle)
 	styleDivider        = lipgloss.NewStyle().Foreground(colorDivider)
 	styleFooter         = lipgloss.NewStyle().Background(colorFooterBg).Foreground(colorMuted).Padding(0, 1).Width(0)
@@ -44,6 +42,12 @@ var (
 	stylePopupFill   = lipgloss.NewStyle().Background(colorPopupBg)
 	stylePopupBorder = lipgloss.NewStyle().Foreground(colorAccent).Background(colorPopupBg)
 	stylePopupError  = lipgloss.NewStyle().Foreground(colorDanger).Background(colorPopupBg).Bold(true)
+
+	// styleCursorRow は yazi 風の反転カーソル: 行全体の背景をアクセント色、文字を base 色 (= 通常背景) で塗る。
+	// フォーカス中のリスト/詳細/Files/ピッカーで共通利用する。角は丸めない。
+	styleCursorRow = lipgloss.NewStyle().Background(colorAccent).Foreground(colorBase)
+	// stylePopupCursorRow はポップアップ背景 (colorPopupBg) 上で同じ反転表現を出すための変種。
+	stylePopupCursorRow = lipgloss.NewStyle().Background(colorAccent).Foreground(colorBase)
 )
 
 var _ = styleFooter // app.go 直接組み立てているが将来用に保持
