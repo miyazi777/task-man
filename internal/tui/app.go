@@ -102,7 +102,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// textinput の cursor blink などを反映するため、入力中のモードでは Update を委譲する。
-	if m.mode == ModeNewTask || m.mode == ModeEditTitle {
+	if m.mode == ModeNewTask || m.mode == ModeEditTitle || m.mode == ModeAddFile || m.mode == ModeRenameFile {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		return m, cmd
@@ -112,6 +112,104 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.mode {
+	case ModeAddFile:
+		switch msg.String() {
+		case "enter":
+			name := strings.TrimSpace(m.input.Value())
+			if name == "" || m.inputErr != nil {
+				return m, nil
+			}
+			title := m.tasks[m.cursor].Title
+			if err := storage.CreateFile(m.yamlDir, m.cfg.DataBaseDirectory, title, name); err != nil {
+				m.saveErr = err
+				return m, nil
+			}
+			m.mode = ModeDetail
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			m = m.withFilesRefreshed()
+			// 追加ファイルにカーソルを合わせる
+			for i, f := range m.files {
+				if f == name {
+					m.fileCursor = i
+					break
+				}
+			}
+			return m, nil
+		case "esc":
+			m.mode = ModeDetail
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		m.inputErr = storage.ValidateFileNameChars(m.input.Value())
+		return m, cmd
+
+	case ModeRenameFile:
+		switch msg.String() {
+		case "enter":
+			name := strings.TrimSpace(m.input.Value())
+			if name == "" || m.inputErr != nil {
+				return m, nil
+			}
+			title := m.tasks[m.cursor].Title
+			oldName := m.files[m.fileCursor]
+			if err := storage.RenameFile(m.yamlDir, m.cfg.DataBaseDirectory, title, oldName, name); err != nil {
+				m.saveErr = err
+				return m, nil
+			}
+			m.mode = ModeDetail
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			m = m.withFilesRefreshed()
+			for i, f := range m.files {
+				if f == name {
+					m.fileCursor = i
+					break
+				}
+			}
+			return m, nil
+		case "esc":
+			m.mode = ModeDetail
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		m.inputErr = storage.ValidateFileNameChars(m.input.Value())
+		return m, cmd
+
+	case ModeDeleteFileConfirm:
+		switch {
+		case key.Matches(msg, m.keys.ConfirmY):
+			title := m.tasks[m.cursor].Title
+			name := m.files[m.fileCursor]
+			if err := storage.DeleteFile(m.yamlDir, m.cfg.DataBaseDirectory, title, name); err != nil {
+				m.saveErr = err
+				m.mode = ModeDetail
+				return m, nil
+			}
+			m.mode = ModeDetail
+			m = m.withFilesRefreshed()
+			// 削除位置に合わせてカーソルを調整
+			if m.fileCursor >= len(m.files) {
+				if len(m.files) == 0 {
+					m.fileCursor = 0
+					m.detailCursor = detailFieldStatus
+				} else {
+					m.fileCursor = len(m.files) - 1
+				}
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.ConfirmN):
+			m.mode = ModeDetail
+			return m, nil
+		}
+		return m, nil
+
 	case ModeQuitConfirm:
 		switch {
 		case key.Matches(msg, m.keys.ConfirmY):
@@ -306,6 +404,39 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m.openCurrentFile()
 			}
 			return m, nil
+		case key.Matches(msg, m.keys.AddFile):
+			if m.detailCursor != detailFieldFiles {
+				return m, nil
+			}
+			inputW := popupWidth(m.width) - 7
+			if inputW < 1 {
+				inputW = 1
+			}
+			m.input = newFileNameInput(inputW)
+			m.inputErr = nil
+			m.mode = ModeAddFile
+			return m, textinput.Blink
+		case key.Matches(msg, m.keys.RenameFile):
+			if m.detailCursor != detailFieldFiles || len(m.files) == 0 {
+				return m, nil
+			}
+			inputW := popupWidth(m.width) - 7
+			if inputW < 1 {
+				inputW = 1
+			}
+			m.input = newFileNameInput(inputW)
+			m.input.SetValue(m.files[m.fileCursor])
+			m.input.CursorEnd()
+			m.inputErr = storage.ValidateFileNameChars(m.input.Value())
+			m.mode = ModeRenameFile
+			return m, textinput.Blink
+		case key.Matches(msg, m.keys.DeleteFile):
+			if m.detailCursor != detailFieldFiles || len(m.files) == 0 {
+				return m, nil
+			}
+			m.prevMode = m.mode
+			m.mode = ModeDeleteFileConfirm
+			return m, nil
 		}
 		return m, nil
 
@@ -415,13 +546,17 @@ func (m Model) View() string {
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, left, divider, right)
 
-	footer := renderFooter(m.mode, m.width)
+	footer := renderFooter(m.mode, m.detailCursor, m.width)
 
 	view := lipgloss.JoinVertical(lipgloss.Left, body, footer)
 
 	switch m.mode {
 	case ModeNewTask, ModeEditTitle:
 		view = overlayInputPopup(view, "Title:", m.input.View(), m.inputErr, m.width, m.height-1)
+	case ModeAddFile:
+		view = overlayInputPopup(view, "Filename:", m.input.View(), m.inputErr, m.width, m.height-1)
+	case ModeRenameFile:
+		view = overlayInputPopup(view, "Rename:", m.input.View(), m.inputErr, m.width, m.height-1)
 	case ModeEditStatus:
 		view = overlayStatusPicker(view, m.statuses.Sorted(), m.statusPickerCursor, m.width, m.height-1)
 	}

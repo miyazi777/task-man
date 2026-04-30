@@ -8,6 +8,9 @@ const (
 	ModeNewTask
 	ModeEditTitle
 	ModeEditStatus
+	ModeAddFile
+	ModeRenameFile
+	ModeDeleteFileConfirm
 	ModeQuitConfirm
 )
 
@@ -23,6 +26,12 @@ func (m Mode) String() string {
 		return "edittitle"
 	case ModeEditStatus:
 		return "editstatus"
+	case ModeAddFile:
+		return "addfile"
+	case ModeRenameFile:
+		return "renamefile"
+	case ModeDeleteFileConfirm:
+		return "deletefileconfirm"
 	case ModeQuitConfirm:
 		return "quitconfirm"
 	default:

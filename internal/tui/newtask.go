@@ -4,12 +4,21 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/miyazi777/task-man/internal/storage"
 	"github.com/miyazi777/task-man/internal/task"
 )
 
 func newTitleInput(width int) textinput.Model {
+	return newPopupInput(width, task.MaxTitleRunes)
+}
+
+func newFileNameInput(width int) textinput.Model {
+	return newPopupInput(width, storage.MaxFileNameRunes)
+}
+
+func newPopupInput(width, charLimit int) textinput.Model {
 	ti := textinput.New()
-	ti.CharLimit = task.MaxTitleRunes
+	ti.CharLimit = charLimit
 	if width < 10 {
 		width = 10
 	}

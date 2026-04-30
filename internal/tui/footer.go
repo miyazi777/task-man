@@ -11,19 +11,31 @@ type hintItem struct {
 	label string
 }
 
-func renderFooter(mode Mode, width int) string {
+// renderFooter は画面下部のヒント帯を描画する。
+// detailCursor は ModeDetail のときに参照され、Files セクションでは a/r/d を案内する。
+func renderFooter(mode Mode, detailCursor int, width int) string {
 	var content string
 	switch mode {
 	case ModeQuitConfirm:
 		content = renderQuitPrompt()
+	case ModeDeleteFileConfirm:
+		content = renderDeleteFilePrompt()
 	case ModeList:
 		content = renderHints([]hintItem{
 			{"k/↑", "up"}, {"j/↓", "down"}, {"l/→", "detail"}, {"a", "new"}, {"q", "quit"},
 		})
 	case ModeDetail:
-		content = renderHints([]hintItem{
-			{"k/↑", "up"}, {"j/↓", "down"}, {"enter", "edit/open"}, {"h/←", "back"}, {"q", "quit"},
-		})
+		if detailCursor == detailFieldFiles {
+			content = renderHints([]hintItem{
+				{"k/↑", "up"}, {"j/↓", "down"}, {"enter", "open"},
+				{"a", "add"}, {"r", "rename"}, {"d", "delete"},
+				{"h/←", "back"}, {"q", "quit"},
+			})
+		} else {
+			content = renderHints([]hintItem{
+				{"k/↑", "up"}, {"j/↓", "down"}, {"enter", "edit"}, {"h/←", "back"}, {"q", "quit"},
+			})
+		}
 	case ModeNewTask:
 		content = renderHints([]hintItem{
 			{"Enter", "save"}, {"Esc", "discard"},
@@ -35,6 +47,10 @@ func renderFooter(mode Mode, width int) string {
 	case ModeEditStatus:
 		content = renderHints([]hintItem{
 			{"k/↑", "up"}, {"j/↓", "down"}, {"Enter", "save"}, {"Esc", "discard"},
+		})
+	case ModeAddFile, ModeRenameFile:
+		content = renderHints([]hintItem{
+			{"Enter", "save"}, {"Esc", "discard"},
 		})
 	}
 
@@ -62,6 +78,14 @@ func renderQuitPrompt() string {
 	return styleQuitPromptText.Render("quit?  ") +
 		styleQuitPromptYes.Render("y") +
 		styleQuitPromptText.Render(":quit  ") +
+		styleQuitPromptNo.Render("n/esc") +
+		styleQuitPromptText.Render(":cancel")
+}
+
+func renderDeleteFilePrompt() string {
+	return styleQuitPromptText.Render("delete file?  ") +
+		styleQuitPromptYes.Render("y") +
+		styleQuitPromptText.Render(":delete  ") +
 		styleQuitPromptNo.Render("n/esc") +
 		styleQuitPromptText.Render(":cancel")
 }
