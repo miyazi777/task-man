@@ -7,21 +7,24 @@ import (
 )
 
 func TestTaskValidate(t *testing.T) {
+	sl := DefaultStatuses()
 	cases := []struct {
 		name    string
 		task    Task
 		wantErr error
 	}{
-		{"valid", Task{ID: 1, Title: "x", Status: StatusTodo}, nil},
-		{"empty title", Task{ID: 1, Title: "", Status: StatusTodo}, ErrEmptyTitle},
-		{"zero id", Task{ID: 0, Title: "x", Status: StatusTodo}, ErrInvalidID},
-		{"negative id", Task{ID: -1, Title: "x", Status: StatusTodo}, ErrInvalidID},
-		{"title too long", Task{ID: 1, Title: strings.Repeat("あ", MaxTitleRunes+1), Status: StatusTodo}, ErrTitleTooLong},
-		{"title at limit", Task{ID: 1, Title: strings.Repeat("あ", MaxTitleRunes), Status: StatusTodo}, nil},
+		{"valid", Task{ID: 1, Title: "x", StatusID: 1}, nil},
+		{"empty title", Task{ID: 1, Title: "", StatusID: 1}, ErrEmptyTitle},
+		{"zero id", Task{ID: 0, Title: "x", StatusID: 1}, ErrInvalidID},
+		{"negative id", Task{ID: -1, Title: "x", StatusID: 1}, ErrInvalidID},
+		{"title too long", Task{ID: 1, Title: strings.Repeat("あ", MaxTitleRunes+1), StatusID: 1}, ErrTitleTooLong},
+		{"title at limit", Task{ID: 1, Title: strings.Repeat("あ", MaxTitleRunes), StatusID: 1}, nil},
+		{"unknown status_id", Task{ID: 1, Title: "x", StatusID: 99}, ErrUnknownStatusID},
+		{"zero status_id", Task{ID: 1, Title: "x", StatusID: 0}, ErrUnknownStatusID},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			err := c.task.Validate()
+			err := c.task.Validate(sl)
 			if c.wantErr == nil && err != nil {
 				t.Errorf("expected nil, got %v", err)
 			}
@@ -29,13 +32,6 @@ func TestTaskValidate(t *testing.T) {
 				t.Errorf("expected %v, got %v", c.wantErr, err)
 			}
 		})
-	}
-}
-
-func TestTaskValidateInvalidStatus(t *testing.T) {
-	tk := Task{ID: 1, Title: "x", Status: "bogus"}
-	if err := tk.Validate(); err == nil {
-		t.Error("expected error for invalid status")
 	}
 }
 

@@ -10,14 +10,14 @@ import (
 )
 
 // renderList は左ペインを描画する。focused=true なら現在のカーソル行を強調表示。
-func renderList(tasks []task.Task, cursor int, focused bool, width, height int) string {
+func renderList(tasks []task.Task, statuses task.StatusList, cursor int, focused bool, width, height int) string {
 	if width <= 0 {
 		width = 32
 	}
 
 	var lines []string
 	for i, t := range tasks {
-		lines = append(lines, renderRow(t, i == cursor, focused, width))
+		lines = append(lines, renderRow(t, statuses, i == cursor, focused, width))
 	}
 
 	return lipgloss.NewStyle().
@@ -26,8 +26,13 @@ func renderList(tasks []task.Task, cursor int, focused bool, width, height int) 
 		Render(strings.Join(lines, "\n"))
 }
 
-func renderRow(t task.Task, isCursor, listFocused bool, width int) string {
-	statusLabel := fmt.Sprintf("[%s]", t.Status)
+func renderRow(t task.Task, statuses task.StatusList, isCursor, listFocused bool, width int) string {
+	status, ok := statuses.ByID(t.StatusID)
+	label := "?"
+	if ok {
+		label = status.Label
+	}
+	statusLabel := fmt.Sprintf("[%s]", label)
 
 	// 内部余白(padding 1)とマーカー領域 2、ステータス、間隔を考慮し title 部の幅を決める。
 	const markerW = 2
@@ -44,7 +49,7 @@ func renderRow(t task.Task, isCursor, listFocused bool, width int) string {
 	case isCursor && listFocused:
 		marker = styleCursorMarker.Render("▶ ")
 		titleRendered = styleListItemCursor.Inline(true).Render(title)
-		statusRendered = statusStyle(t.Status).Render(statusLabel)
+		statusRendered = statusStyleFor(status).Render(statusLabel)
 	case isCursor && !listFocused:
 		// 詳細フォーカス時はリスト全体を dim 表示。カーソル行も色控えめに。
 		marker = lipgloss.NewStyle().Foreground(colorDivider).Render("│ ")
@@ -54,7 +59,7 @@ func renderRow(t task.Task, isCursor, listFocused bool, width int) string {
 		marker = "  "
 		if listFocused {
 			titleRendered = styleListItem.Inline(true).Render(title)
-			statusRendered = statusStyle(t.Status).Render(statusLabel)
+			statusRendered = statusStyleFor(status).Render(statusLabel)
 		} else {
 			titleRendered = styleListItemDim.Inline(true).Render(title)
 			statusRendered = lipgloss.NewStyle().Foreground(colorDim).Bold(true).Render(statusLabel)

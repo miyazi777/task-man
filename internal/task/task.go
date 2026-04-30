@@ -11,15 +11,16 @@ import (
 const MaxTitleRunes = 60
 
 type Task struct {
-	ID     int
-	Title  string
-	Status Status
+	ID       int
+	Title    string
+	StatusID int
 }
 
 var (
-	ErrEmptyTitle   = errors.New("title must not be empty")
-	ErrInvalidID    = errors.New("id must be greater than 0")
-	ErrTitleTooLong = fmt.Errorf("title must be at most %d characters", MaxTitleRunes)
+	ErrEmptyTitle      = errors.New("title must not be empty")
+	ErrInvalidID       = errors.New("id must be greater than 0")
+	ErrTitleTooLong    = fmt.Errorf("title must be at most %d characters", MaxTitleRunes)
+	ErrUnknownStatusID = errors.New("status_id does not match any defined status")
 )
 
 // ForbiddenCharError は使用できない文字がタイトルに含まれていることを示すエラー。
@@ -58,7 +59,8 @@ func ValidateTitleChars(s string) error {
 	return nil
 }
 
-func (t Task) Validate() error {
+// Validate はタスク自身の整合性と、status_id が statuses に存在するかをチェックする。
+func (t Task) Validate(statuses StatusList) error {
 	if t.Title == "" {
 		return ErrEmptyTitle
 	}
@@ -68,8 +70,8 @@ func (t Task) Validate() error {
 	if t.ID <= 0 {
 		return ErrInvalidID
 	}
-	if _, err := ParseStatus(string(t.Status)); err != nil {
-		return err
+	if _, ok := statuses.ByID(t.StatusID); !ok {
+		return fmt.Errorf("%w: %d", ErrUnknownStatusID, t.StatusID)
 	}
 	return nil
 }

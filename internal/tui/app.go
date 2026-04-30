@@ -20,12 +20,10 @@ const (
 	detailFieldStatus = 1
 )
 
-// ステータスピッカーで選択肢として並べる順序。
-var statusOrder = []task.Status{task.StatusTodo, task.StatusDoing, task.StatusDone}
-
 type Model struct {
 	repo     storage.Repository
 	tasks    []task.Task
+	statuses task.StatusList
 	cursor   int
 	mode     Mode
 	prevMode Mode
@@ -35,7 +33,7 @@ type Model struct {
 	inputErr error // 入力ライブ検証用 (禁止文字・長さ超過)
 
 	detailCursor       int // 0=Title, 1=Status
-	statusPickerCursor int // 0..len(statusOrder)-1
+	statusPickerCursor int // sorted statuses のインデックス
 
 	width  int
 	height int
@@ -43,12 +41,13 @@ type Model struct {
 	saveErr error
 }
 
-func NewModel(repo storage.Repository, initial []task.Task) Model {
+func NewModel(repo storage.Repository, initial []task.Task, statuses task.StatusList) Model {
 	return Model{
-		repo:  repo,
-		tasks: initial,
-		mode:  ModeList,
-		keys:  newKeyMap(),
+		repo:     repo,
+		tasks:    initial,
+		statuses: statuses,
+		mode:     ModeList,
+		keys:     newKeyMap(),
 	}
 }
 
@@ -97,17 +96,22 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.inputErr != nil {
 				return m, nil
 			}
-			t := task.Task{
-				ID:     task.NextID(m.tasks),
-				Title:  title,
-				Status: task.StatusTodo,
+			initialStatusID := m.firstStatusID()
+			if initialStatusID == 0 {
+				m.saveErr = fmt.Errorf("no statuses defined")
+				return m, nil
 			}
-			if err := t.Validate(); err != nil {
+			t := task.Task{
+				ID:       task.NextID(m.tasks),
+				Title:    title,
+				StatusID: initialStatusID,
+			}
+			if err := t.Validate(m.statuses); err != nil {
 				m.saveErr = err
 				return m, nil
 			}
 			m.tasks = append(m.tasks, t)
-			if err := m.repo.Save(m.tasks); err != nil {
+			if err := m.repo.Save(m.tasks, m.statuses); err != nil {
 				m.saveErr = err
 				return m, nil
 			}
@@ -139,12 +143,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			updated := m.tasks[m.cursor]
 			updated.Title = title
-			if err := updated.Validate(); err != nil {
+			if err := updated.Validate(m.statuses); err != nil {
 				m.saveErr = err
 				return m, nil
 			}
 			m.tasks[m.cursor] = updated
-			if err := m.repo.Save(m.tasks); err != nil {
+			if err := m.repo.Save(m.tasks, m.statuses); err != nil {
 				m.saveErr = err
 				return m, nil
 			}
@@ -164,6 +168,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case ModeEditStatus:
+		sorted := m.statuses.Sorted()
 		switch {
 		case key.Matches(msg, m.keys.Up):
 			if m.statusPickerCursor > 0 {
@@ -171,15 +176,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.Down):
-			if m.statusPickerCursor < len(statusOrder)-1 {
+			if m.statusPickerCursor < len(sorted)-1 {
 				m.statusPickerCursor++
 			}
 			return m, nil
 		}
 		switch msg.String() {
 		case "enter":
-			m.tasks[m.cursor].Status = statusOrder[m.statusPickerCursor]
-			if err := m.repo.Save(m.tasks); err != nil {
+			if len(sorted) == 0 {
+				m.mode = ModeDetail
+				return m, nil
+			}
+			m.tasks[m.cursor].StatusID = sorted[m.statusPickerCursor].ID
+			if err := m.repo.Save(m.tasks, m.statuses); err != nil {
 				m.saveErr = err
 				return m, nil
 			}
@@ -228,7 +237,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.mode = ModeEditTitle
 				return m, textinput.Blink
 			case detailFieldStatus:
-				m.statusPickerCursor = statusIndex(m.tasks[m.cursor].Status)
+				m.statusPickerCursor = sortedStatusIndex(m.statuses, m.tasks[m.cursor].StatusID)
 				m.mode = ModeEditStatus
 				return m, nil
 			}
@@ -273,9 +282,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func statusIndex(s task.Status) int {
-	for i, v := range statusOrder {
-		if v == s {
+// firstStatusID は sequence/id 順で先頭の status id を返す。statuses が空なら 0。
+func (m Model) firstStatusID() int {
+	sorted := m.statuses.Sorted()
+	if len(sorted) == 0 {
+		return 0
+	}
+	return sorted[0].ID
+}
+
+func sortedStatusIndex(sl task.StatusList, id int) int {
+	sorted := sl.Sorted()
+	for i, s := range sorted {
+		if s.ID == id {
 			return i
 		}
 	}
@@ -300,14 +319,14 @@ func (m Model) View() string {
 	listFocused := m.mode == ModeList || m.mode == ModeQuitConfirm
 	detailFocused := m.mode == ModeDetail || m.mode == ModeEditTitle || m.mode == ModeEditStatus
 
-	left := renderList(m.tasks, m.cursor, listFocused, leftW, bodyH)
+	left := renderList(m.tasks, m.statuses, m.cursor, listFocused, leftW, bodyH)
 
 	var current *task.Task
 	if len(m.tasks) > 0 && m.cursor < len(m.tasks) {
 		t := m.tasks[m.cursor]
 		current = &t
 	}
-	right := renderDetail(current, detailFocused, m.detailCursor, rightW, bodyH)
+	right := renderDetail(current, m.statuses, detailFocused, m.detailCursor, rightW, bodyH)
 
 	divider := strings.Repeat("│\n", bodyH)
 	divider = styleDivider.Render(strings.TrimRight(divider, "\n"))
@@ -322,7 +341,7 @@ func (m Model) View() string {
 	case ModeNewTask, ModeEditTitle:
 		view = overlayInputPopup(view, "Title:", m.input.View(), m.inputErr, m.width, m.height-1)
 	case ModeEditStatus:
-		view = overlayStatusPicker(view, m.statusPickerCursor, m.width, m.height-1)
+		view = overlayStatusPicker(view, m.statuses.Sorted(), m.statusPickerCursor, m.width, m.height-1)
 	}
 
 	if m.saveErr != nil {
@@ -375,7 +394,8 @@ func overlayInputPopup(bg, label, inputView string, inputErr error, screenW, scr
 }
 
 // overlayStatusPicker は status の選択肢リストをポップアップとして中央オーバーレイする。
-func overlayStatusPicker(bg string, currentIdx, screenW, screenH int) string {
+// sortedStatuses は sequence 昇順の statuses。currentIdx は選択中インデックス。
+func overlayStatusPicker(bg string, sortedStatuses task.StatusList, currentIdx, screenW, screenH int) string {
 	popupOuterW := popupWidth(screenW)
 	contentW := popupOuterW - 4
 	if contentW < 4 {
@@ -387,12 +407,12 @@ func overlayStatusPicker(bg string, currentIdx, screenW, screenH int) string {
 	bottomRow := buildBorderRow("╰", "╯", stylePopupHint.Render("Enter:save  Esc:discard"), innerW)
 
 	rows := []string{topRow}
-	for i, s := range statusOrder {
+	for i, s := range sortedStatuses {
 		var line string
 		if i == currentIdx {
-			line = stylePopupLabel.Render("> " + string(s))
+			line = stylePopupLabel.Render("> " + s.Label)
 		} else {
-			line = stylePopupFill.Foreground(colorText).Render("  " + string(s))
+			line = stylePopupFill.Foreground(colorText).Render("  " + s.Label)
 		}
 		if w := ansi.StringWidth(line); w > contentW {
 			line = ansi.Truncate(line, contentW, "")

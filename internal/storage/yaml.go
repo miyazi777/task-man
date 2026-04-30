@@ -11,10 +11,21 @@ import (
 	"github.com/miyazi777/task-man/internal/task"
 )
 
+type yamlStatus struct {
+	ID       int    `yaml:"id"`
+	Sequence int    `yaml:"sequence"`
+	Label    string `yaml:"label"`
+	Color    string `yaml:"color,omitempty"`
+}
+
+type yamlStatusEntry struct {
+	Status yamlStatus `yaml:"status"`
+}
+
 type yamlTask struct {
-	ID     int    `yaml:"id"`
-	Title  string `yaml:"title"`
-	Status string `yaml:"status"`
+	ID       int    `yaml:"id"`
+	Title    string `yaml:"title"`
+	StatusID int    `yaml:"status_id"`
 }
 
 type yamlEntry struct {
@@ -22,7 +33,8 @@ type yamlEntry struct {
 }
 
 type yamlFile struct {
-	Tasks []yamlEntry `yaml:"tasks"`
+	Statuses []yamlStatusEntry `yaml:"statuses"`
+	Tasks    []yamlEntry       `yaml:"tasks"`
 }
 
 type YAMLRepository struct {
@@ -33,27 +45,61 @@ func NewYAMLRepository(path string) *YAMLRepository {
 	return &YAMLRepository{Path: path}
 }
 
-func (r *YAMLRepository) Load() ([]task.Task, error) {
+func (r *YAMLRepository) Load() ([]task.Task, task.StatusList, error) {
 	data, err := os.ReadFile(r.Path)
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", r.Path, err)
-	}
-	if len(data) == 0 {
-		return []task.Task{}, nil
+		return nil, nil, fmt.Errorf("read %s: %w", r.Path, err)
 	}
 
 	var f yamlFile
-	if err := yaml.Unmarshal(data, &f); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", r.Path, err)
+	if len(data) > 0 {
+		if err := yaml.Unmarshal(data, &f); err != nil {
+			return nil, nil, fmt.Errorf("parse %s: %w", r.Path, err)
+		}
 	}
 
-	seen := make(map[int]struct{}, len(f.Tasks))
-	tasks := make([]task.Task, 0, len(f.Tasks))
-	for i, e := range f.Tasks {
-		status, err := task.ParseStatus(e.Task.Status)
-		if err != nil {
-			return nil, fmt.Errorf("tasks[%d]: %w", i, err)
+	statuses, statusesChanged := loadStatuses(f.Statuses)
+	if err := statuses.Validate(); err != nil {
+		return nil, nil, err
+	}
+
+	tasks, err := loadTasks(f.Tasks, statuses)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if statusesChanged {
+		if err := r.Save(tasks, statuses); err != nil {
+			return nil, nil, fmt.Errorf("write back defaults: %w", err)
 		}
+	}
+
+	return tasks, statuses, nil
+}
+
+// loadStatuses は yaml の statuses をドメイン型に変換し、欠落・空・id 未採番に対する
+// 自動補完を行う。第二戻り値は補完によりファイルへの書き戻しが必要かどうか。
+func loadStatuses(entries []yamlStatusEntry) (task.StatusList, bool) {
+	if len(entries) == 0 {
+		return task.DefaultStatuses(), true
+	}
+	sl := make(task.StatusList, 0, len(entries))
+	for _, e := range entries {
+		sl = append(sl, task.Status{
+			ID:       e.Status.ID,
+			Sequence: e.Status.Sequence,
+			Label:    e.Status.Label,
+			Color:    e.Status.Color,
+		})
+	}
+	assigned, changed := sl.AssignMissingIDs()
+	return assigned, changed
+}
+
+func loadTasks(entries []yamlEntry, statuses task.StatusList) ([]task.Task, error) {
+	seen := make(map[int]struct{}, len(entries))
+	tasks := make([]task.Task, 0, len(entries))
+	for i, e := range entries {
 		if e.Task.ID <= 0 {
 			return nil, fmt.Errorf("tasks[%d]: invalid id %d", i, e.Task.ID)
 		}
@@ -63,11 +109,11 @@ func (r *YAMLRepository) Load() ([]task.Task, error) {
 		seen[e.Task.ID] = struct{}{}
 
 		t := task.Task{
-			ID:     e.Task.ID,
-			Title:  e.Task.Title,
-			Status: status,
+			ID:       e.Task.ID,
+			Title:    e.Task.Title,
+			StatusID: e.Task.StatusID,
 		}
-		if err := t.Validate(); err != nil {
+		if err := t.Validate(statuses); err != nil {
 			return nil, fmt.Errorf("tasks[%d]: %w", i, err)
 		}
 		tasks = append(tasks, t)
@@ -75,18 +121,31 @@ func (r *YAMLRepository) Load() ([]task.Task, error) {
 	return tasks, nil
 }
 
-func (r *YAMLRepository) Save(tasks []task.Task) error {
-	entries := make([]yamlEntry, 0, len(tasks))
-	for _, t := range tasks {
-		entries = append(entries, yamlEntry{
-			Task: yamlTask{
-				ID:     t.ID,
-				Title:  t.Title,
-				Status: string(t.Status),
+func (r *YAMLRepository) Save(tasks []task.Task, statuses task.StatusList) error {
+	sortedStatuses := statuses.Sorted()
+	statusEntries := make([]yamlStatusEntry, 0, len(sortedStatuses))
+	for _, s := range sortedStatuses {
+		statusEntries = append(statusEntries, yamlStatusEntry{
+			Status: yamlStatus{
+				ID:       s.ID,
+				Sequence: s.Sequence,
+				Label:    s.Label,
+				Color:    s.Color,
 			},
 		})
 	}
-	data, err := yaml.Marshal(yamlFile{Tasks: entries})
+
+	taskEntries := make([]yamlEntry, 0, len(tasks))
+	for _, t := range tasks {
+		taskEntries = append(taskEntries, yamlEntry{
+			Task: yamlTask{
+				ID:       t.ID,
+				Title:    t.Title,
+				StatusID: t.StatusID,
+			},
+		})
+	}
+	data, err := yaml.Marshal(yamlFile{Statuses: statusEntries, Tasks: taskEntries})
 	if err != nil {
 		return fmt.Errorf("marshal yaml: %w", err)
 	}

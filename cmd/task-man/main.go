@@ -28,12 +28,12 @@ func run() error {
 	}
 
 	repo := storage.NewYAMLRepository(args.Path)
-	tasks, err := repo.Load()
+	tasks, statuses, err := repo.Load()
 	if err != nil {
 		return err
 	}
 
-	model := tui.NewModel(repo, tasks)
+	model := tui.NewModel(repo, tasks, statuses)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		return err

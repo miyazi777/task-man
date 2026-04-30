@@ -11,7 +11,7 @@ import (
 // renderDetail は右ペインを描画する。
 // focused=true で詳細モード時のフィールド (Title/Status) が強調される。
 // fieldCursor は 0=Title, 1=Status のどちらにカーソルがあるかを示す。
-func renderDetail(t *task.Task, focused bool, fieldCursor, width, height int) string {
+func renderDetail(t *task.Task, statuses task.StatusList, focused bool, fieldCursor, width, height int) string {
 	if width <= 0 {
 		width = 40
 	}
@@ -22,13 +22,19 @@ func renderDetail(t *task.Task, focused bool, fieldCursor, width, height int) st
 	titleLabelText := "Title"
 	statusLabelText := "Status"
 
+	status, ok := statuses.ByID(t.StatusID)
+	statusText := "?"
+	if ok {
+		statusText = status.Label
+	}
+
 	var titleValue, statusValue string
 	if focused {
 		titleValue = styleValue.Render(t.Title)
-		statusValue = statusStyle(t.Status).Render(string(t.Status))
+		statusValue = statusStyleFor(status).Render(statusText)
 	} else {
 		titleValue = styleValueDim.Render(t.Title)
-		statusValue = styleValueDim.Render(string(t.Status))
+		statusValue = styleValueDim.Render(statusText)
 	}
 
 	titleRow := renderDetailField(titleLabelText, titleValue, focused && fieldCursor == 0)

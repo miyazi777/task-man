@@ -14,25 +14,34 @@ func TestYAMLRoundTrip(t *testing.T) {
 	path := filepath.Join(dir, "tasks.yaml")
 	repo := NewYAMLRepository(path)
 
+	statuses := task.DefaultStatuses()
 	in := []task.Task{
-		{ID: 1, Title: "設計書を書く", Status: task.StatusTodo},
-		{ID: 2, Title: "実装を進める", Status: task.StatusDoing},
-		{ID: 3, Title: "仕様レビュー", Status: task.StatusDone},
+		{ID: 1, Title: "設計書を書く", StatusID: 1},
+		{ID: 2, Title: "実装を進める", StatusID: 2},
+		{ID: 3, Title: "仕様レビュー", StatusID: 3},
 	}
-	if err := repo.Save(in); err != nil {
+	if err := repo.Save(in, statuses); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
-	out, err := repo.Load()
+	outTasks, outStatuses, err := repo.Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(out) != len(in) {
-		t.Fatalf("len: got %d want %d", len(out), len(in))
+	if len(outTasks) != len(in) {
+		t.Fatalf("tasks len: got %d want %d", len(outTasks), len(in))
 	}
 	for i := range in {
-		if in[i] != out[i] {
-			t.Errorf("[%d]: got %+v want %+v", i, out[i], in[i])
+		if in[i] != outTasks[i] {
+			t.Errorf("tasks[%d]: got %+v want %+v", i, outTasks[i], in[i])
+		}
+	}
+	if len(outStatuses) != len(statuses) {
+		t.Fatalf("statuses len: got %d want %d", len(outStatuses), len(statuses))
+	}
+	for i := range statuses {
+		if outStatuses[i] != statuses[i] {
+			t.Errorf("statuses[%d]: got %+v want %+v", i, outStatuses[i], statuses[i])
 		}
 	}
 }
@@ -44,53 +53,153 @@ func TestYAMLEmptyFile(t *testing.T) {
 		t.Fatalf("setup: %v", err)
 	}
 	repo := NewYAMLRepository(path)
-	out, err := repo.Load()
+	tasks, statuses, err := repo.Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(out) != 0 {
-		t.Errorf("expected empty, got %d items", len(out))
+	if len(tasks) != 0 {
+		t.Errorf("expected empty tasks, got %d items", len(tasks))
+	}
+	// statuses 欠落 → デフォルトが書き戻される
+	if len(statuses) != 3 {
+		t.Errorf("expected 3 default statuses, got %d", len(statuses))
+	}
+	// 再ロードで同じ statuses が返ること (= ファイルに書き戻されたこと)
+	tasks2, statuses2, err := repo.Load()
+	if err != nil {
+		t.Fatalf("re-Load: %v", err)
+	}
+	if len(tasks2) != 0 {
+		t.Errorf("tasks2 len: got %d, want 0", len(tasks2))
+	}
+	if len(statuses2) != 3 {
+		t.Errorf("statuses2 len: got %d, want 3", len(statuses2))
 	}
 }
 
-func TestYAMLInvalidStatus(t *testing.T) {
+func TestYAMLStatusesEmptyArray(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tasks.yaml")
-	body := `tasks:
+	body := `statuses: []
+tasks: []
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	repo := NewYAMLRepository(path)
+	_, statuses, err := repo.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(statuses) != 3 {
+		t.Errorf("expected 3 default statuses, got %d", len(statuses))
+	}
+}
+
+func TestYAMLStatusAutoAssignID(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	body := `statuses:
+  - status:
+      sequence: 1
+      label: todo
+      color: "#6c7086"
+  - status:
+      sequence: 2
+      label: doing
+      color: "#fab387"
+tasks: []
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	repo := NewYAMLRepository(path)
+	_, statuses, err := repo.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(statuses) != 2 {
+		t.Fatalf("expected 2 statuses, got %d", len(statuses))
+	}
+	if statuses[0].ID == 0 || statuses[1].ID == 0 {
+		t.Errorf("ids should be auto-assigned, got %+v", statuses)
+	}
+	if statuses[0].ID == statuses[1].ID {
+		t.Errorf("ids must be unique, got %d/%d", statuses[0].ID, statuses[1].ID)
+	}
+}
+
+func TestYAMLStatusDuplicateID(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	body := `statuses:
+  - status:
+      id: 1
+      sequence: 1
+      label: a
+  - status:
+      id: 1
+      sequence: 2
+      label: b
+tasks: []
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	repo := NewYAMLRepository(path)
+	if _, _, err := repo.Load(); err == nil {
+		t.Error("expected error for duplicated status id")
+	}
+}
+
+func TestYAMLUnknownStatusID(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	body := `statuses:
+  - status:
+      id: 1
+      sequence: 1
+      label: todo
+tasks:
   - task:
       id: 1
       title: x
-      status: bogus
+      status_id: 99
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 	repo := NewYAMLRepository(path)
-	if _, err := repo.Load(); err == nil {
-		t.Error("expected error for invalid status")
+	if _, _, err := repo.Load(); err == nil {
+		t.Error("expected error for unknown status_id")
 	}
 }
 
-func TestYAMLDuplicateID(t *testing.T) {
+func TestYAMLDuplicateTaskID(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tasks.yaml")
-	body := `tasks:
+	body := `statuses:
+  - status:
+      id: 1
+      sequence: 1
+      label: todo
+tasks:
   - task:
       id: 1
       title: a
-      status: todo
+      status_id: 1
   - task:
       id: 1
       title: b
-      status: doing
+      status_id: 1
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 	repo := NewYAMLRepository(path)
-	_, err := repo.Load()
+	_, _, err := repo.Load()
 	if err == nil {
-		t.Fatal("expected error for duplicated id")
+		t.Fatal("expected error for duplicated task id")
 	}
 	if !strings.Contains(err.Error(), "duplicated") {
 		t.Errorf("expected 'duplicated' in error, got: %v", err)
@@ -99,25 +208,30 @@ func TestYAMLDuplicateID(t *testing.T) {
 
 func TestYAMLMissingFile(t *testing.T) {
 	repo := NewYAMLRepository(filepath.Join(t.TempDir(), "nope.yaml"))
-	if _, err := repo.Load(); err == nil {
+	if _, _, err := repo.Load(); err == nil {
 		t.Error("expected error for missing file")
 	}
 }
 
-func TestYAMLZeroID(t *testing.T) {
+func TestYAMLZeroTaskID(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tasks.yaml")
-	body := `tasks:
+	body := `statuses:
+  - status:
+      id: 1
+      sequence: 1
+      label: todo
+tasks:
   - task:
       id: 0
       title: x
-      status: todo
+      status_id: 1
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 	repo := NewYAMLRepository(path)
-	if _, err := repo.Load(); err == nil {
-		t.Error("expected error for id <= 0")
+	if _, _, err := repo.Load(); err == nil {
+		t.Error("expected error for task id <= 0")
 	}
 }
