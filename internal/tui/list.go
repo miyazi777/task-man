@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -9,15 +8,24 @@ import (
 	"github.com/miyazi777/task-man/internal/task"
 )
 
-// renderList は左ペインを描画する。focused=true なら現在のカーソル行を反転表示。
-func renderList(tasks []task.Task, statuses task.StatusList, cursor int, focused bool, width, height int) string {
+// renderList は左ペインを描画する。focused=true なら現在のカーソル行 (status / task) を反転表示。
+// rows は status ヘッダ + task + separator の混在で、上から順に描画する。
+func renderList(tasks []task.Task, statuses task.StatusList, rows []listRow, collapsed map[int]bool, cursor int, focused bool, width, height int) string {
 	if width <= 0 {
 		width = 32
 	}
 
 	var lines []string
-	for i, t := range tasks {
-		lines = append(lines, renderRow(t, statuses, i == cursor, focused, width))
+	for i, r := range rows {
+		switch r.kind {
+		case rowSeparator:
+			lines = append(lines, "")
+		case rowStatus:
+			lines = append(lines, renderStatusHeader(statuses, r.statusID, collapsed[r.statusID], i == cursor, focused, width))
+		case rowTask:
+			t := tasks[r.taskIndex]
+			lines = append(lines, renderTaskRow(t, statuses, i == cursor, focused, width))
+		}
 	}
 
 	return lipgloss.NewStyle().
@@ -26,51 +34,44 @@ func renderList(tasks []task.Task, statuses task.StatusList, cursor int, focused
 		Render(strings.Join(lines, "\n"))
 }
 
-func renderRow(t task.Task, statuses task.StatusList, isCursor, listFocused bool, width int) string {
-	status, ok := statuses.ByID(t.StatusID)
-	statusText := "?"
-	if ok {
-		statusText = status.Label
+// renderStatusHeader は ▼/▶ + [label] のステータス見出し行を描画する。
+// 通常時は status の色を背景にした反転表示 (黒抜き文字)。
+// カーソル時はリスト共通のカーソル反転 (アクセント色背景) を優先する。
+func renderStatusHeader(statuses task.StatusList, statusID int, isCollapsed, isCursor, listFocused bool, width int) string {
+	status, _ := statuses.ByID(statusID)
+	marker := "▼"
+	if isCollapsed {
+		marker = "▶"
 	}
-	statusLabel := fmt.Sprintf("[%s]", statusText)
+	raw := " " + marker + "[" + status.Label + "]"
 
-	// 左 padding 2 cell + 右 padding 1 cell + ラベル幅 を引いた残りが title の使用可能幅。
+	if isCursor && listFocused {
+		return styleCursorRow.Width(width).Render(raw)
+	}
+	return statusRowStyleFor(status).Width(width).Render(raw)
+}
+
+// renderTaskRow はタスク行を描画する。先頭にインデント (2 cell) を入れて status ヘッダと階層感を出す。
+func renderTaskRow(t task.Task, statuses task.StatusList, isCursor, listFocused bool, width int) string {
 	const leftPad, rightPad = 2, 1
-	statusW := lipgloss.Width(statusLabel)
-	titleW := width - leftPad - rightPad - statusW - 1
+	titleW := width - leftPad - rightPad
 	if titleW < 4 {
 		titleW = 4
 	}
 	title := truncate(t.Title, titleW)
 
-	// カーソル行 (フォーカス中): 行全体を反転背景にする。
 	if isCursor && listFocused {
-		left := strings.Repeat(" ", leftPad) + title
-		gap := width - lipgloss.Width(left) - statusW - rightPad
-		if gap < 1 {
-			gap = 1
-		}
-		raw := left + strings.Repeat(" ", gap) + statusLabel + strings.Repeat(" ", rightPad)
+		raw := strings.Repeat(" ", leftPad) + title
 		return styleCursorRow.Width(width).Render(raw)
 	}
 
-	// それ以外 (非カーソル / フォーカス外): マーカーは置かず padding のみで揃える。
-	var titleRendered, statusRendered string
+	var titleRendered string
 	if listFocused {
 		titleRendered = styleListItem.Inline(true).Render(title)
-		statusRendered = statusStyleFor(status).Render(statusLabel)
 	} else {
 		titleRendered = styleListItemDim.Inline(true).Render(title)
-		statusRendered = lipgloss.NewStyle().Foreground(colorDim).Render(statusLabel)
 	}
-
-	left := strings.Repeat(" ", leftPad) + titleRendered
-	leftW := lipgloss.Width(left)
-	gap := width - leftW - lipgloss.Width(statusRendered) - rightPad
-	if gap < 1 {
-		gap = 1
-	}
-	return left + strings.Repeat(" ", gap) + statusRendered
+	return strings.Repeat(" ", leftPad) + titleRendered
 }
 
 func truncate(s string, w int) string {

@@ -13,16 +13,20 @@ type hintItem struct {
 
 // renderFooter は画面下部のヒント帯を描画する。
 // detailCursor は ModeDetail のときに参照され、Files セクションでは a/r/d を案内する。
-func renderFooter(mode Mode, detailCursor int, width int) string {
+// 確認モード (Quit/Delete) のときは prevMode のヒントを引き継ぎ、ポップアップにフォーカスを譲る。
+func renderFooter(mode, prevMode Mode, detailCursor int, width int) string {
+	if mode == ModeQuitConfirm || mode == ModeDeleteFileConfirm {
+		return renderFooter(prevMode, ModeList, detailCursor, width)
+	}
+
 	var content string
 	switch mode {
-	case ModeQuitConfirm:
-		content = renderQuitPrompt()
-	case ModeDeleteFileConfirm:
-		content = renderDeleteFilePrompt()
 	case ModeList:
 		content = renderHints([]hintItem{
-			{"k/↑", "up"}, {"j/↓", "down"}, {"l/→", "detail"}, {"a", "new"}, {"q", "quit"},
+			{"k/↑", "up"}, {"j/↓", "down"},
+			{"l/→", "open/detail"}, {"h/←", "close"},
+			{"enter", "toggle"},
+			{"a", "new"}, {"q", "quit"},
 		})
 	case ModeDetail:
 		if detailCursor == detailFieldFiles {
@@ -74,18 +78,15 @@ func renderHints(items []hintItem) string {
 	return strings.Join(parts, sep)
 }
 
-func renderQuitPrompt() string {
-	return styleQuitPromptText.Render("quit?  ") +
-		styleQuitPromptYes.Render("y") +
-		styleQuitPromptText.Render(":quit  ") +
-		styleQuitPromptNo.Render("n/esc") +
-		styleQuitPromptText.Render(":cancel")
-}
-
-func renderDeleteFilePrompt() string {
-	return styleQuitPromptText.Render("delete file?  ") +
-		styleQuitPromptYes.Render("y") +
-		styleQuitPromptText.Render(":delete  ") +
-		styleQuitPromptNo.Render("n/esc") +
-		styleQuitPromptText.Render(":cancel")
+// renderPopupHints は ポップアップ下罫線用のヒント文字列を組み立てる。
+// キー部分だけ太字 (stylePopupKey) で目立たせ、ラベル部分は muted italic (stylePopupHint) のまま。
+func renderPopupHints(items []hintItem) string {
+	var parts []string
+	for _, it := range items {
+		k := stylePopupKey.Render(it.key)
+		v := stylePopupHint.Render(":" + it.label)
+		parts = append(parts, k+v)
+	}
+	sep := stylePopupHint.Render("  ")
+	return strings.Join(parts, sep)
 }

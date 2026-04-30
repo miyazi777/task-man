@@ -29,16 +29,14 @@ var (
 	styleLabel       = lipgloss.NewStyle().Foreground(colorSubtle)
 	styleValue       = lipgloss.NewStyle().Foreground(colorText)
 	styleValueDim       = lipgloss.NewStyle().Foreground(colorSubtle)
-	styleDivider        = lipgloss.NewStyle().Foreground(colorDivider)
-	styleFooter         = lipgloss.NewStyle().Background(colorFooterBg).Foreground(colorMuted).Padding(0, 1).Width(0)
-	styleFooterKey      = lipgloss.NewStyle().Background(colorFooterBg).Foreground(colorText).Bold(true)
-	styleQuitPromptText = lipgloss.NewStyle().Background(colorFooterBg).Foreground(colorText)
-	styleQuitPromptYes  = lipgloss.NewStyle().Background(colorFooterBg).Foreground(colorDanger).Bold(true)
-	styleQuitPromptNo   = lipgloss.NewStyle().Background(colorFooterBg).Foreground(colorOK).Bold(true)
-	colorPopupBg        = lipgloss.Color("#11111b")
+	styleDivider   = lipgloss.NewStyle().Foreground(colorDivider)
+	styleFooter    = lipgloss.NewStyle().Background(colorFooterBg).Foreground(colorMuted).Padding(0, 1).Width(0)
+	styleFooterKey = lipgloss.NewStyle().Background(colorFooterBg).Foreground(colorText).Bold(true)
+	colorPopupBg   = lipgloss.Color("#11111b")
 
 	stylePopupLabel  = lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Background(colorPopupBg)
 	stylePopupHint   = lipgloss.NewStyle().Foreground(colorMuted).Italic(true).Background(colorPopupBg)
+	stylePopupKey    = lipgloss.NewStyle().Foreground(colorText).Bold(true).Background(colorPopupBg)
 	stylePopupFill   = lipgloss.NewStyle().Background(colorPopupBg)
 	stylePopupBorder = lipgloss.NewStyle().Foreground(colorAccent).Background(colorPopupBg)
 	stylePopupError  = lipgloss.NewStyle().Foreground(colorDanger).Background(colorPopupBg).Bold(true)
@@ -60,4 +58,14 @@ func statusStyleFor(s task.Status) lipgloss.Style {
 		return base.Foreground(lipgloss.Color(s.Color))
 	}
 	return base.Foreground(colorMuted)
+}
+
+// statusRowStyleFor は Status の色を背景にした反転スタイル (黒抜き文字) を返す。
+// リスト画面のステータス見出し行で利用する。
+func statusRowStyleFor(s task.Status) lipgloss.Style {
+	bg := colorMuted
+	if s.Color != "" {
+		bg = lipgloss.Color(s.Color)
+	}
+	return lipgloss.NewStyle().Background(bg).Foreground(colorBase)
 }
