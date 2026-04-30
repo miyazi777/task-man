@@ -20,13 +20,19 @@ func TestYAMLRoundTrip(t *testing.T) {
 		{ID: 2, Title: "実装を進める", StatusID: 2},
 		{ID: 3, Title: "仕様レビュー", StatusID: 3},
 	}
-	if err := repo.Save(in, statuses); err != nil {
+	if err := repo.Save(in, statuses, AppConfig{}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
-	outTasks, outStatuses, err := repo.Load()
+	outTasks, outStatuses, outCfg, err := repo.Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
+	}
+	if outCfg.DataBaseDirectory != "" {
+		t.Errorf("data_base_directory: got %q, want empty", outCfg.DataBaseDirectory)
+	}
+	if outCfg.Editor != "" {
+		t.Errorf("editor: got %q, want empty", outCfg.Editor)
 	}
 	if len(outTasks) != len(in) {
 		t.Fatalf("tasks len: got %d want %d", len(outTasks), len(in))
@@ -53,7 +59,7 @@ func TestYAMLEmptyFile(t *testing.T) {
 		t.Fatalf("setup: %v", err)
 	}
 	repo := NewYAMLRepository(path)
-	tasks, statuses, err := repo.Load()
+	tasks, statuses, _, err := repo.Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -65,7 +71,7 @@ func TestYAMLEmptyFile(t *testing.T) {
 		t.Errorf("expected 3 default statuses, got %d", len(statuses))
 	}
 	// 再ロードで同じ statuses が返ること (= ファイルに書き戻されたこと)
-	tasks2, statuses2, err := repo.Load()
+	tasks2, statuses2, _, err := repo.Load()
 	if err != nil {
 		t.Fatalf("re-Load: %v", err)
 	}
@@ -87,7 +93,7 @@ tasks: []
 		t.Fatalf("setup: %v", err)
 	}
 	repo := NewYAMLRepository(path)
-	_, statuses, err := repo.Load()
+	_, statuses, _, err := repo.Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -114,7 +120,7 @@ tasks: []
 		t.Fatalf("setup: %v", err)
 	}
 	repo := NewYAMLRepository(path)
-	_, statuses, err := repo.Load()
+	_, statuses, _, err := repo.Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -147,7 +153,7 @@ tasks: []
 		t.Fatalf("setup: %v", err)
 	}
 	repo := NewYAMLRepository(path)
-	if _, _, err := repo.Load(); err == nil {
+	if _, _, _, err := repo.Load(); err == nil {
 		t.Error("expected error for duplicated status id")
 	}
 }
@@ -170,7 +176,7 @@ tasks:
 		t.Fatalf("setup: %v", err)
 	}
 	repo := NewYAMLRepository(path)
-	if _, _, err := repo.Load(); err == nil {
+	if _, _, _, err := repo.Load(); err == nil {
 		t.Error("expected error for unknown status_id")
 	}
 }
@@ -197,7 +203,7 @@ tasks:
 		t.Fatalf("setup: %v", err)
 	}
 	repo := NewYAMLRepository(path)
-	_, _, err := repo.Load()
+	_, _, _, err := repo.Load()
 	if err == nil {
 		t.Fatal("expected error for duplicated task id")
 	}
@@ -208,8 +214,27 @@ tasks:
 
 func TestYAMLMissingFile(t *testing.T) {
 	repo := NewYAMLRepository(filepath.Join(t.TempDir(), "nope.yaml"))
-	if _, _, err := repo.Load(); err == nil {
+	if _, _, _, err := repo.Load(); err == nil {
 		t.Error("expected error for missing file")
+	}
+}
+
+func TestYAMLDataBaseDirectoryRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	repo := NewYAMLRepository(path)
+	if err := repo.Save(nil, task.DefaultStatuses(), AppConfig{DataBaseDirectory: "./datas", Editor: "$EDITOR"}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	_, _, cfg, err := repo.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.DataBaseDirectory != "./datas" {
+		t.Errorf("data_base_directory: got %q, want %q", cfg.DataBaseDirectory, "./datas")
+	}
+	if cfg.Editor != "$EDITOR" {
+		t.Errorf("editor: got %q, want %q", cfg.Editor, "$EDITOR")
 	}
 }
 
@@ -231,7 +256,7 @@ tasks:
 		t.Fatalf("setup: %v", err)
 	}
 	repo := NewYAMLRepository(path)
-	if _, _, err := repo.Load(); err == nil {
+	if _, _, _, err := repo.Load(); err == nil {
 		t.Error("expected error for task id <= 0")
 	}
 }

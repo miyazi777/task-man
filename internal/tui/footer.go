@@ -22,7 +22,7 @@ func renderFooter(mode Mode, width int) string {
 		})
 	case ModeDetail:
 		content = renderHints([]hintItem{
-			{"k/↑", "up"}, {"j/↓", "down"}, {"enter", "edit"}, {"h/←", "back"}, {"q", "quit"},
+			{"k/↑", "up"}, {"j/↓", "down"}, {"enter", "edit/open"}, {"h/←", "back"}, {"q", "quit"},
 		})
 	case ModeNewTask:
 		content = renderHints([]hintItem{

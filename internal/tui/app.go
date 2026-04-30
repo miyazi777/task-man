@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -18,12 +19,20 @@ import (
 const (
 	detailFieldTitle  = 0
 	detailFieldStatus = 1
+	detailFieldFiles  = 2
 )
+
+// editorFinishedMsg は外部エディタが終了したときに自身に通知する内部メッセージ。
+type editorFinishedMsg struct {
+	err error
+}
 
 type Model struct {
 	repo     storage.Repository
 	tasks    []task.Task
 	statuses task.StatusList
+	yamlDir  string            // tasks.yaml の置かれたディレクトリ
+	cfg      storage.AppConfig // data_base_directory + editor
 	cursor   int
 	mode     Mode
 	prevMode Mode
@@ -32,8 +41,10 @@ type Model struct {
 	input    textinput.Model
 	inputErr error // 入力ライブ検証用 (禁止文字・長さ超過)
 
-	detailCursor       int // 0=Title, 1=Status
-	statusPickerCursor int // sorted statuses のインデックス
+	detailCursor       int      // 0=Title, 1=Status, 2=Files
+	statusPickerCursor int      // sorted statuses のインデックス
+	files              []string // 現タスクのディレクトリ内ファイル一覧
+	fileCursor         int      // files のインデックス
 
 	width  int
 	height int
@@ -41,14 +52,33 @@ type Model struct {
 	saveErr error
 }
 
-func NewModel(repo storage.Repository, initial []task.Task, statuses task.StatusList) Model {
-	return Model{
+func NewModel(repo storage.Repository, initial []task.Task, statuses task.StatusList, yamlDir string, cfg storage.AppConfig) Model {
+	m := Model{
 		repo:     repo,
 		tasks:    initial,
 		statuses: statuses,
+		yamlDir:  yamlDir,
+		cfg:      cfg,
 		mode:     ModeList,
 		keys:     newKeyMap(),
 	}
+	return m.withFilesRefreshed()
+}
+
+// withFilesRefreshed は m.cursor が指すタスクのディレクトリ配下のファイル一覧を再読込する。
+// タスクが無い・ディレクトリ無しの場合は空にする。エラーは握り潰し (UX 上は空表示で十分)。
+func (m Model) withFilesRefreshed() Model {
+	if len(m.tasks) == 0 || m.cursor >= len(m.tasks) {
+		m.files = nil
+		m.fileCursor = 0
+		return m
+	}
+	files, _ := storage.ListTaskFiles(m.yamlDir, m.cfg.DataBaseDirectory, m.tasks[m.cursor].Title)
+	m.files = files
+	if m.fileCursor >= len(files) {
+		m.fileCursor = 0
+	}
+	return m
 }
 
 func (m Model) Init() tea.Cmd {
@@ -60,6 +90,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		return m, nil
+	case editorFinishedMsg:
+		if msg.err != nil {
+			m.saveErr = msg.err
+		}
+		m = m.withFilesRefreshed()
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -110,8 +146,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.saveErr = err
 				return m, nil
 			}
+			// 情報格納用ディレクトリと memo.md を先に作る。衝突時はタスク自体を追加しない。
+			if err := storage.CreateTaskData(m.yamlDir, m.cfg.DataBaseDirectory, t.Title); err != nil {
+				m.saveErr = err
+				return m, nil
+			}
 			m.tasks = append(m.tasks, t)
-			if err := m.repo.Save(m.tasks, m.statuses); err != nil {
+			if err := m.repo.Save(m.tasks, m.statuses, m.cfg); err != nil {
 				m.saveErr = err
 				return m, nil
 			}
@@ -119,6 +160,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = ModeList
 			m.input = textinput.Model{}
 			m.inputErr = nil
+			m = m.withFilesRefreshed()
 			return m, nil
 		case "esc":
 			m.mode = ModeList
@@ -148,13 +190,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.tasks[m.cursor] = updated
-			if err := m.repo.Save(m.tasks, m.statuses); err != nil {
+			if err := m.repo.Save(m.tasks, m.statuses, m.cfg); err != nil {
 				m.saveErr = err
 				return m, nil
 			}
 			m.mode = ModeDetail
 			m.input = textinput.Model{}
 			m.inputErr = nil
+			m = m.withFilesRefreshed()
 			return m, nil
 		case "esc":
 			m.mode = ModeDetail
@@ -188,7 +231,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.tasks[m.cursor].StatusID = sorted[m.statusPickerCursor].ID
-			if err := m.repo.Save(m.tasks, m.statuses); err != nil {
+			if err := m.repo.Save(m.tasks, m.statuses, m.cfg); err != nil {
 				m.saveErr = err
 				return m, nil
 			}
@@ -214,12 +257,28 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = ModeList
 			return m, nil
 		case key.Matches(msg, m.keys.Up):
-			if m.detailCursor > 0 {
+			if m.detailCursor == detailFieldFiles {
+				if m.fileCursor > 0 {
+					m.fileCursor--
+				} else {
+					m.detailCursor = detailFieldStatus
+				}
+			} else if m.detailCursor > 0 {
 				m.detailCursor--
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.Down):
-			if m.detailCursor < detailFieldStatus {
+			switch m.detailCursor {
+			case detailFieldStatus:
+				if len(m.files) > 0 {
+					m.detailCursor = detailFieldFiles
+					m.fileCursor = 0
+				}
+			case detailFieldFiles:
+				if m.fileCursor < len(m.files)-1 {
+					m.fileCursor++
+				}
+			default:
 				m.detailCursor++
 			}
 			return m, nil
@@ -240,6 +299,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.statusPickerCursor = sortedStatusIndex(m.statuses, m.tasks[m.cursor].StatusID)
 				m.mode = ModeEditStatus
 				return m, nil
+			case detailFieldFiles:
+				if len(m.files) == 0 {
+					return m, nil
+				}
+				return m.openCurrentFile()
 			}
 			return m, nil
 		}
@@ -254,11 +318,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Up):
 			if m.cursor > 0 {
 				m.cursor--
+				m = m.withFilesRefreshed()
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.Down):
 			if m.cursor < len(m.tasks)-1 {
 				m.cursor++
+				m = m.withFilesRefreshed()
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.Enter):
@@ -280,6 +346,22 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+// openCurrentFile は現在のファイルカーソルが指すファイルを外部エディタで開く tea.Cmd を返す。
+func (m Model) openCurrentFile() (Model, tea.Cmd) {
+	taskTitle := m.tasks[m.cursor].Title
+	taskDir := storage.TaskDir(m.yamlDir, m.cfg.DataBaseDirectory, taskTitle)
+	filePath := filepath.Join(taskDir, m.files[m.fileCursor])
+
+	cmd, err := buildEditorCmd(m.cfg.Editor, filePath)
+	if err != nil {
+		m.saveErr = err
+		return m, nil
+	}
+	return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return editorFinishedMsg{err: err}
+	})
 }
 
 // firstStatusID は sequence/id 順で先頭の status id を返す。statuses が空なら 0。
@@ -326,7 +408,7 @@ func (m Model) View() string {
 		t := m.tasks[m.cursor]
 		current = &t
 	}
-	right := renderDetail(current, m.statuses, detailFocused, m.detailCursor, rightW, bodyH)
+	right := renderDetail(current, m.statuses, m.files, detailFocused, m.detailCursor, m.fileCursor, rightW, bodyH)
 
 	divider := strings.Repeat("│\n", bodyH)
 	divider = styleDivider.Render(strings.TrimRight(divider, "\n"))

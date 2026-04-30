@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -28,12 +29,13 @@ func run() error {
 	}
 
 	repo := storage.NewYAMLRepository(args.Path)
-	tasks, statuses, err := repo.Load()
+	tasks, statuses, cfg, err := repo.Load()
 	if err != nil {
 		return err
 	}
 
-	model := tui.NewModel(repo, tasks, statuses)
+	yamlDir := filepath.Dir(args.Path)
+	model := tui.NewModel(repo, tasks, statuses, yamlDir, cfg)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		return err

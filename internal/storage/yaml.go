@@ -32,9 +32,15 @@ type yamlEntry struct {
 	Task yamlTask `yaml:"task"`
 }
 
+type yamlApplications struct {
+	Editor string `yaml:"editor,omitempty"`
+}
+
 type yamlFile struct {
-	Statuses []yamlStatusEntry `yaml:"statuses"`
-	Tasks    []yamlEntry       `yaml:"tasks"`
+	Applications      yamlApplications  `yaml:"applications,omitempty"`
+	DataBaseDirectory string            `yaml:"data_base_directory,omitempty"`
+	Statuses          []yamlStatusEntry `yaml:"statuses"`
+	Tasks             []yamlEntry       `yaml:"tasks"`
 }
 
 type YAMLRepository struct {
@@ -45,36 +51,41 @@ func NewYAMLRepository(path string) *YAMLRepository {
 	return &YAMLRepository{Path: path}
 }
 
-func (r *YAMLRepository) Load() ([]task.Task, task.StatusList, error) {
+func (r *YAMLRepository) Load() ([]task.Task, task.StatusList, AppConfig, error) {
 	data, err := os.ReadFile(r.Path)
 	if err != nil {
-		return nil, nil, fmt.Errorf("read %s: %w", r.Path, err)
+		return nil, nil, AppConfig{}, fmt.Errorf("read %s: %w", r.Path, err)
 	}
 
 	var f yamlFile
 	if len(data) > 0 {
 		if err := yaml.Unmarshal(data, &f); err != nil {
-			return nil, nil, fmt.Errorf("parse %s: %w", r.Path, err)
+			return nil, nil, AppConfig{}, fmt.Errorf("parse %s: %w", r.Path, err)
 		}
 	}
 
 	statuses, statusesChanged := loadStatuses(f.Statuses)
 	if err := statuses.Validate(); err != nil {
-		return nil, nil, err
+		return nil, nil, AppConfig{}, err
 	}
 
 	tasks, err := loadTasks(f.Tasks, statuses)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, AppConfig{}, err
+	}
+
+	cfg := AppConfig{
+		DataBaseDirectory: f.DataBaseDirectory,
+		Editor:            f.Applications.Editor,
 	}
 
 	if statusesChanged {
-		if err := r.Save(tasks, statuses); err != nil {
-			return nil, nil, fmt.Errorf("write back defaults: %w", err)
+		if err := r.Save(tasks, statuses, cfg); err != nil {
+			return nil, nil, AppConfig{}, fmt.Errorf("write back defaults: %w", err)
 		}
 	}
 
-	return tasks, statuses, nil
+	return tasks, statuses, cfg, nil
 }
 
 // loadStatuses は yaml の statuses をドメイン型に変換し、欠落・空・id 未採番に対する
@@ -121,7 +132,7 @@ func loadTasks(entries []yamlEntry, statuses task.StatusList) ([]task.Task, erro
 	return tasks, nil
 }
 
-func (r *YAMLRepository) Save(tasks []task.Task, statuses task.StatusList) error {
+func (r *YAMLRepository) Save(tasks []task.Task, statuses task.StatusList, cfg AppConfig) error {
 	sortedStatuses := statuses.Sorted()
 	statusEntries := make([]yamlStatusEntry, 0, len(sortedStatuses))
 	for _, s := range sortedStatuses {
@@ -145,7 +156,12 @@ func (r *YAMLRepository) Save(tasks []task.Task, statuses task.StatusList) error
 			},
 		})
 	}
-	data, err := yaml.Marshal(yamlFile{Statuses: statusEntries, Tasks: taskEntries})
+	data, err := yaml.Marshal(yamlFile{
+		Applications:      yamlApplications{Editor: cfg.Editor},
+		DataBaseDirectory: cfg.DataBaseDirectory,
+		Statuses:          statusEntries,
+		Tasks:             taskEntries,
+	})
 	if err != nil {
 		return fmt.Errorf("marshal yaml: %w", err)
 	}
