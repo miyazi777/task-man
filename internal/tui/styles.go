@@ -44,6 +44,7 @@ var (
 	stylePopupHint   = lipgloss.NewStyle().Foreground(colorMuted).Italic(true).Background(colorPopupBg)
 	stylePopupFill   = lipgloss.NewStyle().Background(colorPopupBg)
 	stylePopupBorder = lipgloss.NewStyle().Foreground(colorAccent).Background(colorPopupBg)
+	stylePopupError  = lipgloss.NewStyle().Foreground(colorDanger).Background(colorPopupBg).Bold(true)
 )
 
 func statusStyle(s task.Status) lipgloss.Style {

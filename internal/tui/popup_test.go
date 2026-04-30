@@ -14,7 +14,7 @@ func TestPopupEmbedsLabelInBorder(t *testing.T) {
 	const screenH = 30
 	bg := strings.Repeat(strings.Repeat(" ", screenW)+"\n", screenH)
 	bg = strings.TrimSuffix(bg, "\n")
-	overlaid := overlayInputPopup(bg, "Title:", "> sample", screenW, screenH)
+	overlaid := overlayInputPopup(bg, "Title:", "> sample", nil, screenW, screenH)
 
 	var topRow, bottomRow string
 	for _, line := range strings.Split(overlaid, "\n") {
@@ -73,7 +73,7 @@ func TestPopupWithRealTextInput(t *testing.T) {
 	bg := strings.Repeat(strings.Repeat(" ", screenW)+"\n", screenH)
 	bg = strings.TrimSuffix(bg, "\n")
 
-	overlaid := overlayInputPopup(bg, "Title:", ti.View(), screenW, screenH)
+	overlaid := overlayInputPopup(bg, "Title:", ti.View(), nil, screenW, screenH)
 
 	// 全行が画面幅に揃っていること。
 	for i, line := range strings.Split(overlaid, "\n") {
@@ -111,7 +111,7 @@ func TestPopupHasUniformInnerWidth(t *testing.T) {
 	const screenH = 30
 	bg := strings.Repeat(strings.Repeat(" ", screenW)+"\n", screenH)
 	bg = strings.TrimSuffix(bg, "\n")
-	overlaid := overlayInputPopup(bg, "Title:", "> sample", screenW, screenH)
+	overlaid := overlayInputPopup(bg, "Title:", "> sample", nil, screenW, screenH)
 
 	wantOuter := popupWidth(screenW)
 
@@ -161,7 +161,7 @@ func TestPopupLinesHaveUniformWidth(t *testing.T) {
 	bg := strings.Repeat(strings.Repeat(" ", screenW)+"\n", screenH)
 	bg = strings.TrimSuffix(bg, "\n")
 
-	overlaid := overlayInputPopup(bg, "Title:", inputView, screenW, screenH)
+	overlaid := overlayInputPopup(bg, "Title:", inputView, nil, screenW, screenH)
 
 	wantW := popupWidth(screenW)
 
@@ -186,3 +186,29 @@ func TestPopupLinesHaveUniformWidth(t *testing.T) {
 	}
 	t.Logf("popup outer width = %d, content lines = %d", wantW, popupLines)
 }
+
+// inputErr が non-nil のときポップアップにエラーメッセージが表示され、
+// 行幅も揃っていることを検証する。
+func TestPopupShowsInputError(t *testing.T) {
+	const screenW = 100
+	const screenH = 30
+	bg := strings.Repeat(strings.Repeat(" ", screenW)+"\n", screenH)
+	bg = strings.TrimSuffix(bg, "\n")
+
+	dummyErr := errDummy("colon (:) is not allowed")
+	overlaid := overlayInputPopup(bg, "Title:", "> foo:bar", dummyErr, screenW, screenH)
+
+	if !strings.Contains(ansi.Strip(overlaid), "colon (:) is not allowed") {
+		t.Errorf("expected error message to be rendered in popup: %q", ansi.Strip(overlaid))
+	}
+	// 全行幅が screenW に揃っていること (エラー行追加で乱れないこと)。
+	for i, line := range strings.Split(overlaid, "\n") {
+		if got := ansi.StringWidth(line); got != screenW {
+			t.Errorf("line %d width = %d, want %d", i, got, screenW)
+		}
+	}
+}
+
+type errDummy string
+
+func (e errDummy) Error() string { return string(e) }

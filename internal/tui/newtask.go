@@ -3,11 +3,13 @@ package tui
 import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/miyazi777/task-man/internal/task"
 )
 
 func newTitleInput(width int) textinput.Model {
 	ti := textinput.New()
-	ti.CharLimit = 200
+	ti.CharLimit = task.MaxTitleRunes
 	if width < 10 {
 		width = 10
 	}

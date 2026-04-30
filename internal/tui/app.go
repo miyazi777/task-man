@@ -30,8 +30,9 @@ type Model struct {
 	mode     Mode
 	prevMode Mode
 
-	keys  keyMap
-	input textinput.Model
+	keys     keyMap
+	input    textinput.Model
+	inputErr error // 入力ライブ検証用 (禁止文字・長さ超過)
 
 	detailCursor       int // 0=Title, 1=Status
 	statusPickerCursor int // 0..len(statusOrder)-1
@@ -93,6 +94,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if title == "" {
 				return m, nil
 			}
+			if m.inputErr != nil {
+				return m, nil
+			}
 			t := task.Task{
 				ID:     task.NextID(m.tasks),
 				Title:  title,
@@ -110,14 +114,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor = len(m.tasks) - 1
 			m.mode = ModeList
 			m.input = textinput.Model{}
+			m.inputErr = nil
 			return m, nil
 		case "esc":
 			m.mode = ModeList
 			m.input = textinput.Model{}
+			m.inputErr = nil
 			return m, nil
 		}
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
+		m.inputErr = task.ValidateTitleChars(m.input.Value())
 		return m, cmd
 
 	case ModeEditTitle:
@@ -125,6 +132,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "enter":
 			title := strings.TrimSpace(m.input.Value())
 			if title == "" {
+				return m, nil
+			}
+			if m.inputErr != nil {
 				return m, nil
 			}
 			updated := m.tasks[m.cursor]
@@ -140,14 +150,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.mode = ModeDetail
 			m.input = textinput.Model{}
+			m.inputErr = nil
 			return m, nil
 		case "esc":
 			m.mode = ModeDetail
 			m.input = textinput.Model{}
+			m.inputErr = nil
 			return m, nil
 		}
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
+		m.inputErr = task.ValidateTitleChars(m.input.Value())
 		return m, cmd
 
 	case ModeEditStatus:
@@ -211,6 +224,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.input = newTitleInput(inputW)
 				m.input.SetValue(m.tasks[m.cursor].Title)
 				m.input.CursorEnd()
+				m.inputErr = task.ValidateTitleChars(m.input.Value())
 				m.mode = ModeEditTitle
 				return m, textinput.Blink
 			case detailFieldStatus:
@@ -250,6 +264,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				inputW = 1
 			}
 			m.input = newTitleInput(inputW)
+			m.inputErr = nil
 			m.mode = ModeNewTask
 			return m, textinput.Blink
 		}
@@ -305,7 +320,7 @@ func (m Model) View() string {
 
 	switch m.mode {
 	case ModeNewTask, ModeEditTitle:
-		view = overlayInputPopup(view, "Title:", m.input.View(), m.width, m.height-1)
+		view = overlayInputPopup(view, "Title:", m.input.View(), m.inputErr, m.width, m.height-1)
 	case ModeEditStatus:
 		view = overlayStatusPicker(view, m.statusPickerCursor, m.width, m.height-1)
 	}
@@ -317,8 +332,8 @@ func (m Model) View() string {
 }
 
 // overlayInputPopup は単一行入力ポップアップを画面中央にオーバーレイする。
-// 上枠ラベル / 下枠ヒントは既存のポップアップと共通スタイル。
-func overlayInputPopup(bg, label, inputView string, screenW, screenH int) string {
+// inputErr が non-nil のときは入力行の下にエラー行を追加表示する。
+func overlayInputPopup(bg, label, inputView string, inputErr error, screenW, screenH int) string {
 	popupOuterW := popupWidth(screenW)
 	contentW := popupOuterW - 4
 	if contentW < 4 {
@@ -339,7 +354,23 @@ func overlayInputPopup(bg, label, inputView string, screenW, screenH int) string
 		stylePopupFill.Render(" ") +
 		stylePopupBorder.Render("│")
 
-	popup := lipgloss.JoinVertical(lipgloss.Left, topRow, inputRow, bottomRow)
+	rows := []string{topRow, inputRow}
+	if inputErr != nil {
+		errMsg := stylePopupError.Render("! " + inputErr.Error())
+		if w := ansi.StringWidth(errMsg); w > contentW {
+			errMsg = ansi.Truncate(errMsg, contentW, "")
+		}
+		errPadded := stylePopupFill.Width(contentW).Render(errMsg)
+		errRow := stylePopupBorder.Render("│") +
+			stylePopupFill.Render(" ") +
+			errPadded +
+			stylePopupFill.Render(" ") +
+			stylePopupBorder.Render("│")
+		rows = append(rows, errRow)
+	}
+	rows = append(rows, bottomRow)
+
+	popup := lipgloss.JoinVertical(lipgloss.Left, rows...)
 	return centerOverlay(popup, bg, screenW, screenH)
 }
 
