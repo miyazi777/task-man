@@ -238,6 +238,33 @@ func TestYAMLDataBaseDirectoryRoundTrip(t *testing.T) {
 	}
 }
 
+func TestYAMLStatusCollapsedRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	repo := NewYAMLRepository(path)
+
+	statuses := task.StatusList{
+		{ID: 1, Sequence: 1, Label: "todo", Color: "#6c7086", Collapsed: false},
+		{ID: 2, Sequence: 2, Label: "doing", Color: "#fab387", Collapsed: true},
+		{ID: 3, Sequence: 3, Label: "done", Color: "#a6e3a1", Collapsed: true},
+	}
+	if err := repo.Save(nil, statuses, AppConfig{}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	_, out, _, err := repo.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(out) != len(statuses) {
+		t.Fatalf("statuses len: got %d, want %d", len(out), len(statuses))
+	}
+	for i := range statuses {
+		if out[i].Collapsed != statuses[i].Collapsed {
+			t.Errorf("statuses[%d].Collapsed: got %v, want %v", i, out[i].Collapsed, statuses[i].Collapsed)
+		}
+	}
+}
+
 func TestYAMLZeroTaskID(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tasks.yaml")

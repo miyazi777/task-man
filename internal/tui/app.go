@@ -55,13 +55,19 @@ type Model struct {
 }
 
 func NewModel(repo storage.Repository, initial []task.Task, statuses task.StatusList, yamlDir string, cfg storage.AppConfig) Model {
+	collapsed := make(map[int]bool)
+	for _, s := range statuses {
+		if s.Collapsed {
+			collapsed[s.ID] = true
+		}
+	}
 	m := Model{
 		repo:      repo,
 		tasks:     initial,
 		statuses:  statuses,
 		yamlDir:   yamlDir,
 		cfg:       cfg,
-		collapsed: make(map[int]bool),
+		collapsed: collapsed,
 		mode:      ModeList,
 		keys:      newKeyMap(),
 	}
@@ -70,6 +76,15 @@ func NewModel(repo storage.Repository, initial []task.Task, statuses task.Status
 		m.cursor = first
 	}
 	return m.withFilesRefreshed()
+}
+
+// persist は m.collapsed を m.statuses に同期した上で yaml へ書き出す。
+// 折りたたみ状態を含むあらゆる永続化はこの関数経由で行う。
+func (m *Model) persist() error {
+	for i := range m.statuses {
+		m.statuses[i].Collapsed = m.collapsed[m.statuses[i].ID]
+	}
+	return m.repo.Save(m.tasks, m.statuses, m.cfg)
 }
 
 // withRowsRebuilt はステータスとタスクの構成・折りたたみ状態から rows を再構築し、
@@ -324,7 +339,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.tasks = append(m.tasks, t)
-			if err := m.repo.Save(m.tasks, m.statuses, m.cfg); err != nil {
+			if err := m.persist(); err != nil {
 				m.saveErr = err
 				return m, nil
 			}
@@ -372,7 +387,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.tasks[taskIdx] = updated
-			if err := m.repo.Save(m.tasks, m.statuses, m.cfg); err != nil {
+			if err := m.persist(); err != nil {
 				m.saveErr = err
 				return m, nil
 			}
@@ -418,7 +433,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.tasks[taskIdx].StatusID = sorted[m.statusPickerCursor].ID
-			if err := m.repo.Save(m.tasks, m.statuses, m.cfg); err != nil {
+			if err := m.persist(); err != nil {
 				m.saveErr = err
 				return m, nil
 			}
@@ -566,6 +581,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						m.cursor = r
 					}
 					m = m.withFilesRefreshed()
+					if err := m.persist(); err != nil {
+						m.saveErr = err
+					}
 				}
 				return m, nil
 			}
@@ -585,6 +603,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						m.cursor = r
 					}
 					m = m.withFilesRefreshed()
+					if err := m.persist(); err != nil {
+						m.saveErr = err
+					}
 				}
 			}
 			return m, nil
@@ -598,6 +619,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.cursor = r
 				}
 				m = m.withFilesRefreshed()
+				if err := m.persist(); err != nil {
+					m.saveErr = err
+				}
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.NewTask):

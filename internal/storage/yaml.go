@@ -12,10 +12,11 @@ import (
 )
 
 type yamlStatus struct {
-	ID       int    `yaml:"id"`
-	Sequence int    `yaml:"sequence"`
-	Label    string `yaml:"label"`
-	Color    string `yaml:"color,omitempty"`
+	ID        int    `yaml:"id"`
+	Sequence  int    `yaml:"sequence"`
+	Label     string `yaml:"label"`
+	Color     string `yaml:"color,omitempty"`
+	Collapsed bool   `yaml:"collapsed,omitempty"`
 }
 
 type yamlStatusEntry struct {
@@ -97,10 +98,11 @@ func loadStatuses(entries []yamlStatusEntry) (task.StatusList, bool) {
 	sl := make(task.StatusList, 0, len(entries))
 	for _, e := range entries {
 		sl = append(sl, task.Status{
-			ID:       e.Status.ID,
-			Sequence: e.Status.Sequence,
-			Label:    e.Status.Label,
-			Color:    e.Status.Color,
+			ID:        e.Status.ID,
+			Sequence:  e.Status.Sequence,
+			Label:     e.Status.Label,
+			Color:     e.Status.Color,
+			Collapsed: e.Status.Collapsed,
 		})
 	}
 	assigned, changed := sl.AssignMissingIDs()
@@ -138,10 +140,11 @@ func (r *YAMLRepository) Save(tasks []task.Task, statuses task.StatusList, cfg A
 	for _, s := range sortedStatuses {
 		statusEntries = append(statusEntries, yamlStatusEntry{
 			Status: yamlStatus{
-				ID:       s.ID,
-				Sequence: s.Sequence,
-				Label:    s.Label,
-				Color:    s.Color,
+				ID:        s.ID,
+				Sequence:  s.Sequence,
+				Label:     s.Label,
+				Color:     s.Color,
+				Collapsed: s.Collapsed,
 			},
 		})
 	}

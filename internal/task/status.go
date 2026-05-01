@@ -8,10 +8,11 @@ import (
 
 // Status はユーザー定義のタスク状態を表す。tasks.yaml の statuses セクションでカスタマイズ可能。
 type Status struct {
-	ID       int
-	Sequence int
-	Label    string
-	Color    string // 例: "#fab387"。空文字なら表示側でフォールバック。
+	ID        int
+	Sequence  int
+	Label     string
+	Color     string // 例: "#fab387"。空文字なら表示側でフォールバック。
+	Collapsed bool   // タスクリスト画面でのグループ折りたたみ状態 (永続化対象)
 }
 
 // StatusList は同一 yaml ファイル内で有効なステータス集合。
