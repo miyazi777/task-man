@@ -26,7 +26,7 @@ func renderFooter(mode, prevMode Mode, detailCursor int, width int) string {
 			{"k/↑", "up"}, {"j/↓", "down"},
 			{"l/→", "open/detail"}, {"h/←", "close"},
 			{"enter", "toggle"},
-			{"a", "new"}, {"q", "quit"},
+			{"a", "new"}, {"s", "subtask"}, {"q", "quit"},
 		})
 	case ModeDetail:
 		if detailCursor == detailFieldFiles {
@@ -40,7 +40,7 @@ func renderFooter(mode, prevMode Mode, detailCursor int, width int) string {
 				{"k/↑", "up"}, {"j/↓", "down"}, {"enter", "edit"}, {"h/←", "back"}, {"q", "quit"},
 			})
 		}
-	case ModeNewTask:
+	case ModeNewTask, ModeNewSubtask:
 		content = renderHints([]hintItem{
 			{"Enter", "save"}, {"Esc", "discard"},
 		})

@@ -9,6 +9,7 @@ type listRow struct {
 	kind      rowKind
 	statusID  int // status / task の所属
 	taskIndex int // task のときの m.tasks 上のインデックス
+	depth     int // task のときのネスト深さ (0=トップレベル, 1=サブタスク)
 }
 
 type rowKind int
@@ -24,16 +25,45 @@ const (
 //
 //   - collapsed[statusID]==true のステータスはタスク行を出さない (ヘッダのみ)
 //   - セクション間には空行 (rowSeparator) を 1 行はさむ。最後のセクション後には入れない。
+//   - サブタスク (parent_id != 0) は親タスクの直後に深いインデント (depth=1) で並べる。
+//     親が同じ status グループに居ない場合はサブタスクをトップレベル扱いで並べる。
 func buildRows(statuses task.StatusList, tasks []task.Task, collapsed map[int]bool) []listRow {
 	sorted := statuses.Sorted()
+
+	// 親 ID → 子タスクの index 一覧
+	childrenByParent := make(map[int][]int)
+	idToIndex := make(map[int]int, len(tasks))
+	for j, t := range tasks {
+		idToIndex[t.ID] = j
+		if t.ParentID != 0 {
+			childrenByParent[t.ParentID] = append(childrenByParent[t.ParentID], j)
+		}
+	}
+
 	var rows []listRow
 	for i := len(sorted) - 1; i >= 0; i-- {
 		s := sorted[i]
 		rows = append(rows, listRow{kind: rowStatus, statusID: s.ID})
 		if !collapsed[s.ID] {
 			for j, t := range tasks {
-				if t.StatusID == s.ID {
-					rows = append(rows, listRow{kind: rowTask, statusID: s.ID, taskIndex: j})
+				if t.StatusID != s.ID {
+					continue
+				}
+				// 親が同じ status グループに居ないサブタスクはトップレベル扱いで並べる。
+				// それ以外で parent_id!=0 のものは親の直後に並べるため、ここではスキップ。
+				if t.ParentID != 0 {
+					if pi, ok := idToIndex[t.ParentID]; ok && tasks[pi].StatusID == s.ID {
+						continue
+					}
+					rows = append(rows, listRow{kind: rowTask, statusID: s.ID, taskIndex: j, depth: 0})
+					continue
+				}
+				rows = append(rows, listRow{kind: rowTask, statusID: s.ID, taskIndex: j, depth: 0})
+				for _, ci := range childrenByParent[t.ID] {
+					if tasks[ci].StatusID != s.ID {
+						continue
+					}
+					rows = append(rows, listRow{kind: rowTask, statusID: s.ID, taskIndex: ci, depth: 1})
 				}
 			}
 		}

@@ -265,6 +265,90 @@ func TestYAMLStatusCollapsedRoundTrip(t *testing.T) {
 	}
 }
 
+func TestYAMLSubtaskRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	repo := NewYAMLRepository(path)
+	statuses := task.DefaultStatuses()
+	in := []task.Task{
+		{ID: 1, Title: "親", StatusID: 1},
+		{ID: 2, Title: "子1", StatusID: 1, ParentID: 1},
+		{ID: 3, Title: "子2", StatusID: 1, ParentID: 1},
+	}
+	if err := repo.Save(in, statuses, AppConfig{}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	out, _, _, err := repo.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(out) != len(in) {
+		t.Fatalf("tasks len: got %d want %d", len(out), len(in))
+	}
+	for i := range in {
+		if out[i] != in[i] {
+			t.Errorf("tasks[%d]: got %+v want %+v", i, out[i], in[i])
+		}
+	}
+}
+
+func TestYAMLSubtaskUnknownParent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	body := `statuses:
+  - status:
+      id: 1
+      sequence: 1
+      label: todo
+tasks:
+  - task:
+      id: 1
+      title: c
+      status_id: 1
+      parent_id: 99
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	repo := NewYAMLRepository(path)
+	if _, _, _, err := repo.Load(); err == nil {
+		t.Error("expected error for unknown parent_id")
+	}
+}
+
+func TestYAMLSubtaskNestedRejected(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	body := `statuses:
+  - status:
+      id: 1
+      sequence: 1
+      label: todo
+tasks:
+  - task:
+      id: 1
+      title: 親
+      status_id: 1
+  - task:
+      id: 2
+      title: 子
+      status_id: 1
+      parent_id: 1
+  - task:
+      id: 3
+      title: 孫
+      status_id: 1
+      parent_id: 2
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	repo := NewYAMLRepository(path)
+	if _, _, _, err := repo.Load(); err == nil {
+		t.Error("expected error for nested subtask (grandchild)")
+	}
+}
+
 func TestYAMLZeroTaskID(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tasks.yaml")

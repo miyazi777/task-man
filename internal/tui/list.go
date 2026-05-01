@@ -24,7 +24,7 @@ func renderList(tasks []task.Task, statuses task.StatusList, rows []listRow, col
 			lines = append(lines, renderStatusHeader(statuses, r.statusID, collapsed[r.statusID], i == cursor, focused, width))
 		case rowTask:
 			t := tasks[r.taskIndex]
-			lines = append(lines, renderTaskRow(t, statuses, i == cursor, focused, width))
+			lines = append(lines, renderTaskRow(t, statuses, r.depth, i == cursor, focused, width))
 		}
 	}
 
@@ -54,9 +54,11 @@ func renderStatusHeader(statuses task.StatusList, statusID int, isCollapsed, isC
 	return lipgloss.NewStyle().Width(width).Render(prefix + labelPart)
 }
 
-// renderTaskRow はタスク行を描画する。先頭にインデント (2 cell) を入れて status ヘッダと階層感を出す。
-func renderTaskRow(t task.Task, statuses task.StatusList, isCursor, listFocused bool, width int) string {
-	const leftPad, rightPad = 2, 1
+// renderTaskRow はタスク行を描画する。先頭にインデント (depth に応じて 2 cell ずつ加算)
+// を入れて status ヘッダ・サブタスクと階層感を出す。depth=0 は通常のタスク、depth>=1 はサブタスク。
+func renderTaskRow(t task.Task, statuses task.StatusList, depth int, isCursor, listFocused bool, width int) string {
+	const baseLeftPad, perDepth, rightPad = 2, 2, 1
+	leftPad := baseLeftPad + depth*perDepth
 	titleW := width - leftPad - rightPad
 	if titleW < 4 {
 		titleW = 4

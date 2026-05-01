@@ -89,3 +89,44 @@ func TestFirstNavigableEmpty(t *testing.T) {
 		t.Errorf("got %d, want -1", got)
 	}
 }
+
+func TestBuildRowsSubtaskNesting(t *testing.T) {
+	statuses := task.DefaultStatuses()
+	tasks := []task.Task{
+		{ID: 1, Title: "parent1", StatusID: 1},
+		{ID: 2, Title: "child1a", StatusID: 1, ParentID: 1},
+		{ID: 3, Title: "parent2", StatusID: 1},
+		{ID: 4, Title: "child1b", StatusID: 1, ParentID: 1},
+	}
+	rows := buildRows(statuses, tasks, nil)
+	// todo は最後のステータス。todo セクション内で:
+	//   parent1 (depth=0, idx=0)
+	//   child1a (depth=1, idx=1)
+	//   child1b (depth=1, idx=3)  ← parent1 の直後にまとめて並ぶ
+	//   parent2 (depth=0, idx=2)
+	// を期待する。
+	var todoTasks []listRow
+	for _, r := range rows {
+		if r.kind == rowTask && r.statusID == 1 {
+			todoTasks = append(todoTasks, r)
+		}
+	}
+	if len(todoTasks) != 4 {
+		t.Fatalf("todo tasks: got %d, want 4 (rows=%+v)", len(todoTasks), todoTasks)
+	}
+	wantOrder := []struct {
+		taskIndex int
+		depth     int
+	}{
+		{0, 0},
+		{1, 1},
+		{3, 1},
+		{2, 0},
+	}
+	for i, w := range wantOrder {
+		if todoTasks[i].taskIndex != w.taskIndex || todoTasks[i].depth != w.depth {
+			t.Errorf("todoTasks[%d] = (idx=%d depth=%d), want (idx=%d depth=%d)",
+				i, todoTasks[i].taskIndex, todoTasks[i].depth, w.taskIndex, w.depth)
+		}
+	}
+}

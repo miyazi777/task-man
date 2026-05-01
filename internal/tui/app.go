@@ -173,7 +173,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// textinput の cursor blink などを反映するため、入力中のモードでは Update を委譲する。
-	if m.mode == ModeNewTask || m.mode == ModeEditTitle || m.mode == ModeAddFile || m.mode == ModeRenameFile {
+	if m.mode == ModeNewTask || m.mode == ModeNewSubtask || m.mode == ModeEditTitle || m.mode == ModeAddFile || m.mode == ModeRenameFile {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		return m, cmd
@@ -345,6 +345,74 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			// 新規タスクの行へカーソル移動 (折りたたみ中なら展開してから)
 			delete(m.collapsed, initialStatusID)
+			m = m.withRowsRebuilt()
+			if newRow := findRowForTask(m.rows, len(m.tasks)-1); newRow >= 0 {
+				m.cursor = newRow
+			}
+			m.mode = ModeList
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			m = m.withFilesRefreshed()
+			return m, nil
+		case "esc":
+			m.mode = ModeList
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		m.inputErr = task.ValidateTitleChars(m.input.Value())
+		return m, cmd
+
+	case ModeNewSubtask:
+		switch msg.String() {
+		case "enter":
+			title := strings.TrimSpace(m.input.Value())
+			if title == "" {
+				return m, nil
+			}
+			if m.inputErr != nil {
+				return m, nil
+			}
+			// サブタスクの親 ID を決定: カーソルがトップレベルタスクならその ID、
+			// サブタスクなら同じ親 (兄弟として作成)、それ以外 (status 行) はキャンセル扱い。
+			cur, _, ok := m.currentTask()
+			if !ok {
+				m.mode = ModeList
+				m.input = textinput.Model{}
+				m.inputErr = nil
+				return m, nil
+			}
+			parentID := cur.ID
+			if cur.ParentID != 0 {
+				parentID = cur.ParentID
+			}
+			parent, _, parentOK := taskByID(m.tasks, parentID)
+			if !parentOK {
+				m.saveErr = fmt.Errorf("parent task %d not found", parentID)
+				return m, nil
+			}
+			t := task.Task{
+				ID:       task.NextID(m.tasks),
+				Title:    title,
+				StatusID: parent.StatusID,
+				ParentID: parentID,
+			}
+			if err := t.Validate(m.statuses); err != nil {
+				m.saveErr = err
+				return m, nil
+			}
+			if err := storage.CreateTaskData(m.yamlDir, m.cfg.DataBaseDirectory, t.Title); err != nil {
+				m.saveErr = err
+				return m, nil
+			}
+			m.tasks = append(m.tasks, t)
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+				return m, nil
+			}
+			delete(m.collapsed, parent.StatusID)
 			m = m.withRowsRebuilt()
 			if newRow := findRowForTask(m.rows, len(m.tasks)-1); newRow >= 0 {
 				m.cursor = newRow
@@ -633,10 +701,33 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.inputErr = nil
 			m.mode = ModeNewTask
 			return m, textinput.Blink
+		case key.Matches(msg, m.keys.NewSubtask):
+			// カーソルがタスク行のときのみサブタスク作成を開始する。
+			if _, _, ok := m.currentTask(); !ok {
+				return m, nil
+			}
+			inputW := popupWidth(m.width) - 7
+			if inputW < 1 {
+				inputW = 1
+			}
+			m.input = newTitleInput(inputW)
+			m.inputErr = nil
+			m.mode = ModeNewSubtask
+			return m, textinput.Blink
 		}
 		return m, nil
 	}
 	return m, nil
+}
+
+// taskByID は ID から m.tasks のエントリを返すユーティリティ。見つからなければ ok=false。
+func taskByID(tasks []task.Task, id int) (task.Task, int, bool) {
+	for i, t := range tasks {
+		if t.ID == id {
+			return t, i, true
+		}
+	}
+	return task.Task{}, 0, false
 }
 
 // openCurrentFile は現在のファイルカーソルが指すファイルを外部エディタで開く tea.Cmd を返す。
@@ -715,6 +806,8 @@ func (m Model) View() string {
 	switch m.mode {
 	case ModeNewTask, ModeEditTitle:
 		view = overlayInputPopup(view, "Title:", m.input.View(), m.inputErr, m.width, m.height-1)
+	case ModeNewSubtask:
+		view = overlayInputPopup(view, "Subtask:", m.input.View(), m.inputErr, m.width, m.height-1)
 	case ModeAddFile:
 		view = overlayInputPopup(view, "Filename:", m.input.View(), m.inputErr, m.width, m.height-1)
 	case ModeRenameFile:

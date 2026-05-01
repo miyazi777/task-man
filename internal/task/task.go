@@ -14,6 +14,7 @@ type Task struct {
 	ID       int
 	Title    string
 	StatusID int
+	ParentID int // 親タスクの ID。0 ならトップレベル。サブタスクは 1 段のみ許容
 }
 
 var (

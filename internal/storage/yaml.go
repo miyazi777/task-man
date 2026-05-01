@@ -27,6 +27,7 @@ type yamlTask struct {
 	ID       int    `yaml:"id"`
 	Title    string `yaml:"title"`
 	StatusID int    `yaml:"status_id"`
+	ParentID int    `yaml:"parent_id,omitempty"`
 }
 
 type yamlEntry struct {
@@ -125,13 +126,42 @@ func loadTasks(entries []yamlEntry, statuses task.StatusList) ([]task.Task, erro
 			ID:       e.Task.ID,
 			Title:    e.Task.Title,
 			StatusID: e.Task.StatusID,
+			ParentID: e.Task.ParentID,
 		}
 		if err := t.Validate(statuses); err != nil {
 			return nil, fmt.Errorf("tasks[%d]: %w", i, err)
 		}
 		tasks = append(tasks, t)
 	}
+	if err := validateParents(tasks); err != nil {
+		return nil, err
+	}
 	return tasks, nil
+}
+
+// validateParents は parent_id が存在し、かつ親自身がトップレベルであることを保証する。
+// 多段ネスト (親もサブタスク) はサポート対象外なのでエラーにする。
+func validateParents(tasks []task.Task) error {
+	idIndex := make(map[int]int, len(tasks))
+	for i, t := range tasks {
+		idIndex[t.ID] = i
+	}
+	for i, t := range tasks {
+		if t.ParentID == 0 {
+			continue
+		}
+		if t.ParentID == t.ID {
+			return fmt.Errorf("tasks[%d]: parent_id refers to itself", i)
+		}
+		pi, ok := idIndex[t.ParentID]
+		if !ok {
+			return fmt.Errorf("tasks[%d]: parent_id %d does not exist", i, t.ParentID)
+		}
+		if tasks[pi].ParentID != 0 {
+			return fmt.Errorf("tasks[%d]: parent task %d is itself a subtask (nested subtasks unsupported)", i, t.ParentID)
+		}
+	}
+	return nil
 }
 
 func (r *YAMLRepository) Save(tasks []task.Task, statuses task.StatusList, cfg AppConfig) error {
@@ -156,6 +186,7 @@ func (r *YAMLRepository) Save(tasks []task.Task, statuses task.StatusList, cfg A
 				ID:       t.ID,
 				Title:    t.Title,
 				StatusID: t.StatusID,
+				ParentID: t.ParentID,
 			},
 		})
 	}
