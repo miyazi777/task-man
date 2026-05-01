@@ -6,10 +6,12 @@ import (
 
 // listRow はリスト画面の 1 行を表す。種別は status ヘッダ / task / 空区切り のいずれか。
 type listRow struct {
-	kind      rowKind
-	statusID  int // status / task の所属
-	taskIndex int // task のときの m.tasks 上のインデックス
-	depth     int // task のときのネスト深さ (0=トップレベル, 1=サブタスク)
+	kind        rowKind
+	statusID    int  // status / task の所属
+	taskIndex   int  // task のときの m.tasks 上のインデックス
+	depth       int  // task のときのネスト深さ (0=トップレベル, 1=サブタスク...)
+	hasChildren bool // task が子タスクを持つか (マーカー表示用)
+	collapsed   bool // task の collapsed 状態 (マーカー表示用)
 }
 
 type rowKind int
@@ -23,11 +25,12 @@ const (
 // buildRows はステータスを sequence 逆順 (大きい順) で並べ、
 // 各ステータス配下に該当タスクを yaml の出現順で並べたフラットな行列を返す。
 //
-//   - collapsed[statusID]==true のステータスはタスク行を出さない (ヘッダのみ)
+//   - statusCollapsed[statusID]==true のステータスはタスク行を出さない (ヘッダのみ)
+//   - taskCollapsed[taskID]==true のタスクは子孫を非表示にする (自身は表示)
 //   - セクション間には空行 (rowSeparator) を 1 行はさむ。最後のセクション後には入れない。
-//   - サブタスク (parent_id != 0) は親タスクの直下に再帰的にネスト表示する。
+//   - サブタスクは親タスクの直下に再帰的にネスト表示する。
 //     親が同じ status グループに居ない場合はサブタスクをトップレベル扱い (depth=0) で並べる。
-func buildRows(statuses task.StatusList, tasks []task.Task, collapsed map[int]bool) []listRow {
+func buildRows(statuses task.StatusList, tasks []task.Task, statusCollapsed, taskCollapsed map[int]bool) []listRow {
 	sorted := statuses.Sorted()
 
 	childrenByParent := make(map[int][]int)
@@ -41,11 +44,22 @@ func buildRows(statuses task.StatusList, tasks []task.Task, collapsed map[int]bo
 
 	var rows []listRow
 
-	// emit はタスク j を depth で出力し、その配下 (同一 status グループ内) を
-	// DFS で再帰的に出力する。
+	// emit はタスク j を depth で出力し、collapsed でなければ子孫を再帰的に出力する。
 	var emit func(j, depth, statusID int)
 	emit = func(j, depth, statusID int) {
-		rows = append(rows, listRow{kind: rowTask, statusID: statusID, taskIndex: j, depth: depth})
+		hasKids := len(childrenByParent[tasks[j].ID]) > 0
+		isCollapsed := taskCollapsed[tasks[j].ID]
+		rows = append(rows, listRow{
+			kind:        rowTask,
+			statusID:    statusID,
+			taskIndex:   j,
+			depth:       depth,
+			hasChildren: hasKids,
+			collapsed:   isCollapsed,
+		})
+		if isCollapsed {
+			return
+		}
 		for _, ci := range childrenByParent[tasks[j].ID] {
 			if tasks[ci].StatusID != statusID {
 				continue
@@ -57,7 +71,7 @@ func buildRows(statuses task.StatusList, tasks []task.Task, collapsed map[int]bo
 	for i := len(sorted) - 1; i >= 0; i-- {
 		s := sorted[i]
 		rows = append(rows, listRow{kind: rowStatus, statusID: s.ID})
-		if !collapsed[s.ID] {
+		if !statusCollapsed[s.ID] {
 			for j, t := range tasks {
 				if t.StatusID != s.ID {
 					continue
@@ -76,6 +90,16 @@ func buildRows(statuses task.StatusList, tasks []task.Task, collapsed map[int]bo
 		}
 	}
 	return rows
+}
+
+// taskHasChildren は id を親に持つタスクが tasks 内に存在するかを返す。
+func taskHasChildren(tasks []task.Task, id int) bool {
+	for _, t := range tasks {
+		if t.ParentID == id {
+			return true
+		}
+	}
+	return false
 }
 
 // taskDepth は tasks の中で id のネスト深さ (0 = トップレベル) を返す。

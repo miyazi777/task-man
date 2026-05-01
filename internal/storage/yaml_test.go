@@ -265,6 +265,29 @@ func TestYAMLStatusCollapsedRoundTrip(t *testing.T) {
 	}
 }
 
+func TestYAMLTaskCollapsedRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	repo := NewYAMLRepository(path)
+	statuses := task.DefaultStatuses()
+	in := []task.Task{
+		{ID: 1, Title: "親", StatusID: 1, Collapsed: true},
+		{ID: 2, Title: "子", StatusID: 1, ParentID: 1, Collapsed: false},
+	}
+	if err := repo.Save(in, statuses, AppConfig{}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	out, _, _, err := repo.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	for i := range in {
+		if out[i].Collapsed != in[i].Collapsed {
+			t.Errorf("tasks[%d].Collapsed: got %v, want %v", i, out[i].Collapsed, in[i].Collapsed)
+		}
+	}
+}
+
 func TestYAMLSubtaskRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tasks.yaml")

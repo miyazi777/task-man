@@ -28,16 +28,17 @@ type editorFinishedMsg struct {
 }
 
 type Model struct {
-	repo      storage.Repository
-	tasks     []task.Task
-	statuses  task.StatusList
-	yamlDir   string            // tasks.yaml の置かれたディレクトリ
-	cfg       storage.AppConfig // data_base_directory + editor
-	rows      []listRow         // 表示用フラット行リスト (ステータスでグループ化)
-	collapsed map[int]bool      // statusID → 折りたたみ中
-	cursor    int               // m.rows のインデックス (旧: m.tasks のインデックス)
-	mode      Mode
-	prevMode  Mode
+	repo          storage.Repository
+	tasks         []task.Task
+	statuses      task.StatusList
+	yamlDir       string            // tasks.yaml の置かれたディレクトリ
+	cfg           storage.AppConfig // data_base_directory + editor
+	rows          []listRow         // 表示用フラット行リスト (ステータスでグループ化)
+	collapsed     map[int]bool      // statusID → 折りたたみ中
+	taskCollapsed map[int]bool      // taskID → サブタスクを折りたたみ中
+	cursor        int               // m.rows のインデックス (旧: m.tasks のインデックス)
+	mode          Mode
+	prevMode      Mode
 
 	keys     keyMap
 	input    textinput.Model
@@ -61,15 +62,22 @@ func NewModel(repo storage.Repository, initial []task.Task, statuses task.Status
 			collapsed[s.ID] = true
 		}
 	}
+	taskCollapsed := make(map[int]bool)
+	for _, t := range initial {
+		if t.Collapsed {
+			taskCollapsed[t.ID] = true
+		}
+	}
 	m := Model{
-		repo:      repo,
-		tasks:     initial,
-		statuses:  statuses,
-		yamlDir:   yamlDir,
-		cfg:       cfg,
-		collapsed: collapsed,
-		mode:      ModeList,
-		keys:      newKeyMap(),
+		repo:          repo,
+		tasks:         initial,
+		statuses:      statuses,
+		yamlDir:       yamlDir,
+		cfg:           cfg,
+		collapsed:     collapsed,
+		taskCollapsed: taskCollapsed,
+		mode:          ModeList,
+		keys:          newKeyMap(),
 	}
 	m = m.withRowsRebuilt()
 	if first := firstNavigable(m.rows); first >= 0 {
@@ -78,11 +86,14 @@ func NewModel(repo storage.Repository, initial []task.Task, statuses task.Status
 	return m.withFilesRefreshed()
 }
 
-// persist は m.collapsed を m.statuses に同期した上で yaml へ書き出す。
+// persist は m.collapsed / m.taskCollapsed を m.statuses / m.tasks に同期した上で yaml へ書き出す。
 // 折りたたみ状態を含むあらゆる永続化はこの関数経由で行う。
 func (m *Model) persist() error {
 	for i := range m.statuses {
 		m.statuses[i].Collapsed = m.collapsed[m.statuses[i].ID]
+	}
+	for i := range m.tasks {
+		m.tasks[i].Collapsed = m.taskCollapsed[m.tasks[i].ID]
 	}
 	return m.repo.Save(m.tasks, m.statuses, m.cfg)
 }
@@ -90,7 +101,7 @@ func (m *Model) persist() error {
 // withRowsRebuilt はステータスとタスクの構成・折りたたみ状態から rows を再構築し、
 // cursor が範囲外/separator にいる場合は近接の navigable 行へ寄せる。
 func (m Model) withRowsRebuilt() Model {
-	m.rows = buildRows(m.statuses, m.tasks, m.collapsed)
+	m.rows = buildRows(m.statuses, m.tasks, m.collapsed, m.taskCollapsed)
 	if len(m.rows) == 0 {
 		m.cursor = 0
 		return m
@@ -632,47 +643,18 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.Enter):
-			// タスク行: 詳細遷移
-			// status 行: 展開 (collapsed=false に設定)
-			if m.cursor < len(m.rows) && m.rows[m.cursor].kind == rowStatus {
-				sid := m.rows[m.cursor].statusID
-				if m.collapsed[sid] {
-					delete(m.collapsed, sid)
-					m = m.withRowsRebuilt()
-					if r := findRowForStatus(m.rows, sid); r >= 0 {
-						m.cursor = r
-					}
-					m = m.withFilesRefreshed()
-					if err := m.persist(); err != nil {
-						m.saveErr = err
-					}
-				}
-				return m, nil
-			}
+			// タスク行: 詳細遷移。status 行では何もしない (開閉は space に集約)。
 			if _, _, ok := m.currentTask(); ok {
 				m.mode = ModeDetail
 				m.detailCursor = detailFieldTitle
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.Back):
-			// status 行で折りたたみ (collapsed=true)。タスク行では何もしない。
-			if m.cursor < len(m.rows) && m.rows[m.cursor].kind == rowStatus {
-				sid := m.rows[m.cursor].statusID
-				if !m.collapsed[sid] {
-					m.collapsed[sid] = true
-					m = m.withRowsRebuilt()
-					if r := findRowForStatus(m.rows, sid); r >= 0 {
-						m.cursor = r
-					}
-					m = m.withFilesRefreshed()
-					if err := m.persist(); err != nil {
-						m.saveErr = err
-					}
-				}
-			}
+			// 開閉は space に集約。タスクリスト内では何もしない。
 			return m, nil
-		case key.Matches(msg, m.keys.Confirm):
-			// enter は status 行で展開/折りたたみトグル。task 行では無視。
+		case key.Matches(msg, m.keys.Toggle):
+			// space: status 行 / task 行どちらも展開/折りたたみをトグル。
+			// 子を持たないタスクや該当しない行では何もしない。
 			if m.cursor < len(m.rows) && m.rows[m.cursor].kind == rowStatus {
 				sid := m.rows[m.cursor].statusID
 				m.collapsed[sid] = !m.collapsed[sid]
@@ -684,6 +666,23 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if err := m.persist(); err != nil {
 					m.saveErr = err
 				}
+				return m, nil
+			}
+			cur, idx, ok := m.currentTask()
+			if !ok {
+				return m, nil
+			}
+			if !taskHasChildren(m.tasks, cur.ID) {
+				return m, nil
+			}
+			m.taskCollapsed[cur.ID] = !m.taskCollapsed[cur.ID]
+			m = m.withRowsRebuilt()
+			if r := findRowForTask(m.rows, idx); r >= 0 {
+				m.cursor = r
+			}
+			m = m.withFilesRefreshed()
+			if err := m.persist(); err != nil {
+				m.saveErr = err
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.NewTask):

@@ -14,7 +14,7 @@ func TestBuildRowsOrderAndGrouping(t *testing.T) {
 		{ID: 12, Title: "c", StatusID: 1}, // todo
 		{ID: 13, Title: "d", StatusID: 2}, // doing
 	}
-	rows := buildRows(statuses, tasks, nil)
+	rows := buildRows(statuses, tasks, nil, nil)
 
 	// 期待: done ヘッダ, b, sep, doing ヘッダ, d, sep, todo ヘッダ, a, c
 	wantKinds := []rowKind{
@@ -54,7 +54,7 @@ func TestBuildRowsCollapsed(t *testing.T) {
 		{ID: 2, Title: "b", StatusID: 2},
 	}
 	collapsed := map[int]bool{2: true} // doing を折りたたみ
-	rows := buildRows(statuses, tasks, collapsed)
+	rows := buildRows(statuses, tasks, collapsed, nil)
 
 	// 期待: done ヘッダ, sep, doing ヘッダ (タスクなし), sep, todo ヘッダ, a
 	if len(rows) != 6 {
@@ -74,7 +74,7 @@ func TestNavigableSkipsSeparator(t *testing.T) {
 	tasks := []task.Task{
 		{ID: 1, Title: "a", StatusID: 3}, // done のみ
 	}
-	rows := buildRows(statuses, tasks, nil)
+	rows := buildRows(statuses, tasks, nil, nil)
 	// rows: [done, a, sep, doing, sep, todo]
 	if got := nextNavigable(rows, 1); got != 3 {
 		t.Errorf("nextNavigable from 1 = %d, want 3 (skip sep)", got)
@@ -98,7 +98,7 @@ func TestBuildRowsSubtaskNesting(t *testing.T) {
 		{ID: 3, Title: "parent2", StatusID: 1},
 		{ID: 4, Title: "child1b", StatusID: 1, ParentID: 1},
 	}
-	rows := buildRows(statuses, tasks, nil)
+	rows := buildRows(statuses, tasks, nil, nil)
 	var todoTasks []listRow
 	for _, r := range rows {
 		if r.kind == rowTask && r.statusID == 1 {
@@ -133,7 +133,7 @@ func TestBuildRowsMultiLevelNesting(t *testing.T) {
 		{ID: 3, Title: "l2", StatusID: 1, ParentID: 2},
 		{ID: 4, Title: "l3", StatusID: 1, ParentID: 3},
 	}
-	rows := buildRows(statuses, tasks, nil)
+	rows := buildRows(statuses, tasks, nil, nil)
 	var todoTasks []listRow
 	for _, r := range rows {
 		if r.kind == rowTask && r.statusID == 1 {
@@ -147,6 +147,48 @@ func TestBuildRowsMultiLevelNesting(t *testing.T) {
 		if todoTasks[i].depth != want {
 			t.Errorf("todoTasks[%d].depth = %d, want %d", i, todoTasks[i].depth, want)
 		}
+	}
+}
+
+func TestBuildRowsTaskCollapsed(t *testing.T) {
+	statuses := task.DefaultStatuses()
+	tasks := []task.Task{
+		{ID: 1, Title: "p", StatusID: 1},
+		{ID: 2, Title: "c1", StatusID: 1, ParentID: 1},
+		{ID: 3, Title: "c2", StatusID: 1, ParentID: 1},
+		{ID: 4, Title: "gc", StatusID: 1, ParentID: 2},
+	}
+	taskCollapsed := map[int]bool{1: true} // p を折りたたみ
+	rows := buildRows(statuses, tasks, nil, taskCollapsed)
+	var todoTasks []listRow
+	for _, r := range rows {
+		if r.kind == rowTask && r.statusID == 1 {
+			todoTasks = append(todoTasks, r)
+		}
+	}
+	// p のみが表示され、c1/c2/gc は非表示。マーカー: p は collapsed=true, hasChildren=true
+	if len(todoTasks) != 1 {
+		t.Fatalf("expected only parent visible when collapsed, got %d rows", len(todoTasks))
+	}
+	if !todoTasks[0].hasChildren || !todoTasks[0].collapsed {
+		t.Errorf("parent row should have hasChildren=true, collapsed=true, got %+v", todoTasks[0])
+	}
+}
+
+func TestTaskHasChildren(t *testing.T) {
+	tasks := []task.Task{
+		{ID: 1, Title: "p"},
+		{ID: 2, Title: "c", ParentID: 1},
+		{ID: 3, Title: "lonely"},
+	}
+	if !taskHasChildren(tasks, 1) {
+		t.Error("id=1 should have children")
+	}
+	if taskHasChildren(tasks, 3) {
+		t.Error("id=3 should NOT have children")
+	}
+	if taskHasChildren(tasks, 999) {
+		t.Error("nonexistent id should NOT have children")
 	}
 }
 

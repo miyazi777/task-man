@@ -7,6 +7,7 @@ type keyMap struct {
 	Down       key.Binding
 	Enter      key.Binding // l/→ - 前進ナビゲーション (一覧→詳細)
 	Confirm    key.Binding // enter - 編集開始 / 保存決定
+	Toggle     key.Binding // space - タスクの開閉
 	NewTask    key.Binding // a - 新規タスク (status 行) / サブタスク (task 行)
 	AddFile    key.Binding // a (Files セクション)
 	RenameFile key.Binding // r (Files セクション)
@@ -23,6 +24,7 @@ func newKeyMap() keyMap {
 		Down:       key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j/↓", "down")),
 		Enter:      key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "detail")),
 		Confirm:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "edit")),
+		Toggle:     key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
 		NewTask:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "new")),
 		AddFile:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
 		RenameFile: key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "rename")),

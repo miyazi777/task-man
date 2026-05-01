@@ -24,7 +24,7 @@ func renderList(tasks []task.Task, statuses task.StatusList, rows []listRow, col
 			lines = append(lines, renderStatusHeader(statuses, r.statusID, collapsed[r.statusID], i == cursor, focused, width))
 		case rowTask:
 			t := tasks[r.taskIndex]
-			lines = append(lines, renderTaskRow(t, statuses, r.depth, i == cursor, focused, width))
+			lines = append(lines, renderTaskRow(t, statuses, r.depth, r.hasChildren, r.collapsed, i == cursor, focused, width))
 		}
 	}
 
@@ -56,17 +56,29 @@ func renderStatusHeader(statuses task.StatusList, statusID int, isCollapsed, isC
 
 // renderTaskRow はタスク行を描画する。先頭にインデント (depth に応じて 2 cell ずつ加算)
 // を入れて status ヘッダ・サブタスクと階層感を出す。depth=0 は通常のタスク、depth>=1 はサブタスク。
-func renderTaskRow(t task.Task, statuses task.StatusList, depth int, isCursor, listFocused bool, width int) string {
-	const baseLeftPad, perDepth, rightPad = 2, 2, 1
+// hasChildren=true のタスクは collapsed の有無に応じて "+ "/"- " のマーカーを付ける。
+// 子を持たないタスクでもタイトル位置を揃えるため空白 2 cell を予約する。
+func renderTaskRow(t task.Task, statuses task.StatusList, depth int, hasChildren, collapsed, isCursor, listFocused bool, width int) string {
+	const baseLeftPad, perDepth, markerW, rightPad = 2, 2, 2, 1
 	leftPad := baseLeftPad + depth*perDepth
-	titleW := width - leftPad - rightPad
+
+	marker := "  "
+	if hasChildren {
+		if collapsed {
+			marker = "- "
+		} else {
+			marker = "+ "
+		}
+	}
+
+	titleW := width - leftPad - markerW - rightPad
 	if titleW < 4 {
 		titleW = 4
 	}
 	title := truncate(t.Title, titleW)
 
 	if isCursor && listFocused {
-		raw := strings.Repeat(" ", leftPad) + title
+		raw := strings.Repeat(" ", leftPad) + marker + title
 		return styleCursorRow.Width(width).Render(raw)
 	}
 
@@ -76,7 +88,7 @@ func renderTaskRow(t task.Task, statuses task.StatusList, depth int, isCursor, l
 	} else {
 		titleRendered = styleListItemDim.Inline(true).Render(title)
 	}
-	return strings.Repeat(" ", leftPad) + titleRendered
+	return strings.Repeat(" ", leftPad) + marker + titleRendered
 }
 
 func truncate(s string, w int) string {

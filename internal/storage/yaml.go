@@ -24,10 +24,11 @@ type yamlStatusEntry struct {
 }
 
 type yamlTask struct {
-	ID       int    `yaml:"id"`
-	Title    string `yaml:"title"`
-	StatusID int    `yaml:"status_id"`
-	ParentID int    `yaml:"parent_id,omitempty"`
+	ID        int    `yaml:"id"`
+	Title     string `yaml:"title"`
+	StatusID  int    `yaml:"status_id"`
+	ParentID  int    `yaml:"parent_id,omitempty"`
+	Collapsed bool   `yaml:"collapsed,omitempty"`
 }
 
 type yamlEntry struct {
@@ -123,10 +124,11 @@ func loadTasks(entries []yamlEntry, statuses task.StatusList) ([]task.Task, erro
 		seen[e.Task.ID] = struct{}{}
 
 		t := task.Task{
-			ID:       e.Task.ID,
-			Title:    e.Task.Title,
-			StatusID: e.Task.StatusID,
-			ParentID: e.Task.ParentID,
+			ID:        e.Task.ID,
+			Title:     e.Task.Title,
+			StatusID:  e.Task.StatusID,
+			ParentID:  e.Task.ParentID,
+			Collapsed: e.Task.Collapsed,
 		}
 		if err := t.Validate(statuses); err != nil {
 			return nil, fmt.Errorf("tasks[%d]: %w", i, err)
@@ -191,10 +193,11 @@ func (r *YAMLRepository) Save(tasks []task.Task, statuses task.StatusList, cfg A
 	for _, t := range tasks {
 		taskEntries = append(taskEntries, yamlEntry{
 			Task: yamlTask{
-				ID:       t.ID,
-				Title:    t.Title,
-				StatusID: t.StatusID,
-				ParentID: t.ParentID,
+				ID:        t.ID,
+				Title:     t.Title,
+				StatusID:  t.StatusID,
+				ParentID:  t.ParentID,
+				Collapsed: t.Collapsed,
 			},
 		})
 	}
