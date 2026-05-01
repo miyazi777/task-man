@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -407,37 +406,6 @@ tasks:
 	repo := NewYAMLRepository(path)
 	if _, _, _, err := repo.Load(); err == nil {
 		t.Error("expected error for nesting depth exceeded")
-	}
-}
-
-func TestYAMLDuplicateTaskTitle(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "tasks.yaml")
-	body := `statuses:
-  - status:
-      id: 1
-      sequence: 1
-      label: todo
-tasks:
-  - task:
-      id: 1
-      title: 同じ
-      status_id: 1
-  - task:
-      id: 2
-      title: 同じ
-      status_id: 1
-`
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-	repo := NewYAMLRepository(path)
-	_, _, _, err := repo.Load()
-	if err == nil {
-		t.Fatal("expected error for duplicated task title")
-	}
-	if !errors.Is(err, task.ErrDuplicateTitle) {
-		t.Errorf("expected ErrDuplicateTitle, got: %v", err)
 	}
 }
 

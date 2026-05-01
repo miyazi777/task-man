@@ -63,28 +63,6 @@ func TestValidateTitleCharsForbidden(t *testing.T) {
 	}
 }
 
-func TestHasDuplicateTitle(t *testing.T) {
-	tasks := []Task{
-		{ID: 1, Title: "alpha"},
-		{ID: 2, Title: "beta"},
-		{ID: 3, Title: "gamma"},
-	}
-	if !HasDuplicateTitle(tasks, "alpha", 0) {
-		t.Error("alpha should be detected as duplicate when no exclusion")
-	}
-	if HasDuplicateTitle(tasks, "delta", 0) {
-		t.Error("delta should NOT be detected as duplicate")
-	}
-	// excludeID=1 のときは alpha のレコード自身を除外するので重複ではない
-	if HasDuplicateTitle(tasks, "alpha", 1) {
-		t.Error("alpha with excludeID=1 should NOT be duplicate (self)")
-	}
-	// excludeID=2 のときに alpha は依然として重複
-	if !HasDuplicateTitle(tasks, "alpha", 2) {
-		t.Error("alpha with excludeID=2 should still be duplicate")
-	}
-}
-
 func TestValidateTitleCharsLength(t *testing.T) {
 	if err := ValidateTitleChars(""); err != nil {
 		t.Errorf("empty string should be allowed in live validation, got %v", err)

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -25,11 +26,13 @@ func renderDetail(t *task.Task, statuses task.StatusList, files []string, focuse
 		statusText = status.Label
 	}
 
+	// ID は読み取り専用なのでカーソル対象外。常に muted で表示する。
+	idRow := "  " + styleLabel.Render("ID") + "     " + styleValueDim.Render(strconv.Itoa(t.ID))
 	titleRow := renderDetailField("Title", t.Title, focused, focused && fieldCursor == detailFieldTitle, statusStyleFor(status), false, width)
 	statusRow := renderDetailField("Status", statusText, focused, focused && fieldCursor == detailFieldStatus, statusStyleFor(status), true, width)
 	filesBlock := renderFilesBlock(files, focused, fieldCursor == detailFieldFiles, fileCursor, width)
 
-	body := strings.Join([]string{titleRow, statusRow, "", filesBlock}, "\n")
+	body := strings.Join([]string{idRow, titleRow, statusRow, "", filesBlock}, "\n")
 	return lipgloss.NewStyle().Width(width).Height(height).Render(body)
 }
 

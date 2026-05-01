@@ -65,16 +65,16 @@ func ValidateFileName(name string) error {
 // CreateTaskData は新規タスクの情報格納先を作成する。
 //   - yamlDir: tasks.yaml が置かれているディレクトリ (絶対 or 起動時の作業ディレクトリ基準)
 //   - dataBaseDir: yaml の data_base_directory 値。空文字なら yamlDir 直下にタスクディレクトリを作る。
-//   - title: タスクタイトル (= ディレクトリ名)
+//   - taskID: タスク ID (ディレクトリ名は task-{id})
 //
-// 構造: <yamlDir>[/<dataBaseDir>]/<title>/memo.md
+// 構造: <yamlDir>[/<dataBaseDir>]/task-<id>/memo.md
 //
 // 既存ディレクトリ・ファイルとの衝突は ErrTaskDirExists を返し、何も作成しない。
-func CreateTaskData(yamlDir, dataBaseDir, title string) error {
-	if title == "" {
-		return errors.New("title must not be empty")
+func CreateTaskData(yamlDir, dataBaseDir string, taskID int) error {
+	if taskID <= 0 {
+		return errors.New("task id must be positive")
 	}
-	taskDir := TaskDir(yamlDir, dataBaseDir, title)
+	taskDir := TaskDir(yamlDir, dataBaseDir, taskID)
 	root := filepath.Dir(taskDir)
 	memoPath := filepath.Join(taskDir, "memo.md")
 
@@ -102,19 +102,19 @@ func CreateTaskData(yamlDir, dataBaseDir, title string) error {
 	return f.Close()
 }
 
-// TaskDir は yamlDir / dataBaseDir / title を組み合わせたタスクディレクトリのパスを返す。
-func TaskDir(yamlDir, dataBaseDir, title string) string {
+// TaskDir は yamlDir / dataBaseDir / task-{id} を組み合わせたタスクディレクトリのパスを返す。
+func TaskDir(yamlDir, dataBaseDir string, taskID int) string {
 	root := yamlDir
 	if dataBaseDir != "" {
 		root = filepath.Join(yamlDir, dataBaseDir)
 	}
-	return filepath.Join(root, title)
+	return filepath.Join(root, fmt.Sprintf("task-%d", taskID))
 }
 
 // ListTaskFiles はタスクディレクトリ内の通常ファイル名 (basename) をアルファベット順で返す。
 // ディレクトリ自体が無い場合は空スライスを返し、エラーにはしない (旧タスクや手動配置の許容)。
-func ListTaskFiles(yamlDir, dataBaseDir, title string) ([]string, error) {
-	taskDir := TaskDir(yamlDir, dataBaseDir, title)
+func ListTaskFiles(yamlDir, dataBaseDir string, taskID int) ([]string, error) {
+	taskDir := TaskDir(yamlDir, dataBaseDir, taskID)
 	entries, err := os.ReadDir(taskDir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -134,11 +134,11 @@ func ListTaskFiles(yamlDir, dataBaseDir, title string) ([]string, error) {
 
 // CreateFile はタスクディレクトリ内に空ファイルを新規作成する。
 // 同名が既にあれば ErrFileExists を返す。タスクディレクトリが無ければ作る。
-func CreateFile(yamlDir, dataBaseDir, title, fileName string) error {
+func CreateFile(yamlDir, dataBaseDir string, taskID int, fileName string) error {
 	if err := ValidateFileName(fileName); err != nil {
 		return err
 	}
-	taskDir := TaskDir(yamlDir, dataBaseDir, title)
+	taskDir := TaskDir(yamlDir, dataBaseDir, taskID)
 	if err := os.MkdirAll(taskDir, 0o755); err != nil {
 		return fmt.Errorf("ensure task dir %s: %w", taskDir, err)
 	}
@@ -155,14 +155,14 @@ func CreateFile(yamlDir, dataBaseDir, title, fileName string) error {
 
 // RenameFile はタスクディレクトリ内のファイル名を変更する。
 // oldName が存在しなければ ErrFileNotFoundIn、newName が既存なら ErrFileExists。
-func RenameFile(yamlDir, dataBaseDir, title, oldName, newName string) error {
+func RenameFile(yamlDir, dataBaseDir string, taskID int, oldName, newName string) error {
 	if err := ValidateFileName(newName); err != nil {
 		return err
 	}
 	if oldName == newName {
 		return nil
 	}
-	taskDir := TaskDir(yamlDir, dataBaseDir, title)
+	taskDir := TaskDir(yamlDir, dataBaseDir, taskID)
 	oldPath := filepath.Join(taskDir, oldName)
 	newPath := filepath.Join(taskDir, newName)
 
@@ -185,11 +185,11 @@ func RenameFile(yamlDir, dataBaseDir, title, oldName, newName string) error {
 
 // DeleteFile はタスクディレクトリ内のファイルを削除する。
 // 不在なら ErrFileNotFoundIn を返す。ディレクトリやその他特殊ファイルは対象外。
-func DeleteFile(yamlDir, dataBaseDir, title, fileName string) error {
+func DeleteFile(yamlDir, dataBaseDir string, taskID int, fileName string) error {
 	if fileName == "" {
 		return ErrFileNameEmpty
 	}
-	taskDir := TaskDir(yamlDir, dataBaseDir, title)
+	taskDir := TaskDir(yamlDir, dataBaseDir, taskID)
 	full := filepath.Join(taskDir, fileName)
 
 	info, err := os.Stat(full)
