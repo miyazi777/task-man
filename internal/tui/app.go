@@ -78,6 +78,23 @@ func NewModel(repo storage.Repository, initial []task.Task, statuses task.Status
 	return m.withFilesRefreshed()
 }
 
+// validateTitleInput はタイトル入力値に対する文字種チェックと重複チェックを合成する。
+// excludeID が 0 でない場合、その ID のタスクとは比較しない (リネーム時の自身を許容)。
+// 空文字 (入力途中) は重複チェックの対象外にする。
+func (m Model) validateTitleInput(value string, excludeID int) error {
+	if err := task.ValidateTitleChars(value); err != nil {
+		return err
+	}
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	if task.HasDuplicateTitle(m.tasks, trimmed, excludeID) {
+		return task.ErrDuplicateTitle
+	}
+	return nil
+}
+
 // persist は m.collapsed を m.statuses に同期した上で yaml へ書き出す。
 // 折りたたみ状態を含むあらゆる永続化はこの関数経由で行う。
 func (m *Model) persist() error {
@@ -362,7 +379,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
-		m.inputErr = task.ValidateTitleChars(m.input.Value())
+		m.inputErr = m.validateTitleInput(m.input.Value(), 0)
 		return m, cmd
 
 	case ModeNewSubtask:
@@ -424,7 +441,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
-		m.inputErr = task.ValidateTitleChars(m.input.Value())
+		m.inputErr = m.validateTitleInput(m.input.Value(), 0)
 		return m, cmd
 
 	case ModeEditTitle:
@@ -464,9 +481,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.inputErr = nil
 			return m, nil
 		}
+		// ModeEditTitle: 自身の ID は重複比較から除外する
+		excludeID := 0
+		if cur, _, ok := m.currentTask(); ok {
+			excludeID = cur.ID
+		}
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
-		m.inputErr = task.ValidateTitleChars(m.input.Value())
+		m.inputErr = m.validateTitleInput(m.input.Value(), excludeID)
 		return m, cmd
 
 	case ModeEditStatus:
@@ -563,7 +585,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.input = newTitleInput(inputW)
 				m.input.SetValue(t.Title)
 				m.input.CursorEnd()
-				m.inputErr = task.ValidateTitleChars(m.input.Value())
+				m.inputErr = m.validateTitleInput(m.input.Value(), t.ID)
 				m.mode = ModeEditTitle
 				return m, textinput.Blink
 			case detailFieldStatus:

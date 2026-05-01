@@ -112,6 +112,7 @@ func loadStatuses(entries []yamlStatusEntry) (task.StatusList, bool) {
 
 func loadTasks(entries []yamlEntry, statuses task.StatusList) ([]task.Task, error) {
 	seen := make(map[int]struct{}, len(entries))
+	seenTitles := make(map[string]struct{}, len(entries))
 	tasks := make([]task.Task, 0, len(entries))
 	for i, e := range entries {
 		if e.Task.ID <= 0 {
@@ -131,6 +132,10 @@ func loadTasks(entries []yamlEntry, statuses task.StatusList) ([]task.Task, erro
 		if err := t.Validate(statuses); err != nil {
 			return nil, fmt.Errorf("tasks[%d]: %w", i, err)
 		}
+		if _, dup := seenTitles[t.Title]; dup {
+			return nil, fmt.Errorf("tasks[%d]: %w: %q", i, task.ErrDuplicateTitle, t.Title)
+		}
+		seenTitles[t.Title] = struct{}{}
 		tasks = append(tasks, t)
 	}
 	if err := validateParents(tasks); err != nil {

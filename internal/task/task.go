@@ -26,6 +26,7 @@ var (
 	ErrInvalidID       = errors.New("id must be greater than 0")
 	ErrTitleTooLong    = fmt.Errorf("title must be at most %d characters", MaxTitleRunes)
 	ErrUnknownStatusID = errors.New("status_id does not match any defined status")
+	ErrDuplicateTitle  = errors.New("task with the same title already exists")
 )
 
 // ForbiddenCharError は使用できない文字がタイトルに含まれていることを示すエラー。
@@ -62,6 +63,20 @@ func ValidateTitleChars(s string) error {
 		}
 	}
 	return nil
+}
+
+// HasDuplicateTitle は title が tasks 内の他タスクと重複しているかを返す。
+// excludeID が 0 でない場合、その ID のタスクは比較対象から除外する (リネーム時の自身など)。
+func HasDuplicateTitle(tasks []Task, title string, excludeID int) bool {
+	for _, t := range tasks {
+		if excludeID != 0 && t.ID == excludeID {
+			continue
+		}
+		if t.Title == title {
+			return true
+		}
+	}
+	return false
 }
 
 // Validate はタスク自身の整合性と、status_id が statuses に存在するかをチェックする。
