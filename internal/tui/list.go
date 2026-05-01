@@ -39,16 +39,19 @@ func renderList(tasks []task.Task, statuses task.StatusList, rows []listRow, col
 // カーソル時はリスト共通のカーソル反転 (アクセント色背景) を優先する。
 func renderStatusHeader(statuses task.StatusList, statusID int, isCollapsed, isCursor, listFocused bool, width int) string {
 	status, _ := statuses.ByID(statusID)
-	marker := "▼"
+	marker := "[-]"
 	if isCollapsed {
-		marker = "▶"
+		marker = "[+]"
 	}
-	raw := " " + marker + "[" + status.Label + "]"
 
 	if isCursor && listFocused {
+		raw := " " + marker + "  " + status.Label + " "
 		return styleCursorRow.Width(width).Render(raw)
 	}
-	return statusRowStyleFor(status).Width(width).Render(raw)
+
+	prefix := " " + marker + " "
+	labelPart := statusRowStyleFor(status).Render(" " + status.Label + " ")
+	return lipgloss.NewStyle().Width(width).Render(prefix + labelPart)
 }
 
 // renderTaskRow はタスク行を描画する。先頭にインデント (2 cell) を入れて status ヘッダと階層感を出す。
