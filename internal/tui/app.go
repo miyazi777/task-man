@@ -375,8 +375,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.inputErr != nil {
 				return m, nil
 			}
-			// サブタスクの親 ID を決定: カーソルがトップレベルタスクならその ID、
-			// サブタスクなら同じ親 (兄弟として作成)、それ以外 (status 行) はキャンセル扱い。
+			// カーソルが指すタスク自身を親としてサブタスクを作成する。
 			cur, _, ok := m.currentTask()
 			if !ok {
 				m.mode = ModeList
@@ -384,20 +383,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.inputErr = nil
 				return m, nil
 			}
-			parentID := cur.ID
-			if cur.ParentID != 0 {
-				parentID = cur.ParentID
-			}
-			parent, _, parentOK := taskByID(m.tasks, parentID)
-			if !parentOK {
-				m.saveErr = fmt.Errorf("parent task %d not found", parentID)
+			if taskDepth(m.tasks, cur.ID) >= task.MaxNestDepth {
+				m.saveErr = fmt.Errorf("nesting depth limit (%d) reached", task.MaxNestDepth)
 				return m, nil
 			}
 			t := task.Task{
 				ID:       task.NextID(m.tasks),
 				Title:    title,
-				StatusID: parent.StatusID,
-				ParentID: parentID,
+				StatusID: cur.StatusID,
+				ParentID: cur.ID,
 			}
 			if err := t.Validate(m.statuses); err != nil {
 				m.saveErr = err
@@ -412,7 +406,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.saveErr = err
 				return m, nil
 			}
-			delete(m.collapsed, parent.StatusID)
+			delete(m.collapsed, cur.StatusID)
 			m = m.withRowsRebuilt()
 			if newRow := findRowForTask(m.rows, len(m.tasks)-1); newRow >= 0 {
 				m.cursor = newRow
@@ -693,22 +687,25 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.NewTask):
+			// status 行: その status 配下にトップレベルの新規タスクを作成
+			// task 行: そのタスクの直下にサブタスクを作成 (深さ上限まで)
 			inputW := popupWidth(m.width) - 7
 			if inputW < 1 {
 				inputW = 1
 			}
-			m.input = newTitleInput(inputW)
-			m.inputErr = nil
-			m.mode = ModeNewTask
-			return m, textinput.Blink
-		case key.Matches(msg, m.keys.NewSubtask):
-			// カーソルがタスク行のときのみサブタスク作成を開始する。
-			if _, _, ok := m.currentTask(); !ok {
+			if m.cursor < len(m.rows) && m.rows[m.cursor].kind == rowStatus {
+				m.input = newTitleInput(inputW)
+				m.inputErr = nil
+				m.mode = ModeNewTask
+				return m, textinput.Blink
+			}
+			cur, _, ok := m.currentTask()
+			if !ok {
 				return m, nil
 			}
-			inputW := popupWidth(m.width) - 7
-			if inputW < 1 {
-				inputW = 1
+			if taskDepth(m.tasks, cur.ID) >= task.MaxNestDepth {
+				m.saveErr = fmt.Errorf("nesting depth limit (%d) reached", task.MaxNestDepth)
+				return m, nil
 			}
 			m.input = newTitleInput(inputW)
 			m.inputErr = nil
@@ -720,15 +717,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// taskByID は ID から m.tasks のエントリを返すユーティリティ。見つからなければ ok=false。
-func taskByID(tasks []task.Task, id int) (task.Task, int, bool) {
-	for i, t := range tasks {
-		if t.ID == id {
-			return t, i, true
-		}
-	}
-	return task.Task{}, 0, false
-}
 
 // openCurrentFile は現在のファイルカーソルが指すファイルを外部エディタで開く tea.Cmd を返す。
 func (m Model) openCurrentFile() (Model, tea.Cmd) {

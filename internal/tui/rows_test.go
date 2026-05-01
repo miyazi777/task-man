@@ -99,12 +99,6 @@ func TestBuildRowsSubtaskNesting(t *testing.T) {
 		{ID: 4, Title: "child1b", StatusID: 1, ParentID: 1},
 	}
 	rows := buildRows(statuses, tasks, nil)
-	// todo は最後のステータス。todo セクション内で:
-	//   parent1 (depth=0, idx=0)
-	//   child1a (depth=1, idx=1)
-	//   child1b (depth=1, idx=3)  ← parent1 の直後にまとめて並ぶ
-	//   parent2 (depth=0, idx=2)
-	// を期待する。
 	var todoTasks []listRow
 	for _, r := range rows {
 		if r.kind == rowTask && r.statusID == 1 {
@@ -128,5 +122,47 @@ func TestBuildRowsSubtaskNesting(t *testing.T) {
 			t.Errorf("todoTasks[%d] = (idx=%d depth=%d), want (idx=%d depth=%d)",
 				i, todoTasks[i].taskIndex, todoTasks[i].depth, w.taskIndex, w.depth)
 		}
+	}
+}
+
+func TestBuildRowsMultiLevelNesting(t *testing.T) {
+	statuses := task.DefaultStatuses()
+	tasks := []task.Task{
+		{ID: 1, Title: "l0", StatusID: 1},
+		{ID: 2, Title: "l1", StatusID: 1, ParentID: 1},
+		{ID: 3, Title: "l2", StatusID: 1, ParentID: 2},
+		{ID: 4, Title: "l3", StatusID: 1, ParentID: 3},
+	}
+	rows := buildRows(statuses, tasks, nil)
+	var todoTasks []listRow
+	for _, r := range rows {
+		if r.kind == rowTask && r.statusID == 1 {
+			todoTasks = append(todoTasks, r)
+		}
+	}
+	if len(todoTasks) != 4 {
+		t.Fatalf("todo tasks: got %d, want 4", len(todoTasks))
+	}
+	for i, want := range []int{0, 1, 2, 3} {
+		if todoTasks[i].depth != want {
+			t.Errorf("todoTasks[%d].depth = %d, want %d", i, todoTasks[i].depth, want)
+		}
+	}
+}
+
+func TestTaskDepth(t *testing.T) {
+	tasks := []task.Task{
+		{ID: 1, Title: "l0", StatusID: 1},
+		{ID: 2, Title: "l1", StatusID: 1, ParentID: 1},
+		{ID: 3, Title: "l2", StatusID: 1, ParentID: 2},
+	}
+	if got := taskDepth(tasks, 1); got != 0 {
+		t.Errorf("depth(1)=%d want 0", got)
+	}
+	if got := taskDepth(tasks, 2); got != 1 {
+		t.Errorf("depth(2)=%d want 1", got)
+	}
+	if got := taskDepth(tasks, 3); got != 2 {
+		t.Errorf("depth(3)=%d want 2", got)
 	}
 }

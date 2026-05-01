@@ -26,7 +26,7 @@ func renderFooter(mode, prevMode Mode, detailCursor int, width int) string {
 			{"k/↑", "up"}, {"j/↓", "down"},
 			{"l/→", "open/detail"}, {"h/←", "close"},
 			{"enter", "toggle"},
-			{"a", "new"}, {"s", "subtask"}, {"q", "quit"},
+			{"a", "new/subtask"}, {"q", "quit"},
 		})
 	case ModeDetail:
 		if detailCursor == detailFieldFiles {

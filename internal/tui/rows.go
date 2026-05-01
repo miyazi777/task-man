@@ -25,12 +25,11 @@ const (
 //
 //   - collapsed[statusID]==true のステータスはタスク行を出さない (ヘッダのみ)
 //   - セクション間には空行 (rowSeparator) を 1 行はさむ。最後のセクション後には入れない。
-//   - サブタスク (parent_id != 0) は親タスクの直後に深いインデント (depth=1) で並べる。
-//     親が同じ status グループに居ない場合はサブタスクをトップレベル扱いで並べる。
+//   - サブタスク (parent_id != 0) は親タスクの直下に再帰的にネスト表示する。
+//     親が同じ status グループに居ない場合はサブタスクをトップレベル扱い (depth=0) で並べる。
 func buildRows(statuses task.StatusList, tasks []task.Task, collapsed map[int]bool) []listRow {
 	sorted := statuses.Sorted()
 
-	// 親 ID → 子タスクの index 一覧
 	childrenByParent := make(map[int][]int)
 	idToIndex := make(map[int]int, len(tasks))
 	for j, t := range tasks {
@@ -41,6 +40,20 @@ func buildRows(statuses task.StatusList, tasks []task.Task, collapsed map[int]bo
 	}
 
 	var rows []listRow
+
+	// emit はタスク j を depth で出力し、その配下 (同一 status グループ内) を
+	// DFS で再帰的に出力する。
+	var emit func(j, depth, statusID int)
+	emit = func(j, depth, statusID int) {
+		rows = append(rows, listRow{kind: rowTask, statusID: statusID, taskIndex: j, depth: depth})
+		for _, ci := range childrenByParent[tasks[j].ID] {
+			if tasks[ci].StatusID != statusID {
+				continue
+			}
+			emit(ci, depth+1, statusID)
+		}
+	}
+
 	for i := len(sorted) - 1; i >= 0; i-- {
 		s := sorted[i]
 		rows = append(rows, listRow{kind: rowStatus, statusID: s.ID})
@@ -49,22 +62,13 @@ func buildRows(statuses task.StatusList, tasks []task.Task, collapsed map[int]bo
 				if t.StatusID != s.ID {
 					continue
 				}
-				// 親が同じ status グループに居ないサブタスクはトップレベル扱いで並べる。
-				// それ以外で parent_id!=0 のものは親の直後に並べるため、ここではスキップ。
+				// サブタスクで親が同じ status グループに居る場合は親側の再帰経由で出力されるためスキップ。
 				if t.ParentID != 0 {
 					if pi, ok := idToIndex[t.ParentID]; ok && tasks[pi].StatusID == s.ID {
 						continue
 					}
-					rows = append(rows, listRow{kind: rowTask, statusID: s.ID, taskIndex: j, depth: 0})
-					continue
 				}
-				rows = append(rows, listRow{kind: rowTask, statusID: s.ID, taskIndex: j, depth: 0})
-				for _, ci := range childrenByParent[t.ID] {
-					if tasks[ci].StatusID != s.ID {
-						continue
-					}
-					rows = append(rows, listRow{kind: rowTask, statusID: s.ID, taskIndex: ci, depth: 1})
-				}
+				emit(j, 0, s.ID)
 			}
 		}
 		if i > 0 {
@@ -72,6 +76,35 @@ func buildRows(statuses task.StatusList, tasks []task.Task, collapsed map[int]bo
 		}
 	}
 	return rows
+}
+
+// taskDepth は tasks の中で id のネスト深さ (0 = トップレベル) を返す。
+// 親チェーンを辿って数える。循環や行方不明な親があれば打ち切る。
+func taskDepth(tasks []task.Task, id int) int {
+	idIndex := make(map[int]int, len(tasks))
+	for i, t := range tasks {
+		idIndex[t.ID] = i
+	}
+	idx, ok := idIndex[id]
+	if !ok {
+		return 0
+	}
+	cur := tasks[idx]
+	depth := 0
+	seen := map[int]bool{cur.ID: true}
+	for cur.ParentID != 0 {
+		pi, ok := idIndex[cur.ParentID]
+		if !ok {
+			break
+		}
+		if seen[cur.ParentID] {
+			break
+		}
+		seen[cur.ParentID] = true
+		depth++
+		cur = tasks[pi]
+	}
+	return depth
 }
 
 // nextNavigable は from より後ろの (status か task の) 最初の行を返す。

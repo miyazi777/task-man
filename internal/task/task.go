@@ -10,6 +10,10 @@ import (
 // Linux/macOS のファイル名上限を考慮し、日本語でも安全な値として 60 を採用。
 const MaxTitleRunes = 60
 
+// MaxNestDepth はサブタスクのネスト最大深さ (0 = トップレベル)。
+// 値 4 のとき、トップレベル + 4 階層 = 計 5 階層まで許容する。
+const MaxNestDepth = 4
+
 type Task struct {
 	ID       int
 	Title    string

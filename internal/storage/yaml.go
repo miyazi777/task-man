@@ -139,8 +139,8 @@ func loadTasks(entries []yamlEntry, statuses task.StatusList) ([]task.Task, erro
 	return tasks, nil
 }
 
-// validateParents は parent_id が存在し、かつ親自身がトップレベルであることを保証する。
-// 多段ネスト (親もサブタスク) はサポート対象外なのでエラーにする。
+// validateParents は parent_id の存在・循環の有無・ネスト深さを検証する。
+// ネスト深さは task.MaxNestDepth まで許容する (深さ 0 = トップレベル)。
 func validateParents(tasks []task.Task) error {
 	idIndex := make(map[int]int, len(tasks))
 	for i, t := range tasks {
@@ -150,15 +150,23 @@ func validateParents(tasks []task.Task) error {
 		if t.ParentID == 0 {
 			continue
 		}
-		if t.ParentID == t.ID {
-			return fmt.Errorf("tasks[%d]: parent_id refers to itself", i)
-		}
-		pi, ok := idIndex[t.ParentID]
-		if !ok {
-			return fmt.Errorf("tasks[%d]: parent_id %d does not exist", i, t.ParentID)
-		}
-		if tasks[pi].ParentID != 0 {
-			return fmt.Errorf("tasks[%d]: parent task %d is itself a subtask (nested subtasks unsupported)", i, t.ParentID)
+		seen := map[int]bool{t.ID: true}
+		depth := 0
+		cur := t
+		for cur.ParentID != 0 {
+			if seen[cur.ParentID] {
+				return fmt.Errorf("tasks[%d]: parent chain has cycle at id %d", i, cur.ParentID)
+			}
+			seen[cur.ParentID] = true
+			depth++
+			if depth > task.MaxNestDepth {
+				return fmt.Errorf("tasks[%d]: nesting depth exceeds limit (%d)", i, task.MaxNestDepth)
+			}
+			pi, ok := idIndex[cur.ParentID]
+			if !ok {
+				return fmt.Errorf("tasks[%d]: parent_id %d does not exist", i, cur.ParentID)
+			}
+			cur = tasks[pi]
 		}
 	}
 	return nil

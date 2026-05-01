@@ -316,7 +316,8 @@ tasks:
 	}
 }
 
-func TestYAMLSubtaskNestedRejected(t *testing.T) {
+func TestYAMLSubtaskNestedAllowed(t *testing.T) {
+	// MaxNestDepth=4 のとき depth 0..4 まで許容される (5 階層)。
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tasks.yaml")
 	body := `statuses:
@@ -327,25 +328,84 @@ func TestYAMLSubtaskNestedRejected(t *testing.T) {
 tasks:
   - task:
       id: 1
-      title: 親
+      title: l0
       status_id: 1
   - task:
       id: 2
-      title: 子
+      title: l1
       status_id: 1
       parent_id: 1
   - task:
       id: 3
-      title: 孫
+      title: l2
       status_id: 1
       parent_id: 2
+  - task:
+      id: 4
+      title: l3
+      status_id: 1
+      parent_id: 3
+  - task:
+      id: 5
+      title: l4
+      status_id: 1
+      parent_id: 4
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	repo := NewYAMLRepository(path)
+	if _, _, _, err := repo.Load(); err != nil {
+		t.Errorf("unexpected error for 5-level nest: %v", err)
+	}
+}
+
+func TestYAMLSubtaskDepthExceeded(t *testing.T) {
+	// 6 階層は MaxNestDepth=4 を超えるためエラーになる。
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	body := `statuses:
+  - status:
+      id: 1
+      sequence: 1
+      label: todo
+tasks:
+  - task:
+      id: 1
+      title: l0
+      status_id: 1
+  - task:
+      id: 2
+      title: l1
+      status_id: 1
+      parent_id: 1
+  - task:
+      id: 3
+      title: l2
+      status_id: 1
+      parent_id: 2
+  - task:
+      id: 4
+      title: l3
+      status_id: 1
+      parent_id: 3
+  - task:
+      id: 5
+      title: l4
+      status_id: 1
+      parent_id: 4
+  - task:
+      id: 6
+      title: l5
+      status_id: 1
+      parent_id: 5
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 	repo := NewYAMLRepository(path)
 	if _, _, _, err := repo.Load(); err == nil {
-		t.Error("expected error for nested subtask (grandchild)")
+		t.Error("expected error for nesting depth exceeded")
 	}
 }
 
