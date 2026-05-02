@@ -10,8 +10,7 @@ type keyMap struct {
 	Toggle     key.Binding // space - ModeMove での子モードトグル (タスクリストの開閉には未使用)
 	Open       key.Binding // l/→ - タスクリストでステータス/タスクを展開
 	Close      key.Binding // h/← - タスクリストでステータス/タスクを折りたたみ
-	Select     key.Binding // s - タスクの選択トグル (移動操作の前段)
-	Move       key.Binding // x - 選択中タスクの移動を開始
+	Move       key.Binding // x - カーソル位置のタスクの移動を開始
 	Paste      key.Binding // p - 移動先で確定して貼り付け
 	NewTask    key.Binding // a - 新規タスク (status 行) / サブタスク (task 行)
 	AddFile    key.Binding // a (Files セクション)
@@ -32,7 +31,6 @@ func newKeyMap() keyMap {
 		Toggle:     key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
 		Open:       key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "open")),
 		Close:      key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "close")),
-		Select:     key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "select")),
 		Move:       key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "move")),
 		Paste:      key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "paste")),
 		NewTask:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "new")),

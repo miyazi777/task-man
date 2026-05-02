@@ -26,7 +26,7 @@ func renderFooter(mode, prevMode Mode, detailCursor int, width int) string {
 			{"k/↑", "up"}, {"j/↓", "down"},
 			{"l/→", "open"}, {"h/←", "close"},
 			{"enter", "detail"},
-			{"s", "select"}, {"x", "move"},
+			{"x", "move"},
 			{"a", "new/subtask"}, {"q", "quit"},
 		})
 	case ModeDetail:

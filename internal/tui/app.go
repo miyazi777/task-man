@@ -36,7 +36,7 @@ type Model struct {
 	rows          []listRow         // 表示用フラット行リスト (ステータスでグループ化)
 	collapsed     map[int]bool      // statusID → 折りたたみ中
 	taskCollapsed map[int]bool      // taskID → サブタスクを折りたたみ中
-	selected      map[int]bool      // taskID → 選択中 (移動操作の前段。インメモリのみで永続化しない)
+	moving        int               // ModeMove 中の移動対象タスク ID (0 なら移動中でない)
 	moveAsChild   bool              // ModeMove 中、カーソル位置タスクの「最初の子」モードか (space でトグル)
 	cursor        int               // m.rows のインデックス (旧: m.tasks のインデックス)
 	mode          Mode
@@ -54,8 +54,7 @@ type Model struct {
 	width  int
 	height int
 
-	saveErr   error
-	selectErr error // 選択操作の制約違反 (異なるステータス/階層) を一時表示する
+	saveErr error
 }
 
 func NewModel(repo storage.Repository, initial []task.Task, statuses task.StatusList, yamlDir string, cfg storage.AppConfig) Model {
@@ -79,7 +78,6 @@ func NewModel(repo storage.Repository, initial []task.Task, statuses task.Status
 		cfg:           cfg,
 		collapsed:     collapsed,
 		taskCollapsed: taskCollapsed,
-		selected:      make(map[int]bool),
 		mode:          ModeList,
 		keys:          newKeyMap(),
 	}
@@ -227,8 +225,14 @@ func (m Model) executeMove() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.tasks = task.MoveTasks(m.tasks, m.selected, dst)
-	m.selected = make(map[int]bool)
+	if m.moving == 0 {
+		m.mode = ModeList
+		m = m.withRowsRebuilt()
+		return m, nil
+	}
+	m.tasks = task.MoveTasks(m.tasks, map[int]bool{m.moving: true}, dst)
+	movedID := m.moving
+	m.moving = 0
 	m.moveAsChild = false
 	m.mode = ModeList
 	if err := m.persist(); err != nil {
@@ -237,22 +241,16 @@ func (m Model) executeMove() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m = m.withRowsRebuilt()
-	return m, nil
-}
-
-// firstSelectedTask は m.selected の中から1つタスクを返す (アンカー判定用)。
-// 反復順を安定させるため m.tasks の並びで最初に見つかったものを返す。
-// 該当が無ければ ok=false。
-func (m Model) firstSelectedTask() (task.Task, bool) {
-	if len(m.selected) == 0 {
-		return task.Task{}, false
-	}
-	for _, t := range m.tasks {
-		if m.selected[t.ID] {
-			return t, true
+	// 移動後のタスク行へカーソルを追従させる
+	for i, t := range m.tasks {
+		if t.ID == movedID {
+			if r := findRowForTask(m.rows, i); r >= 0 {
+				m.cursor = r
+			}
+			break
 		}
 	}
-	return task.Task{}, false
+	return m, nil
 }
 
 // currentStatusID は cursor が指す行が status (or 該当行のグループ) のステータス ID を返す。
@@ -747,10 +745,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ModeMove:
 		switch msg.String() {
 		case "esc":
-			// キャンセル: 選択もクリアして ModeList へ戻る。
-			m.selected = make(map[int]bool)
+			// キャンセル: 移動対象をクリアして ModeList へ戻る。
+			m.moving = 0
 			m.moveAsChild = false
-			m.selectErr = nil
 			m.mode = ModeList
 			m = m.withRowsRebuilt()
 			return m, nil
@@ -828,42 +825,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// h/←: カーソル位置の status 行 / task 行を折りたたむ (既に折りたたみ済みなら no-op)。
 			return m.applyCollapseChange(true)
 		case key.Matches(msg, m.keys.Move):
-			// x: 選択中タスクがあるとき ModeMove へ遷移。なければ何もしない。
-			if len(m.selected) == 0 {
-				return m, nil
-			}
-			m.mode = ModeMove
-			m.moveAsChild = false
-			m.selectErr = nil
-			m = m.withRowsRebuilt()
-			return m, nil
-		case key.Matches(msg, m.keys.Select):
-			// s: タスク行のみ受け付け、選択状態をトグルする (移動操作の前段)。
-			// 選択は yaml に永続化しない。
-			// 制約: 既に選択中のタスクがある場合、新規追加するタスクは
-			//       同じ status_id かつ 同じ parent_id (同じ親の兄弟) である必要がある。
+			// x: カーソル位置がタスク行のとき、そのタスクを移動対象として ModeMove へ遷移。
+			// status 行や空の行では何もしない。
 			cur, _, ok := m.currentTask()
 			if !ok {
 				return m, nil
 			}
-			// 既に選択中なら無条件でトグル解除 (制約とは関係なく外せる)。
-			if m.selected[cur.ID] {
-				delete(m.selected, cur.ID)
-				m.selectErr = nil
-				return m, nil
-			}
-			if anchor, ok := m.firstSelectedTask(); ok {
-				if anchor.StatusID != cur.StatusID {
-					m.selectErr = fmt.Errorf("cannot select tasks across different statuses")
-					return m, nil
-				}
-				if anchor.ParentID != cur.ParentID {
-					m.selectErr = fmt.Errorf("cannot select tasks under different parents")
-					return m, nil
-				}
-			}
-			m.selected[cur.ID] = true
-			m.selectErr = nil
+			m.moving = cur.ID
+			m.moveAsChild = false
+			m.mode = ModeMove
+			m = m.withRowsRebuilt()
 			return m, nil
 		case key.Matches(msg, m.keys.NewTask):
 			// status 行: その status 配下にトップレベルの新規タスクを作成
@@ -953,7 +924,7 @@ func (m Model) View() string {
 	listFocused := m.mode == ModeList || m.mode == ModeQuitConfirm || m.mode == ModeMove
 	detailFocused := m.mode == ModeDetail || m.mode == ModeEditTitle || m.mode == ModeEditStatus
 
-	left := renderList(m.tasks, m.statuses, m.rows, m.collapsed, m.selected, m.cursor, listFocused, leftW, bodyH)
+	left := renderList(m.tasks, m.statuses, m.rows, m.collapsed, m.cursor, listFocused, leftW, bodyH)
 
 	var current *task.Task
 	if t, _, ok := m.currentTask(); ok {
@@ -997,9 +968,6 @@ func (m Model) View() string {
 
 	if m.saveErr != nil {
 		view += "\n" + lipgloss.NewStyle().Foreground(colorDanger).Render(fmt.Sprintf("save error: %v", m.saveErr))
-	}
-	if m.selectErr != nil {
-		view += "\n" + lipgloss.NewStyle().Foreground(colorDanger).Render(fmt.Sprintf("error: %v", m.selectErr))
 	}
 	return view
 }
