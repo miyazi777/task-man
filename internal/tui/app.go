@@ -339,6 +339,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				ID:       task.NextID(m.tasks),
 				Title:    title,
 				StatusID: initialStatusID,
+				Position: task.NextPosition(m.tasks, 0),
 			}
 			if err := t.Validate(m.statuses); err != nil {
 				m.saveErr = err
@@ -403,6 +404,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				Title:    title,
 				StatusID: cur.StatusID,
 				ParentID: cur.ID,
+				Position: task.NextPosition(m.tasks, cur.ID),
 			}
 			if err := t.Validate(m.statuses); err != nil {
 				m.saveErr = err

@@ -192,6 +192,86 @@ func TestTaskHasChildren(t *testing.T) {
 	}
 }
 
+func TestBuildRowsSortedByPosition(t *testing.T) {
+	statuses := task.DefaultStatuses()
+	// 同じ status (todo) のルートタスクを yaml 順 (a,b,c) と異なる position 順 (3,1,2) で並べる。
+	tasks := []task.Task{
+		{ID: 1, Title: "a", StatusID: 1, Position: 3},
+		{ID: 2, Title: "b", StatusID: 1, Position: 1},
+		{ID: 3, Title: "c", StatusID: 1, Position: 2},
+	}
+	rows := buildRows(statuses, tasks, nil, nil)
+	var todoTaskIdx []int
+	for _, r := range rows {
+		if r.kind == rowTask && r.statusID == 1 {
+			todoTaskIdx = append(todoTaskIdx, r.taskIndex)
+		}
+	}
+	// 期待: position 昇順なので b(idx=1), c(idx=2), a(idx=0)
+	want := []int{1, 2, 0}
+	if len(todoTaskIdx) != len(want) {
+		t.Fatalf("len mismatch: got %v want %v", todoTaskIdx, want)
+	}
+	for i := range want {
+		if todoTaskIdx[i] != want[i] {
+			t.Errorf("[%d]: got idx=%d want %d", i, todoTaskIdx[i], want[i])
+		}
+	}
+}
+
+func TestBuildRowsSubtaskSortedByPosition(t *testing.T) {
+	statuses := task.DefaultStatuses()
+	tasks := []task.Task{
+		{ID: 1, Title: "p", StatusID: 1, Position: 1},
+		{ID: 2, Title: "c1", StatusID: 1, ParentID: 1, Position: 3},
+		{ID: 3, Title: "c2", StatusID: 1, ParentID: 1, Position: 1},
+		{ID: 4, Title: "c3", StatusID: 1, ParentID: 1, Position: 2},
+	}
+	rows := buildRows(statuses, tasks, nil, nil)
+	var sub []int
+	for _, r := range rows {
+		if r.kind == rowTask && r.depth == 1 {
+			sub = append(sub, r.taskIndex)
+		}
+	}
+	// 期待: position 昇順なので c2(idx=2), c3(idx=3), c1(idx=1)
+	want := []int{2, 3, 1}
+	if len(sub) != len(want) {
+		t.Fatalf("len mismatch: got %v want %v", sub, want)
+	}
+	for i := range want {
+		if sub[i] != want[i] {
+			t.Errorf("[%d]: got idx=%d want %d", i, sub[i], want[i])
+		}
+	}
+}
+
+func TestBuildRowsPositionTieBreakerByID(t *testing.T) {
+	statuses := task.DefaultStatuses()
+	// position が同じ場合は id 昇順。
+	tasks := []task.Task{
+		{ID: 5, Title: "a", StatusID: 1, Position: 1},
+		{ID: 2, Title: "b", StatusID: 1, Position: 1},
+		{ID: 9, Title: "c", StatusID: 1, Position: 1},
+	}
+	rows := buildRows(statuses, tasks, nil, nil)
+	var ids []int
+	for _, r := range rows {
+		if r.kind == rowTask && r.statusID == 1 {
+			ids = append(ids, tasks[r.taskIndex].ID)
+		}
+	}
+	want := []int{2, 5, 9}
+	if len(ids) != len(want) {
+		t.Fatalf("len mismatch: got %v want %v", ids, want)
+	}
+	for i := range want {
+		if ids[i] != want[i] {
+			t.Errorf("[%d]: got id=%d want %d", i, ids[i], want[i])
+		}
+	}
+}
+
 func TestTaskDepth(t *testing.T) {
 	tasks := []task.Task{
 		{ID: 1, Title: "l0", StatusID: 1},

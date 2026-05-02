@@ -16,9 +16,9 @@ func TestYAMLRoundTrip(t *testing.T) {
 
 	statuses := task.DefaultStatuses()
 	in := []task.Task{
-		{ID: 1, Title: "設計書を書く", StatusID: 1},
-		{ID: 2, Title: "実装を進める", StatusID: 2},
-		{ID: 3, Title: "仕様レビュー", StatusID: 3},
+		{ID: 1, Title: "設計書を書く", StatusID: 1, Position: 1},
+		{ID: 2, Title: "実装を進める", StatusID: 2, Position: 2},
+		{ID: 3, Title: "仕様レビュー", StatusID: 3, Position: 3},
 	}
 	if err := repo.Save(in, statuses, AppConfig{}); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -294,9 +294,9 @@ func TestYAMLSubtaskRoundTrip(t *testing.T) {
 	repo := NewYAMLRepository(path)
 	statuses := task.DefaultStatuses()
 	in := []task.Task{
-		{ID: 1, Title: "親", StatusID: 1},
-		{ID: 2, Title: "子1", StatusID: 1, ParentID: 1},
-		{ID: 3, Title: "子2", StatusID: 1, ParentID: 1},
+		{ID: 1, Title: "親", StatusID: 1, Position: 1},
+		{ID: 2, Title: "子1", StatusID: 1, ParentID: 1, Position: 1},
+		{ID: 3, Title: "子2", StatusID: 1, ParentID: 1, Position: 2},
 	}
 	if err := repo.Save(in, statuses, AppConfig{}); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -429,6 +429,104 @@ tasks:
 	repo := NewYAMLRepository(path)
 	if _, _, _, err := repo.Load(); err == nil {
 		t.Error("expected error for nesting depth exceeded")
+	}
+}
+
+func TestYAMLPositionAutoAssign(t *testing.T) {
+	// position 未指定のタスクが yaml 出現順に 1 から採番され、書き戻される。
+	// 兄弟スコープごとに独立して採番される (ルートとサブタスクは別スコープ)。
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	body := `statuses:
+  - status:
+      id: 1
+      sequence: 1
+      label: todo
+tasks:
+  - task:
+      id: 10
+      title: r1
+      status_id: 1
+  - task:
+      id: 11
+      title: r2
+      status_id: 1
+  - task:
+      id: 12
+      title: c1
+      status_id: 1
+      parent_id: 10
+  - task:
+      id: 13
+      title: c2
+      status_id: 1
+      parent_id: 10
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	repo := NewYAMLRepository(path)
+	tasks, _, _, err := repo.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := map[int]int{10: 1, 11: 2, 12: 1, 13: 2}
+	for _, tk := range tasks {
+		if tk.Position != want[tk.ID] {
+			t.Errorf("task id=%d: got Position=%d want %d", tk.ID, tk.Position, want[tk.ID])
+		}
+	}
+
+	// 再ロードで補完済みの値が保持されること (= 書き戻されたこと)。
+	tasks2, _, _, err := repo.Load()
+	if err != nil {
+		t.Fatalf("re-Load: %v", err)
+	}
+	for _, tk := range tasks2 {
+		if tk.Position != want[tk.ID] {
+			t.Errorf("re-loaded task id=%d: got Position=%d want %d", tk.ID, tk.Position, want[tk.ID])
+		}
+	}
+}
+
+func TestYAMLPositionPartialAutoAssign(t *testing.T) {
+	// 一部のみ position を持つ場合、未指定のタスクは max+1 から採番される。
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	body := `statuses:
+  - status:
+      id: 1
+      sequence: 1
+      label: todo
+tasks:
+  - task:
+      id: 1
+      title: a
+      status_id: 1
+      position: 5
+  - task:
+      id: 2
+      title: b
+      status_id: 1
+  - task:
+      id: 3
+      title: c
+      status_id: 1
+      position: 2
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	repo := NewYAMLRepository(path)
+	tasks, _, _, err := repo.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := map[int]int{1: 5, 2: 6, 3: 2}
+	for _, tk := range tasks {
+		if tk.Position != want[tk.ID] {
+			t.Errorf("task id=%d: got Position=%d want %d", tk.ID, tk.Position, want[tk.ID])
+		}
 	}
 }
 

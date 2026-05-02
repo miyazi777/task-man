@@ -28,6 +28,7 @@ type yamlTask struct {
 	Title     string `yaml:"title"`
 	StatusID  int    `yaml:"status_id"`
 	ParentID  int    `yaml:"parent_id,omitempty"`
+	Position  int    `yaml:"position,omitempty"`
 	Collapsed bool   `yaml:"collapsed,omitempty"`
 }
 
@@ -72,7 +73,7 @@ func (r *YAMLRepository) Load() ([]task.Task, task.StatusList, AppConfig, error)
 		return nil, nil, AppConfig{}, err
 	}
 
-	tasks, err := loadTasks(f.Tasks, statuses)
+	tasks, tasksChanged, err := loadTasks(f.Tasks, statuses)
 	if err != nil {
 		return nil, nil, AppConfig{}, err
 	}
@@ -82,7 +83,7 @@ func (r *YAMLRepository) Load() ([]task.Task, task.StatusList, AppConfig, error)
 		Editor:            f.Applications.Editor,
 	}
 
-	if statusesChanged {
+	if statusesChanged || tasksChanged {
 		if err := r.Save(tasks, statuses, cfg); err != nil {
 			return nil, nil, AppConfig{}, fmt.Errorf("write back defaults: %w", err)
 		}
@@ -111,15 +112,15 @@ func loadStatuses(entries []yamlStatusEntry) (task.StatusList, bool) {
 	return assigned, changed
 }
 
-func loadTasks(entries []yamlEntry, statuses task.StatusList) ([]task.Task, error) {
+func loadTasks(entries []yamlEntry, statuses task.StatusList) ([]task.Task, bool, error) {
 	seen := make(map[int]struct{}, len(entries))
 	tasks := make([]task.Task, 0, len(entries))
 	for i, e := range entries {
 		if e.Task.ID <= 0 {
-			return nil, fmt.Errorf("tasks[%d]: invalid id %d", i, e.Task.ID)
+			return nil, false, fmt.Errorf("tasks[%d]: invalid id %d", i, e.Task.ID)
 		}
 		if _, dup := seen[e.Task.ID]; dup {
-			return nil, fmt.Errorf("tasks[%d]: duplicated id %d", i, e.Task.ID)
+			return nil, false, fmt.Errorf("tasks[%d]: duplicated id %d", i, e.Task.ID)
 		}
 		seen[e.Task.ID] = struct{}{}
 
@@ -128,17 +129,40 @@ func loadTasks(entries []yamlEntry, statuses task.StatusList) ([]task.Task, erro
 			Title:     e.Task.Title,
 			StatusID:  e.Task.StatusID,
 			ParentID:  e.Task.ParentID,
+			Position:  e.Task.Position,
 			Collapsed: e.Task.Collapsed,
 		}
 		if err := t.Validate(statuses); err != nil {
-			return nil, fmt.Errorf("tasks[%d]: %w", i, err)
+			return nil, false, fmt.Errorf("tasks[%d]: %w", i, err)
 		}
 		tasks = append(tasks, t)
 	}
 	if err := validateParents(tasks); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return tasks, nil
+	changed := assignMissingPositions(tasks)
+	return tasks, changed, nil
+}
+
+// assignMissingPositions は同じ ParentID を持つ兄弟内で position=0 のタスクに対し、
+// その兄弟群の現在の max(position)+1 から始めて yaml 出現順に採番する。
+// 1 件でも補完が発生したら true を返す (書き戻し用)。
+func assignMissingPositions(tasks []task.Task) bool {
+	maxByParent := make(map[int]int)
+	for _, t := range tasks {
+		if t.Position > maxByParent[t.ParentID] {
+			maxByParent[t.ParentID] = t.Position
+		}
+	}
+	changed := false
+	for i := range tasks {
+		if tasks[i].Position == 0 {
+			maxByParent[tasks[i].ParentID]++
+			tasks[i].Position = maxByParent[tasks[i].ParentID]
+			changed = true
+		}
+	}
+	return changed
 }
 
 // validateParents は parent_id の存在・循環の有無・ネスト深さを検証する。
@@ -197,6 +221,7 @@ func (r *YAMLRepository) Save(tasks []task.Task, statuses task.StatusList, cfg A
 				Title:     t.Title,
 				StatusID:  t.StatusID,
 				ParentID:  t.ParentID,
+				Position:  t.Position,
 				Collapsed: t.Collapsed,
 			},
 		})

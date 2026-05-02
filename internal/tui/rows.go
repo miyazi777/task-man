@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"sort"
+
 	"github.com/miyazi777/task-man/internal/task"
 )
 
@@ -23,15 +25,23 @@ const (
 )
 
 // buildRows はステータスを sequence 逆順 (大きい順) で並べ、
-// 各ステータス配下に該当タスクを yaml の出現順で並べたフラットな行列を返す。
+// 各ステータス配下に該当タスクを position 昇順 (タイブレーカは id 昇順) で並べたフラットな行列を返す。
 //
 //   - statusCollapsed[statusID]==true のステータスはタスク行を出さない (ヘッダのみ)
 //   - taskCollapsed[taskID]==true のタスクは子孫を非表示にする (自身は表示)
 //   - セクション間には空行 (rowSeparator) を 1 行はさむ。最後のセクション後には入れない。
-//   - サブタスクは親タスクの直下に再帰的にネスト表示する。
+//   - サブタスクは親タスクの直下に再帰的にネスト表示する (兄弟内は position → id 順)。
 //     親が同じ status グループに居ない場合はサブタスクをトップレベル扱い (depth=0) で並べる。
 func buildRows(statuses task.StatusList, tasks []task.Task, statusCollapsed, taskCollapsed map[int]bool) []listRow {
 	sorted := statuses.Sorted()
+
+	// 子インデックスを position 昇順 → id 昇順で保持する。
+	lessByPosID := func(a, b int) bool {
+		if tasks[a].Position != tasks[b].Position {
+			return tasks[a].Position < tasks[b].Position
+		}
+		return tasks[a].ID < tasks[b].ID
+	}
 
 	childrenByParent := make(map[int][]int)
 	idToIndex := make(map[int]int, len(tasks))
@@ -40,6 +50,11 @@ func buildRows(statuses task.StatusList, tasks []task.Task, statusCollapsed, tas
 		if t.ParentID != 0 {
 			childrenByParent[t.ParentID] = append(childrenByParent[t.ParentID], j)
 		}
+	}
+	for pid := range childrenByParent {
+		sort.SliceStable(childrenByParent[pid], func(a, b int) bool {
+			return lessByPosID(childrenByParent[pid][a], childrenByParent[pid][b])
+		})
 	}
 
 	var rows []listRow
@@ -72,16 +87,23 @@ func buildRows(statuses task.StatusList, tasks []task.Task, statusCollapsed, tas
 		s := sorted[i]
 		rows = append(rows, listRow{kind: rowStatus, statusID: s.ID})
 		if !statusCollapsed[s.ID] {
+			// status グループのトップレベル: ParentID==0 (もしくは親が別 status グループに居る孤立サブタスク)。
+			var topLevel []int
 			for j, t := range tasks {
 				if t.StatusID != s.ID {
 					continue
 				}
-				// サブタスクで親が同じ status グループに居る場合は親側の再帰経由で出力されるためスキップ。
 				if t.ParentID != 0 {
 					if pi, ok := idToIndex[t.ParentID]; ok && tasks[pi].StatusID == s.ID {
 						continue
 					}
 				}
+				topLevel = append(topLevel, j)
+			}
+			sort.SliceStable(topLevel, func(a, b int) bool {
+				return lessByPosID(topLevel[a], topLevel[b])
+			})
+			for _, j := range topLevel {
 				emit(j, 0, s.ID)
 			}
 		}

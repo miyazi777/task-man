@@ -19,6 +19,7 @@ type Task struct {
 	Title     string
 	StatusID  int
 	ParentID  int  // 親タスクの ID。0 ならトップレベル。
+	Position  int  // 同じ ParentID を持つ兄弟内での表示順 (1 始まり、昇順)
 	Collapsed bool // サブタスクをタスクリスト上で折りたたんでいるか (永続化対象)
 }
 
