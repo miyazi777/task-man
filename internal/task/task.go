@@ -15,12 +15,13 @@ const MaxTitleRunes = 60
 const MaxNestDepth = 4
 
 type Task struct {
-	ID        int
-	Title     string
-	StatusID  int
-	ParentID  int  // 親タスクの ID。0 ならトップレベル。
-	Position  int  // 同じ ParentID を持つ兄弟内での表示順 (1 始まり、昇順)
-	Collapsed bool // サブタスクをタスクリスト上で折りたたんでいるか (永続化対象)
+	ID         int
+	Title      string
+	StatusID   int
+	ParentID   int  // 親タスクの ID。0 ならトップレベル。
+	Position   int  // 同じ ParentID を持つ兄弟内での表示順 (1 始まり、昇順)
+	Collapsed  bool // サブタスクをタスクリスト上で折りたたんでいるか (永続化対象)
+	IsTrashBox bool // ゴミ箱に入っているか。true のとき通常リストでは非表示、トラッシュ箱ビューで表示される。status_id は元のまま保持される。
 }
 
 var (

@@ -38,6 +38,7 @@ type Model struct {
 	taskCollapsed map[int]bool      // taskID → サブタスクを折りたたみ中
 	moving        int               // ModeMove 中の移動対象タスク ID (0 なら移動中でない)
 	moveSnapshot  []task.Task       // ModeMove 開始時の m.tasks のスナップショット (esc で復元)
+	viewTrash     bool              // true: ゴミ箱ビュー (IsTrashBox=true のタスクのみ)、false: 通常リスト
 	cursor        int               // m.rows のインデックス (旧: m.tasks のインデックス)
 	mode          Mode
 	prevMode      Mode
@@ -103,7 +104,7 @@ func (m *Model) persist() error {
 // withRowsRebuilt はステータスとタスクの構成・折りたたみ状態から rows を再構築し、
 // cursor が範囲外/separator にいる場合は近接の navigable 行へ寄せる。
 func (m Model) withRowsRebuilt() Model {
-	m.rows = buildRows(m.statuses, m.tasks, m.collapsed, m.taskCollapsed)
+	m.rows = buildRows(m.statuses, m.tasks, m.collapsed, m.taskCollapsed, m.viewTrash)
 	if len(m.rows) == 0 {
 		m.cursor = 0
 		return m
@@ -193,6 +194,29 @@ func (m Model) applyCollapseChange(collapse bool) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+// clampCursor はタスク削除等で rows が縮んだ後、cursor を範囲内に収め、
+// separator 等の非 navigable 行に居る場合は近接の navigable 行へ寄せる。
+func clampCursor(m Model) Model {
+	if len(m.rows) == 0 {
+		m.cursor = 0
+		return m
+	}
+	if m.cursor >= len(m.rows) {
+		m.cursor = len(m.rows) - 1
+	}
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+	if !isNavigable(m.rows[m.cursor].kind) {
+		if next := nextNavigable(m.rows, m.cursor); next != m.cursor {
+			m.cursor = next
+		} else if prev := prevNavigable(m.rows, m.cursor); prev != m.cursor {
+			m.cursor = prev
+		}
+	}
+	return m
 }
 
 // cursorFollowMovingTask は m.moving が指すタスクの行へカーソルを合わせる。
@@ -346,6 +370,58 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.input, cmd = m.input.Update(msg)
 		m.inputErr = storage.ValidateFileNameChars(m.input.Value())
 		return m, cmd
+
+	case ModeTrashConfirm:
+		switch {
+		case key.Matches(msg, m.keys.ConfirmY):
+			cur, _, ok := m.currentTask()
+			if !ok {
+				m.mode = ModeList
+				return m, nil
+			}
+			m.tasks = task.TrashTask(m.tasks, cur.ID)
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			m.mode = ModeList
+			m = m.withRowsRebuilt()
+			m = clampCursor(m)
+			m = m.withFilesRefreshed()
+			return m, nil
+		case key.Matches(msg, m.keys.ConfirmN):
+			m.mode = ModeList
+			return m, nil
+		}
+		return m, nil
+
+	case ModeDeleteTaskConfirm:
+		switch {
+		case key.Matches(msg, m.keys.ConfirmY):
+			cur, _, ok := m.currentTask()
+			if !ok {
+				m.mode = ModeList
+				return m, nil
+			}
+			newTasks, removedIDs := task.DeleteTaskSubtree(m.tasks, cur.ID)
+			m.tasks = newTasks
+			for _, id := range removedIDs {
+				if err := storage.DeleteTaskData(m.yamlDir, m.cfg.DataBaseDirectory, id); err != nil {
+					m.saveErr = err
+				}
+			}
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			m.mode = ModeList
+			m = m.withRowsRebuilt()
+			m = clampCursor(m)
+			m = m.withFilesRefreshed()
+			return m, nil
+		case key.Matches(msg, m.keys.ConfirmN):
+			m.mode = ModeList
+			return m, nil
+		}
+		return m, nil
 
 	case ModeDeleteFileConfirm:
 		switch {
@@ -797,8 +873,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// h/←: カーソル位置の status 行 / task 行を折りたたむ (既に折りたたみ済みなら no-op)。
 			return m.applyCollapseChange(true)
 		case key.Matches(msg, m.keys.Move):
-			// m: カーソル位置がタスク行なら ModeMove へ遷移し、そのタスクを移動対象にする。
-			// status 行や空の行では何もしない。スナップショットを取って esc の復元に備える。
+			// m: カーソル位置がタスク行なら ModeMove へ遷移。ゴミ箱ビューでは無効。
+			if m.viewTrash {
+				return m, nil
+			}
 			cur, _, ok := m.currentTask()
 			if !ok {
 				return m, nil
@@ -810,9 +888,56 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = ModeMove
 			m = m.withRowsRebuilt()
 			return m, nil
+		case key.Matches(msg, m.keys.ToggleTrash):
+			// T: 通常リスト ↔ ゴミ箱ビューのトグル。
+			m.viewTrash = !m.viewTrash
+			m = m.withRowsRebuilt()
+			if first := firstNavigable(m.rows); first >= 0 {
+				m.cursor = first
+			} else {
+				m.cursor = 0
+			}
+			m = m.withFilesRefreshed()
+			return m, nil
+		case key.Matches(msg, m.keys.DeleteTask):
+			// d: タスク行のとき、通常リスト → ゴミ箱へ移動、ゴミ箱ビュー → 完全削除。
+			// 確認ポップアップを挟む。
+			if _, _, ok := m.currentTask(); !ok {
+				return m, nil
+			}
+			m.prevMode = m.mode
+			if m.viewTrash {
+				m.mode = ModeDeleteTaskConfirm
+			} else {
+				m.mode = ModeTrashConfirm
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.RestoreTask):
+			// r: ゴミ箱ビューのタスク行のみ有効。trashed root から subtree を一括 restore。
+			if !m.viewTrash {
+				return m, nil
+			}
+			cur, _, ok := m.currentTask()
+			if !ok {
+				return m, nil
+			}
+			rootID := task.TrashRootID(m.tasks, cur.ID)
+			m.tasks = task.RestoreTask(m.tasks, rootID)
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			m = m.withRowsRebuilt()
+			// 復帰したタスクは現在のビュー (trash) には居ない。近接の navigable 行に寄せる。
+			m = clampCursor(m)
+			m = m.withFilesRefreshed()
+			return m, nil
 		case key.Matches(msg, m.keys.NewTask):
 			// status 行: その status 配下にトップレベルの新規タスクを作成
 			// task 行: そのタスクの直下にサブタスクを作成 (深さ上限まで)
+			// ゴミ箱ビューでは新規作成不可。
+			if m.viewTrash {
+				return m, nil
+			}
 			inputW := popupWidth(m.width) - 7
 			if inputW < 1 {
 				inputW = 1
@@ -840,7 +965,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
-
 
 // openCurrentFile は現在のファイルカーソルが指すファイルを外部エディタで開く tea.Cmd を返す。
 func (m Model) openCurrentFile() (Model, tea.Cmd) {
@@ -899,7 +1023,15 @@ func (m Model) View() string {
 	detailFocused := m.mode == ModeDetail || m.mode == ModeEditTitle || m.mode == ModeEditStatus
 
 	inMoveMode := m.mode == ModeMove
-	left := renderList(m.tasks, m.statuses, m.rows, m.collapsed, m.cursor, listFocused, inMoveMode, leftW, bodyH)
+	listH := bodyH
+	if m.viewTrash {
+		// ゴミ箱ビューでは最上部 1 行をヘッダで占有するので、リスト本体の高さを 1 減らす。
+		listH = bodyH - 1
+		if listH < 1 {
+			listH = 1
+		}
+	}
+	left := renderList(m.tasks, m.statuses, m.rows, m.collapsed, m.cursor, listFocused, inMoveMode, leftW, listH)
 	if inMoveMode {
 		banner := styleMoveBanner.Render("-- MOVE MODE --")
 		bannerW := lipgloss.Width(banner)
@@ -908,6 +1040,11 @@ func (m Model) View() string {
 			x = 0
 		}
 		left = PlaceOverlay(x, 0, banner, left)
+	}
+	if m.viewTrash {
+		// 左ペインの最上部に「-- TRASH BOX --」ヘッダ行 (黒抜き赤背景) を 1 行追加。
+		header := styleTrashHeader.Width(leftW).Render("-- TRASH BOX --")
+		left = lipgloss.JoinVertical(lipgloss.Left, header, left)
 	}
 
 	var current *task.Task
@@ -921,7 +1058,7 @@ func (m Model) View() string {
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, left, divider, right)
 
-	footer := renderFooter(m.mode, m.prevMode, m.detailCursor, m.width)
+	footer := renderFooter(m.mode, m.prevMode, m.detailCursor, m.viewTrash, m.width)
 
 	view := lipgloss.JoinVertical(lipgloss.Left, body, footer)
 
@@ -944,6 +1081,22 @@ func (m Model) View() string {
 		msg := "delete file?"
 		if m.fileCursor < len(m.files) {
 			msg = "delete \"" + m.files[m.fileCursor] + "\" ?"
+		}
+		view = overlayConfirmPopup(view, "Delete?", msg,
+			[]hintItem{{"y", "delete"}, {"n/esc", "cancel"}},
+			m.width, m.height-1)
+	case ModeTrashConfirm:
+		msg := "move task to trash?"
+		if t, _, ok := m.currentTask(); ok {
+			msg = "move \"" + t.Title + "\" to trash?"
+		}
+		view = overlayConfirmPopup(view, "Trash?", msg,
+			[]hintItem{{"y", "trash"}, {"n/esc", "cancel"}},
+			m.width, m.height-1)
+	case ModeDeleteTaskConfirm:
+		msg := "delete task permanently?"
+		if t, _, ok := m.currentTask(); ok {
+			msg = "permanently delete \"" + t.Title + "\" and its subtasks?"
 		}
 		view = overlayConfirmPopup(view, "Delete?", msg,
 			[]hintItem{{"y", "delete"}, {"n/esc", "cancel"}},

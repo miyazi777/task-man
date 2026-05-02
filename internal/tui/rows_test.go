@@ -6,15 +6,25 @@ import (
 	"github.com/miyazi777/task-man/internal/task"
 )
 
+// threeStatusesNoTrash は trash を含まない 3 ステータスのテスト用フィクスチャ。
+// 行レイアウト系のテストでは trash の存在で row 数が増えてしまうため、テストの簡潔さのために使う。
+func threeStatusesNoTrash() task.StatusList {
+	return task.StatusList{
+		{ID: 1, Sequence: 1, Label: "todo"},
+		{ID: 2, Sequence: 2, Label: "doing"},
+		{ID: 3, Sequence: 3, Label: "done"},
+	}
+}
+
 func TestBuildRowsOrderAndGrouping(t *testing.T) {
-	statuses := task.DefaultStatuses() // 1=todo seq1, 2=doing seq2, 3=done seq3
+	statuses := threeStatusesNoTrash() // 1=todo seq1, 2=doing seq2, 3=done seq3
 	tasks := []task.Task{
 		{ID: 10, Title: "a", StatusID: 1}, // todo
 		{ID: 11, Title: "b", StatusID: 3}, // done
 		{ID: 12, Title: "c", StatusID: 1}, // todo
 		{ID: 13, Title: "d", StatusID: 2}, // doing
 	}
-	rows := buildRows(statuses, tasks, nil, nil)
+	rows := buildRows(statuses, tasks, nil, nil, false)
 
 	// 期待: done ヘッダ, b, sep, doing ヘッダ, d, sep, todo ヘッダ, a, c
 	wantKinds := []rowKind{
@@ -48,13 +58,13 @@ func TestBuildRowsOrderAndGrouping(t *testing.T) {
 }
 
 func TestBuildRowsCollapsed(t *testing.T) {
-	statuses := task.DefaultStatuses()
+	statuses := threeStatusesNoTrash()
 	tasks := []task.Task{
 		{ID: 1, Title: "a", StatusID: 1},
 		{ID: 2, Title: "b", StatusID: 2},
 	}
 	collapsed := map[int]bool{2: true} // doing を折りたたみ
-	rows := buildRows(statuses, tasks, collapsed, nil)
+	rows := buildRows(statuses, tasks, collapsed, nil, false)
 
 	// 期待: done ヘッダ, sep, doing ヘッダ (タスクなし), sep, todo ヘッダ, a
 	if len(rows) != 6 {
@@ -70,11 +80,11 @@ func TestBuildRowsCollapsed(t *testing.T) {
 }
 
 func TestNavigableSkipsSeparator(t *testing.T) {
-	statuses := task.DefaultStatuses()
+	statuses := threeStatusesNoTrash()
 	tasks := []task.Task{
 		{ID: 1, Title: "a", StatusID: 3}, // done のみ
 	}
-	rows := buildRows(statuses, tasks, nil, nil)
+	rows := buildRows(statuses, tasks, nil, nil, false)
 	// rows: [done, a, sep, doing, sep, todo]
 	if got := nextNavigable(rows, 1); got != 3 {
 		t.Errorf("nextNavigable from 1 = %d, want 3 (skip sep)", got)
@@ -91,14 +101,14 @@ func TestFirstNavigableEmpty(t *testing.T) {
 }
 
 func TestBuildRowsSubtaskNesting(t *testing.T) {
-	statuses := task.DefaultStatuses()
+	statuses := threeStatusesNoTrash()
 	tasks := []task.Task{
 		{ID: 1, Title: "parent1", StatusID: 1},
 		{ID: 2, Title: "child1a", StatusID: 1, ParentID: 1},
 		{ID: 3, Title: "parent2", StatusID: 1},
 		{ID: 4, Title: "child1b", StatusID: 1, ParentID: 1},
 	}
-	rows := buildRows(statuses, tasks, nil, nil)
+	rows := buildRows(statuses, tasks, nil, nil, false)
 	var todoTasks []listRow
 	for _, r := range rows {
 		if r.kind == rowTask && r.statusID == 1 {
@@ -126,14 +136,14 @@ func TestBuildRowsSubtaskNesting(t *testing.T) {
 }
 
 func TestBuildRowsMultiLevelNesting(t *testing.T) {
-	statuses := task.DefaultStatuses()
+	statuses := threeStatusesNoTrash()
 	tasks := []task.Task{
 		{ID: 1, Title: "l0", StatusID: 1},
 		{ID: 2, Title: "l1", StatusID: 1, ParentID: 1},
 		{ID: 3, Title: "l2", StatusID: 1, ParentID: 2},
 		{ID: 4, Title: "l3", StatusID: 1, ParentID: 3},
 	}
-	rows := buildRows(statuses, tasks, nil, nil)
+	rows := buildRows(statuses, tasks, nil, nil, false)
 	var todoTasks []listRow
 	for _, r := range rows {
 		if r.kind == rowTask && r.statusID == 1 {
@@ -151,7 +161,7 @@ func TestBuildRowsMultiLevelNesting(t *testing.T) {
 }
 
 func TestBuildRowsTaskCollapsed(t *testing.T) {
-	statuses := task.DefaultStatuses()
+	statuses := threeStatusesNoTrash()
 	tasks := []task.Task{
 		{ID: 1, Title: "p", StatusID: 1},
 		{ID: 2, Title: "c1", StatusID: 1, ParentID: 1},
@@ -159,7 +169,7 @@ func TestBuildRowsTaskCollapsed(t *testing.T) {
 		{ID: 4, Title: "gc", StatusID: 1, ParentID: 2},
 	}
 	taskCollapsed := map[int]bool{1: true} // p を折りたたみ
-	rows := buildRows(statuses, tasks, nil, taskCollapsed)
+	rows := buildRows(statuses, tasks, nil, taskCollapsed, false)
 	var todoTasks []listRow
 	for _, r := range rows {
 		if r.kind == rowTask && r.statusID == 1 {
@@ -193,14 +203,14 @@ func TestTaskHasChildren(t *testing.T) {
 }
 
 func TestBuildRowsSortedByPosition(t *testing.T) {
-	statuses := task.DefaultStatuses()
+	statuses := threeStatusesNoTrash()
 	// 同じ status (todo) のルートタスクを yaml 順 (a,b,c) と異なる position 順 (3,1,2) で並べる。
 	tasks := []task.Task{
 		{ID: 1, Title: "a", StatusID: 1, Position: 3},
 		{ID: 2, Title: "b", StatusID: 1, Position: 1},
 		{ID: 3, Title: "c", StatusID: 1, Position: 2},
 	}
-	rows := buildRows(statuses, tasks, nil, nil)
+	rows := buildRows(statuses, tasks, nil, nil, false)
 	var todoTaskIdx []int
 	for _, r := range rows {
 		if r.kind == rowTask && r.statusID == 1 {
@@ -220,14 +230,14 @@ func TestBuildRowsSortedByPosition(t *testing.T) {
 }
 
 func TestBuildRowsSubtaskSortedByPosition(t *testing.T) {
-	statuses := task.DefaultStatuses()
+	statuses := threeStatusesNoTrash()
 	tasks := []task.Task{
 		{ID: 1, Title: "p", StatusID: 1, Position: 1},
 		{ID: 2, Title: "c1", StatusID: 1, ParentID: 1, Position: 3},
 		{ID: 3, Title: "c2", StatusID: 1, ParentID: 1, Position: 1},
 		{ID: 4, Title: "c3", StatusID: 1, ParentID: 1, Position: 2},
 	}
-	rows := buildRows(statuses, tasks, nil, nil)
+	rows := buildRows(statuses, tasks, nil, nil, false)
 	var sub []int
 	for _, r := range rows {
 		if r.kind == rowTask && r.depth == 1 {
@@ -247,14 +257,14 @@ func TestBuildRowsSubtaskSortedByPosition(t *testing.T) {
 }
 
 func TestBuildRowsPositionTieBreakerByID(t *testing.T) {
-	statuses := task.DefaultStatuses()
+	statuses := threeStatusesNoTrash()
 	// position が同じ場合は id 昇順。
 	tasks := []task.Task{
 		{ID: 5, Title: "a", StatusID: 1, Position: 1},
 		{ID: 2, Title: "b", StatusID: 1, Position: 1},
 		{ID: 9, Title: "c", StatusID: 1, Position: 1},
 	}
-	rows := buildRows(statuses, tasks, nil, nil)
+	rows := buildRows(statuses, tasks, nil, nil, false)
 	var ids []int
 	for _, r := range rows {
 		if r.kind == rowTask && r.statusID == 1 {

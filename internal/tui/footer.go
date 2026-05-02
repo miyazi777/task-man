@@ -14,20 +14,33 @@ type hintItem struct {
 // renderFooter は画面下部のヒント帯を描画する。
 // detailCursor は ModeDetail のときに参照され、Files セクションでは a/r/d を案内する。
 // 確認モード (Quit/Delete) のときは prevMode のヒントを引き継ぎ、ポップアップにフォーカスを譲る。
-func renderFooter(mode, prevMode Mode, detailCursor int, width int) string {
-	if mode == ModeQuitConfirm || mode == ModeDeleteFileConfirm {
-		return renderFooter(prevMode, ModeList, detailCursor, width)
+// viewTrash は ModeList のときにヒントを通常用 / ゴミ箱用で切り替えるためのフラグ。
+func renderFooter(mode, prevMode Mode, detailCursor int, viewTrash bool, width int) string {
+	if mode == ModeQuitConfirm || mode == ModeDeleteFileConfirm || mode == ModeTrashConfirm || mode == ModeDeleteTaskConfirm {
+		return renderFooter(prevMode, ModeList, detailCursor, viewTrash, width)
 	}
 
 	var content string
 	switch mode {
 	case ModeList:
+		if viewTrash {
+			content = renderHints([]hintItem{
+				{"k/↑", "up"}, {"j/↓", "down"},
+				{"l/→", "open"}, {"h/←", "close"},
+				{"enter", "detail"},
+				{"r", "restore"}, {"d", "delete"},
+				{"T", "back"}, {"q", "quit"},
+			})
+			break
+		}
 		content = renderHints([]hintItem{
 			{"k/↑", "up"}, {"j/↓", "down"},
 			{"l/→", "open"}, {"h/←", "close"},
 			{"enter", "detail"},
 			{"m", "move"},
-			{"a", "new/subtask"}, {"q", "quit"},
+			{"a", "new/subtask"},
+			{"d", "delete"}, {"T", "trash"},
+			{"q", "quit"},
 		})
 	case ModeDetail:
 		if detailCursor == detailFieldFiles {

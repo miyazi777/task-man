@@ -24,12 +24,13 @@ type yamlStatusEntry struct {
 }
 
 type yamlTask struct {
-	ID        int    `yaml:"id"`
-	Title     string `yaml:"title"`
-	StatusID  int    `yaml:"status_id"`
-	ParentID  int    `yaml:"parent_id,omitempty"`
-	Position  int    `yaml:"position,omitempty"`
-	Collapsed bool   `yaml:"collapsed,omitempty"`
+	ID         int    `yaml:"id"`
+	Title      string `yaml:"title"`
+	StatusID   int    `yaml:"status_id"`
+	ParentID   int    `yaml:"parent_id,omitempty"`
+	Position   int    `yaml:"position,omitempty"`
+	Collapsed  bool   `yaml:"collapsed,omitempty"`
+	IsTrashBox bool   `yaml:"is_trash_box,omitempty"`
 }
 
 type yamlEntry struct {
@@ -125,12 +126,13 @@ func loadTasks(entries []yamlEntry, statuses task.StatusList) ([]task.Task, bool
 		seen[e.Task.ID] = struct{}{}
 
 		t := task.Task{
-			ID:        e.Task.ID,
-			Title:     e.Task.Title,
-			StatusID:  e.Task.StatusID,
-			ParentID:  e.Task.ParentID,
-			Position:  e.Task.Position,
-			Collapsed: e.Task.Collapsed,
+			ID:         e.Task.ID,
+			Title:      e.Task.Title,
+			StatusID:   e.Task.StatusID,
+			ParentID:   e.Task.ParentID,
+			Position:   e.Task.Position,
+			Collapsed:  e.Task.Collapsed,
+			IsTrashBox: e.Task.IsTrashBox,
 		}
 		if err := t.Validate(statuses); err != nil {
 			return nil, false, fmt.Errorf("tasks[%d]: %w", i, err)
@@ -217,12 +219,13 @@ func (r *YAMLRepository) Save(tasks []task.Task, statuses task.StatusList, cfg A
 	for _, t := range tasks {
 		taskEntries = append(taskEntries, yamlEntry{
 			Task: yamlTask{
-				ID:        t.ID,
-				Title:     t.Title,
-				StatusID:  t.StatusID,
-				ParentID:  t.ParentID,
-				Position:  t.Position,
-				Collapsed: t.Collapsed,
+				ID:         t.ID,
+				Title:      t.Title,
+				StatusID:   t.StatusID,
+				ParentID:   t.ParentID,
+				Position:   t.Position,
+				Collapsed:  t.Collapsed,
+				IsTrashBox: t.IsTrashBox,
 			},
 		})
 	}

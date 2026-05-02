@@ -14,6 +14,8 @@ const (
 	ModeDeleteFileConfirm
 	ModeQuitConfirm
 	ModeMove
+	ModeTrashConfirm      // タスクをゴミ箱へ移動するときの確認
+	ModeDeleteTaskConfirm // ゴミ箱内タスクの完全削除確認
 )
 
 func (m Mode) String() string {
@@ -40,6 +42,10 @@ func (m Mode) String() string {
 		return "quitconfirm"
 	case ModeMove:
 		return "move"
+	case ModeTrashConfirm:
+		return "trashconfirm"
+	case ModeDeleteTaskConfirm:
+		return "deletetaskconfirm"
 	default:
 		return "unknown"
 	}

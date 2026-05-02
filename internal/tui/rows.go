@@ -27,13 +27,20 @@ const (
 // buildRows はステータスを sequence 逆順 (大きい順) で並べ、
 // 各ステータス配下に該当タスクを position 昇順 (タイブレーカは id 昇順) で並べたフラットな行列を返す。
 //
+//   - showTrash=false: IsTrashBox=true のタスクを除外 (通常リスト)
+//   - showTrash=true:  IsTrashBox=true のタスクのみを表示 (ゴミ箱ビュー)
 //   - statusCollapsed[statusID]==true のステータスはタスク行を出さない (ヘッダのみ)
 //   - taskCollapsed[taskID]==true のタスクは子孫を非表示にする (自身は表示)
 //   - セクション間には空行 (rowSeparator) を 1 行はさむ。最後のセクション後には入れない。
 //   - サブタスクは親タスクの直下に再帰的にネスト表示する (兄弟内は position → id 順)。
-//     親が同じ status グループに居ない場合はサブタスクをトップレベル扱い (depth=0) で並べる。
-func buildRows(statuses task.StatusList, tasks []task.Task, statusCollapsed, taskCollapsed map[int]bool) []listRow {
+//     親が同じ status グループに居ない、または親のゴミ箱状態が異なる場合はサブタスクをトップレベル扱い (depth=0) で並べる。
+func buildRows(statuses task.StatusList, tasks []task.Task, statusCollapsed, taskCollapsed map[int]bool, showTrash bool) []listRow {
 	sorted := statuses.Sorted()
+
+	// ビューに含まれるべき task インデックスかを判定 (IsTrashBox とビュー種別の一致)。
+	visible := func(t task.Task) bool {
+		return t.IsTrashBox == showTrash
+	}
 
 	// 子インデックスを position 昇順 → id 昇順で保持する。
 	lessByPosID := func(a, b int) bool {
@@ -47,6 +54,9 @@ func buildRows(statuses task.StatusList, tasks []task.Task, statusCollapsed, tas
 	idToIndex := make(map[int]int, len(tasks))
 	for j, t := range tasks {
 		idToIndex[t.ID] = j
+		if !visible(t) {
+			continue
+		}
 		if t.ParentID != 0 {
 			childrenByParent[t.ParentID] = append(childrenByParent[t.ParentID], j)
 		}
@@ -59,10 +69,15 @@ func buildRows(statuses task.StatusList, tasks []task.Task, statusCollapsed, tas
 
 	var rows []listRow
 
-	// emit はタスク j を depth で出力し、collapsed でなければ子孫を再帰的に出力する。
 	var emit func(j, depth, statusID int)
 	emit = func(j, depth, statusID int) {
-		hasKids := len(childrenByParent[tasks[j].ID]) > 0
+		hasKids := false
+		for _, ci := range childrenByParent[tasks[j].ID] {
+			if tasks[ci].StatusID == statusID {
+				hasKids = true
+				break
+			}
+		}
 		isCollapsed := taskCollapsed[tasks[j].ID]
 		rows = append(rows, listRow{
 			kind:        rowTask,
@@ -87,15 +102,21 @@ func buildRows(statuses task.StatusList, tasks []task.Task, statusCollapsed, tas
 		s := sorted[i]
 		rows = append(rows, listRow{kind: rowStatus, statusID: s.ID})
 		if !statusCollapsed[s.ID] {
-			// status グループのトップレベル: ParentID==0 (もしくは親が別 status グループに居る孤立サブタスク)。
 			var topLevel []int
 			for j, t := range tasks {
+				if !visible(t) {
+					continue
+				}
 				if t.StatusID != s.ID {
 					continue
 				}
 				if t.ParentID != 0 {
-					if pi, ok := idToIndex[t.ParentID]; ok && tasks[pi].StatusID == s.ID {
-						continue
+					if pi, ok := idToIndex[t.ParentID]; ok {
+						parent := tasks[pi]
+						// 親が同じビューに居て、同じ status のときだけ「子」として扱う。
+						if visible(parent) && parent.StatusID == s.ID {
+							continue
+						}
 					}
 				}
 				topLevel = append(topLevel, j)

@@ -183,6 +183,25 @@ func RenameFile(yamlDir, dataBaseDir string, taskID int, oldName, newName string
 	return nil
 }
 
+// DeleteTaskData はタスクディレクトリを丸ごと削除する。
+// ディレクトリが存在しない場合は no-op (エラーにしない)。trash からの完全削除で使用。
+func DeleteTaskData(yamlDir, dataBaseDir string, taskID int) error {
+	if taskID <= 0 {
+		return errors.New("task id must be positive")
+	}
+	taskDir := TaskDir(yamlDir, dataBaseDir, taskID)
+	if _, err := os.Stat(taskDir); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("stat %s: %w", taskDir, err)
+	}
+	if err := os.RemoveAll(taskDir); err != nil {
+		return fmt.Errorf("remove dir %s: %w", taskDir, err)
+	}
+	return nil
+}
+
 // DeleteFile はタスクディレクトリ内のファイルを削除する。
 // 不在なら ErrFileNotFoundIn を返す。ディレクトリやその他特殊ファイルは対象外。
 func DeleteFile(yamlDir, dataBaseDir string, taskID int, fileName string) error {

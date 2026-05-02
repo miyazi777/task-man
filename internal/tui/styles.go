@@ -26,11 +26,11 @@ var (
 	styleListItemDim = lipgloss.NewStyle().Foreground(colorDim).Padding(0, 0)
 	styleLabel       = lipgloss.NewStyle().Foreground(colorSubtle)
 	styleValue       = lipgloss.NewStyle().Foreground(colorText)
-	styleValueDim       = lipgloss.NewStyle().Foreground(colorSubtle)
-	styleDivider   = lipgloss.NewStyle().Foreground(colorDivider)
-	styleFooter    = lipgloss.NewStyle().Background(colorFooterBg).Foreground(colorMuted).Padding(0, 1).Width(0)
-	styleFooterKey = lipgloss.NewStyle().Background(colorFooterBg).Foreground(colorText).Bold(true)
-	colorPopupBg   = lipgloss.Color("#11111b")
+	styleValueDim    = lipgloss.NewStyle().Foreground(colorSubtle)
+	styleDivider     = lipgloss.NewStyle().Foreground(colorDivider)
+	styleFooter      = lipgloss.NewStyle().Background(colorFooterBg).Foreground(colorMuted).Padding(0, 1).Width(0)
+	styleFooterKey   = lipgloss.NewStyle().Background(colorFooterBg).Foreground(colorText).Bold(true)
+	colorPopupBg     = lipgloss.Color("#11111b")
 
 	stylePopupLabel  = lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Background(colorPopupBg)
 	stylePopupHint   = lipgloss.NewStyle().Foreground(colorMuted).Italic(true).Background(colorPopupBg)
@@ -46,6 +46,9 @@ var (
 	styleMoveCursorRow = lipgloss.NewStyle().Background(colorWarn).Foreground(colorBase)
 	// styleMoveBanner はリスト右上に表示する移動モードバナー。
 	styleMoveBanner = lipgloss.NewStyle().Background(colorWarn).Foreground(colorBase).Bold(true).Padding(0, 1)
+	// styleTrashHeader はゴミ箱ビュー時にリスト最上部 1 行を占有するヘッダ「-- TRASH BOX --」。
+	// 黒抜き (colorBase) + 赤背景 (colorDanger)、太字、左ペイン全幅で中央寄せ。
+	styleTrashHeader = lipgloss.NewStyle().Background(colorDanger).Foreground(colorBase).Bold(true).Align(lipgloss.Center)
 	// stylePopupCursorRow はポップアップ背景 (colorPopupBg) 上で同じ反転表現を出すための変種。
 	stylePopupCursorRow = lipgloss.NewStyle().Background(colorAccent).Foreground(colorBase)
 )
