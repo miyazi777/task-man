@@ -9,8 +9,9 @@ import (
 )
 
 // renderList は左ペインを描画する。focused=true なら現在のカーソル行 (status / task) を反転表示。
+// inMoveMode=true のときカーソル色を黄 (colorWarn) に切り替え、移動中であることを視覚的に区別する。
 // rows は status ヘッダ + task + separator の混在で、上から順に描画する。
-func renderList(tasks []task.Task, statuses task.StatusList, rows []listRow, collapsed map[int]bool, cursor int, focused bool, width, height int) string {
+func renderList(tasks []task.Task, statuses task.StatusList, rows []listRow, collapsed map[int]bool, cursor int, focused, inMoveMode bool, width, height int) string {
 	if width <= 0 {
 		width = 32
 	}
@@ -21,10 +22,10 @@ func renderList(tasks []task.Task, statuses task.StatusList, rows []listRow, col
 		case rowSeparator:
 			lines = append(lines, "")
 		case rowStatus:
-			lines = append(lines, renderStatusHeader(statuses, r.statusID, collapsed[r.statusID], i == cursor, focused, width))
+			lines = append(lines, renderStatusHeader(statuses, r.statusID, collapsed[r.statusID], i == cursor, focused, inMoveMode, width))
 		case rowTask:
 			t := tasks[r.taskIndex]
-			lines = append(lines, renderTaskRow(t, statuses, r.depth, r.hasChildren, r.collapsed, i == cursor, focused, width))
+			lines = append(lines, renderTaskRow(t, statuses, r.depth, r.hasChildren, r.collapsed, i == cursor, focused, inMoveMode, width))
 		}
 	}
 
@@ -36,8 +37,8 @@ func renderList(tasks []task.Task, statuses task.StatusList, rows []listRow, col
 
 // renderStatusHeader は ▼/▶ + [label] のステータス見出し行を描画する。
 // 通常時は status の色を背景にした反転表示 (黒抜き文字)。
-// カーソル時はリスト共通のカーソル反転 (アクセント色背景) を優先する。
-func renderStatusHeader(statuses task.StatusList, statusID int, isCollapsed, isCursor, listFocused bool, width int) string {
+// カーソル時はリスト共通のカーソル反転 (アクセント色背景、ModeMove なら警告色) を優先する。
+func renderStatusHeader(statuses task.StatusList, statusID int, isCollapsed, isCursor, listFocused, inMoveMode bool, width int) string {
 	status, _ := statuses.ByID(statusID)
 	marker := "[-]"
 	if isCollapsed {
@@ -46,7 +47,7 @@ func renderStatusHeader(statuses task.StatusList, statusID int, isCollapsed, isC
 
 	if isCursor && listFocused {
 		raw := " " + marker + "  " + status.Label + " "
-		return styleCursorRow.Width(width).Render(raw)
+		return cursorStyleFor(inMoveMode).Width(width).Render(raw)
 	}
 
 	prefix := " " + marker + " "
@@ -58,7 +59,7 @@ func renderStatusHeader(statuses task.StatusList, statusID int, isCollapsed, isC
 // を入れて status ヘッダ・サブタスクと階層感を出す。depth=0 は通常のタスク、depth>=1 はサブタスク。
 // hasChildren=true のタスクは collapsed の有無に応じて "+ "/"- " のマーカーを付ける。
 // 子を持たないタスクでもタイトル位置を揃えるため空白 2 cell を予約する。
-func renderTaskRow(t task.Task, statuses task.StatusList, depth int, hasChildren, collapsed, isCursor, listFocused bool, width int) string {
+func renderTaskRow(t task.Task, statuses task.StatusList, depth int, hasChildren, collapsed, isCursor, listFocused, inMoveMode bool, width int) string {
 	const baseLeftPad, perDepth, markerW, rightPad = 2, 2, 2, 1
 	leftPad := baseLeftPad + depth*perDepth
 
@@ -79,7 +80,7 @@ func renderTaskRow(t task.Task, statuses task.StatusList, depth int, hasChildren
 
 	if isCursor && listFocused {
 		raw := strings.Repeat(" ", leftPad) + marker + title
-		return styleCursorRow.Width(width).Render(raw)
+		return cursorStyleFor(inMoveMode).Width(width).Render(raw)
 	}
 
 	var titleRendered string
@@ -89,6 +90,14 @@ func renderTaskRow(t task.Task, statuses task.StatusList, depth int, hasChildren
 		titleRendered = styleListItemDim.Inline(true).Render(title)
 	}
 	return strings.Repeat(" ", leftPad) + marker + titleRendered
+}
+
+// cursorStyleFor は ModeMove の有無で標準/警告色のどちらの反転スタイルを返すか切り替える。
+func cursorStyleFor(inMoveMode bool) lipgloss.Style {
+	if inMoveMode {
+		return styleMoveCursorRow
+	}
+	return styleCursorRow
 }
 
 func truncate(s string, w int) string {

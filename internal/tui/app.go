@@ -898,7 +898,17 @@ func (m Model) View() string {
 	listFocused := m.mode == ModeList || m.mode == ModeQuitConfirm || m.mode == ModeMove
 	detailFocused := m.mode == ModeDetail || m.mode == ModeEditTitle || m.mode == ModeEditStatus
 
-	left := renderList(m.tasks, m.statuses, m.rows, m.collapsed, m.cursor, listFocused, leftW, bodyH)
+	inMoveMode := m.mode == ModeMove
+	left := renderList(m.tasks, m.statuses, m.rows, m.collapsed, m.cursor, listFocused, inMoveMode, leftW, bodyH)
+	if inMoveMode {
+		banner := styleMoveBanner.Render("-- MOVE MODE --")
+		bannerW := lipgloss.Width(banner)
+		x := leftW - bannerW
+		if x < 0 {
+			x = 0
+		}
+		left = PlaceOverlay(x, 0, banner, left)
+	}
 
 	var current *task.Task
 	if t, _, ok := m.currentTask(); ok {

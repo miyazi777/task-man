@@ -14,6 +14,7 @@ var (
 	colorSubtle   = lipgloss.Color("#6c7086")
 	colorAccent   = lipgloss.Color("#89b4fa") // フォーカス・カーソル
 	colorBase     = lipgloss.Color("#1e1e2e") // カーソル反転時の前景 (= 通常背景色)
+	colorWarn     = lipgloss.Color("#f9e2af") // ModeMove のカーソル / バナー
 	colorDanger   = lipgloss.Color("#f38ba8") // y:quit
 	colorOK       = lipgloss.Color("#a6e3a1") // n:cancel
 	colorDivider  = lipgloss.Color("#313244")
@@ -41,6 +42,10 @@ var (
 	// styleCursorRow は yazi 風の反転カーソル: 行全体の背景をアクセント色、文字を base 色 (= 通常背景) で塗る。
 	// フォーカス中のリスト/詳細/Files/ピッカーで共通利用する。角は丸めない。
 	styleCursorRow = lipgloss.NewStyle().Background(colorAccent).Foreground(colorBase)
+	// styleMoveCursorRow は ModeMove 中の反転カーソル: 黄 (colorWarn) 背景で「移動中」を強調する。
+	styleMoveCursorRow = lipgloss.NewStyle().Background(colorWarn).Foreground(colorBase)
+	// styleMoveBanner はリスト右上に表示する移動モードバナー。
+	styleMoveBanner = lipgloss.NewStyle().Background(colorWarn).Foreground(colorBase).Bold(true).Padding(0, 1)
 	// stylePopupCursorRow はポップアップ背景 (colorPopupBg) 上で同じ反転表現を出すための変種。
 	stylePopupCursorRow = lipgloss.NewStyle().Background(colorAccent).Foreground(colorBase)
 )
