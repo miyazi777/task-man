@@ -24,7 +24,7 @@ func renderFooter(mode, prevMode Mode, detailCursor int, width int) string {
 	case ModeList:
 		content = renderHints([]hintItem{
 			{"k/↑", "up"}, {"j/↓", "down"},
-			{"l/→", "detail"},
+			{"enter", "detail"},
 			{"space", "toggle"}, {"s", "select"}, {"x", "move"},
 			{"a", "new/subtask"}, {"q", "quit"},
 		})
@@ -33,11 +33,11 @@ func renderFooter(mode, prevMode Mode, detailCursor int, width int) string {
 			content = renderHints([]hintItem{
 				{"k/↑", "up"}, {"j/↓", "down"}, {"enter", "open"},
 				{"a", "add"}, {"r", "rename"}, {"d", "delete"},
-				{"h/←", "back"}, {"q", "quit"},
+				{"esc", "back"}, {"q", "quit"},
 			})
 		} else {
 			content = renderHints([]hintItem{
-				{"k/↑", "up"}, {"j/↓", "down"}, {"enter", "edit"}, {"h/←", "back"}, {"q", "quit"},
+				{"k/↑", "up"}, {"j/↓", "down"}, {"enter", "edit"}, {"esc", "back"}, {"q", "quit"},
 			})
 		}
 	case ModeNewTask, ModeNewSubtask:
