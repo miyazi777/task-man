@@ -24,8 +24,9 @@ func renderFooter(mode, prevMode Mode, detailCursor int, width int) string {
 	case ModeList:
 		content = renderHints([]hintItem{
 			{"k/↑", "up"}, {"j/↓", "down"},
+			{"l/→", "open"}, {"h/←", "close"},
 			{"enter", "detail"},
-			{"space", "toggle"}, {"s", "select"}, {"x", "move"},
+			{"s", "select"}, {"x", "move"},
 			{"a", "new/subtask"}, {"q", "quit"},
 		})
 	case ModeDetail:

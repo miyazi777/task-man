@@ -145,6 +145,62 @@ func (m Model) currentTask() (task.Task, int, bool) {
 	return m.tasks[r.taskIndex], r.taskIndex, true
 }
 
+// applyCollapseChange は ModeList でカーソル位置の status / task の折りたたみ状態を
+// 指定値 (collapse=true なら閉じる、false なら開く) に変更する。
+// 既に同じ状態のとき、子を持たないタスクのとき、対象外の行のときは no-op。
+// 変更があれば rows をリビルドし、cursor を元の対象行に追従させて永続化する。
+func (m Model) applyCollapseChange(collapse bool) (tea.Model, tea.Cmd) {
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
+		return m, nil
+	}
+	r := m.rows[m.cursor]
+	switch r.kind {
+	case rowStatus:
+		sid := r.statusID
+		if m.collapsed[sid] == collapse {
+			return m, nil
+		}
+		if collapse {
+			m.collapsed[sid] = true
+		} else {
+			delete(m.collapsed, sid)
+		}
+		m = m.withRowsRebuilt()
+		if rr := findRowForStatus(m.rows, sid); rr >= 0 {
+			m.cursor = rr
+		}
+		m = m.withFilesRefreshed()
+		if err := m.persist(); err != nil {
+			m.saveErr = err
+		}
+		return m, nil
+	case rowTask:
+		cur := m.tasks[r.taskIndex]
+		if !taskHasChildren(m.tasks, cur.ID) {
+			return m, nil
+		}
+		if m.taskCollapsed[cur.ID] == collapse {
+			return m, nil
+		}
+		if collapse {
+			m.taskCollapsed[cur.ID] = true
+		} else {
+			delete(m.taskCollapsed, cur.ID)
+		}
+		taskIdx := r.taskIndex
+		m = m.withRowsRebuilt()
+		if rr := findRowForTask(m.rows, taskIdx); rr >= 0 {
+			m.cursor = rr
+		}
+		m = m.withFilesRefreshed()
+		if err := m.persist(); err != nil {
+			m.saveErr = err
+		}
+		return m, nil
+	}
+	return m, nil
+}
+
 // executeMove は ModeMove で p が押されたときに移動を確定する。
 // カーソル位置から MoveDestination を組み立て、task.MoveTasks を呼び出して結果を永続化する。
 // 完了後は selected/moveAsChild をクリアし ModeList へ戻る。
@@ -765,39 +821,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Back):
 			// 開閉は space に集約。タスクリスト内では何もしない。
 			return m, nil
-		case key.Matches(msg, m.keys.Toggle):
-			// space: status 行 / task 行どちらも展開/折りたたみをトグル。
-			// 子を持たないタスクや該当しない行では何もしない。
-			if m.cursor < len(m.rows) && m.rows[m.cursor].kind == rowStatus {
-				sid := m.rows[m.cursor].statusID
-				m.collapsed[sid] = !m.collapsed[sid]
-				m = m.withRowsRebuilt()
-				if r := findRowForStatus(m.rows, sid); r >= 0 {
-					m.cursor = r
-				}
-				m = m.withFilesRefreshed()
-				if err := m.persist(); err != nil {
-					m.saveErr = err
-				}
-				return m, nil
-			}
-			cur, idx, ok := m.currentTask()
-			if !ok {
-				return m, nil
-			}
-			if !taskHasChildren(m.tasks, cur.ID) {
-				return m, nil
-			}
-			m.taskCollapsed[cur.ID] = !m.taskCollapsed[cur.ID]
-			m = m.withRowsRebuilt()
-			if r := findRowForTask(m.rows, idx); r >= 0 {
-				m.cursor = r
-			}
-			m = m.withFilesRefreshed()
-			if err := m.persist(); err != nil {
-				m.saveErr = err
-			}
-			return m, nil
+		case key.Matches(msg, m.keys.Open):
+			// l/→: カーソル位置の status 行 / task 行を展開する (既に展開済みなら no-op)。
+			return m.applyCollapseChange(false)
+		case key.Matches(msg, m.keys.Close):
+			// h/←: カーソル位置の status 行 / task 行を折りたたむ (既に折りたたみ済みなら no-op)。
+			return m.applyCollapseChange(true)
 		case key.Matches(msg, m.keys.Move):
 			// x: 選択中タスクがあるとき ModeMove へ遷移。なければ何もしない。
 			if len(m.selected) == 0 {

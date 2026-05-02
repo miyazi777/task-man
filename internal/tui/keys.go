@@ -7,7 +7,9 @@ type keyMap struct {
 	Down       key.Binding
 	Enter      key.Binding // enter - タスクリストで詳細へ遷移
 	Confirm    key.Binding // enter - 編集開始 / 保存決定
-	Toggle     key.Binding // space - タスクの開閉
+	Toggle     key.Binding // space - ModeMove での子モードトグル (タスクリストの開閉には未使用)
+	Open       key.Binding // l/→ - タスクリストでステータス/タスクを展開
+	Close      key.Binding // h/← - タスクリストでステータス/タスクを折りたたみ
 	Select     key.Binding // s - タスクの選択トグル (移動操作の前段)
 	Move       key.Binding // x - 選択中タスクの移動を開始
 	Paste      key.Binding // p - 移動先で確定して貼り付け
@@ -28,6 +30,8 @@ func newKeyMap() keyMap {
 		Enter:      key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "detail")),
 		Confirm:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "edit")),
 		Toggle:     key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
+		Open:       key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "open")),
+		Close:      key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "close")),
 		Select:     key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "select")),
 		Move:       key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "move")),
 		Paste:      key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "paste")),
