@@ -21,11 +21,14 @@ var (
 	colorFooterBg = lipgloss.Color("#313244")
 )
 
-var _ = colorWarn // 将来的なアクセント用に温存
-
 var (
 	styleListItem    = lipgloss.NewStyle().Foreground(colorText).Padding(0, 0)
 	styleListItemDim = lipgloss.NewStyle().Foreground(colorDim).Padding(0, 0)
+	// styleSelectMarker はタスク行先頭に描く選択マーカー (▎) の通常時スタイル。
+	// styleSelectMarkerCursor は同マーカーをカーソル行 (背景: colorAccent) 上に描く際の変種で、
+	// 背景をカーソル行に揃えつつ、黄色の前景でマーカーが消えないようにする。
+	styleSelectMarker       = lipgloss.NewStyle().Foreground(colorWarn)
+	styleSelectMarkerCursor = lipgloss.NewStyle().Foreground(colorWarn).Background(colorAccent)
 	styleLabel       = lipgloss.NewStyle().Foreground(colorSubtle)
 	styleValue       = lipgloss.NewStyle().Foreground(colorText)
 	styleValueDim       = lipgloss.NewStyle().Foreground(colorSubtle)

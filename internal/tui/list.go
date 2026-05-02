@@ -10,7 +10,8 @@ import (
 
 // renderList は左ペインを描画する。focused=true なら現在のカーソル行 (status / task) を反転表示。
 // rows は status ヘッダ + task + separator の混在で、上から順に描画する。
-func renderList(tasks []task.Task, statuses task.StatusList, rows []listRow, collapsed map[int]bool, cursor int, focused bool, width, height int) string {
+// selected[taskID]==true のタスクは行先頭に選択マーカー (▌) を描く。
+func renderList(tasks []task.Task, statuses task.StatusList, rows []listRow, collapsed, selected map[int]bool, cursor int, focused bool, width, height int) string {
 	if width <= 0 {
 		width = 32
 	}
@@ -24,7 +25,7 @@ func renderList(tasks []task.Task, statuses task.StatusList, rows []listRow, col
 			lines = append(lines, renderStatusHeader(statuses, r.statusID, collapsed[r.statusID], i == cursor, focused, width))
 		case rowTask:
 			t := tasks[r.taskIndex]
-			lines = append(lines, renderTaskRow(t, statuses, r.depth, r.hasChildren, r.collapsed, i == cursor, focused, width))
+			lines = append(lines, renderTaskRow(t, statuses, r.depth, r.hasChildren, r.collapsed, selected[t.ID], i == cursor, focused, width))
 		}
 	}
 
@@ -58,7 +59,9 @@ func renderStatusHeader(statuses task.StatusList, statusID int, isCollapsed, isC
 // を入れて status ヘッダ・サブタスクと階層感を出す。depth=0 は通常のタスク、depth>=1 はサブタスク。
 // hasChildren=true のタスクは collapsed の有無に応じて "+ "/"- " のマーカーを付ける。
 // 子を持たないタスクでもタイトル位置を揃えるため空白 2 cell を予約する。
-func renderTaskRow(t task.Task, statuses task.StatusList, depth int, hasChildren, collapsed, isCursor, listFocused bool, width int) string {
+// isSelected=true のときは先頭セルを ▌ (黄色) に置き換えて選択中を示す。
+// カーソル行ではマーカーが反転背景に溶け込まないよう、背景色付きの変種スタイルで描く。
+func renderTaskRow(t task.Task, statuses task.StatusList, depth int, hasChildren, collapsed, isSelected, isCursor, listFocused bool, width int) string {
 	const baseLeftPad, perDepth, markerW, rightPad = 2, 2, 2, 1
 	leftPad := baseLeftPad + depth*perDepth
 
@@ -78,8 +81,16 @@ func renderTaskRow(t task.Task, statuses task.StatusList, depth int, hasChildren
 	title := truncate(t.Title, titleW)
 
 	if isCursor && listFocused {
-		raw := strings.Repeat(" ", leftPad) + marker + title
-		return styleCursorRow.Width(width).Render(raw)
+		// カーソル行: 先頭 1 セルだけ別スタイル (選択時は ▌、非選択時は単に空白) で描き、
+		// 残り width-1 セルをカーソル反転スタイルで埋める。
+		rest := strings.Repeat(" ", leftPad-1) + marker + title
+		var first string
+		if isSelected {
+			first = styleSelectMarkerCursor.Render("▌")
+		} else {
+			first = styleCursorRow.Render(" ")
+		}
+		return first + styleCursorRow.Width(width-1).Render(rest)
 	}
 
 	var titleRendered string
@@ -88,7 +99,11 @@ func renderTaskRow(t task.Task, statuses task.StatusList, depth int, hasChildren
 	} else {
 		titleRendered = styleListItemDim.Inline(true).Render(title)
 	}
-	return strings.Repeat(" ", leftPad) + marker + titleRendered
+	first := " "
+	if isSelected {
+		first = styleSelectMarker.Render("▌")
+	}
+	return first + strings.Repeat(" ", leftPad-1) + marker + titleRendered
 }
 
 func truncate(s string, w int) string {

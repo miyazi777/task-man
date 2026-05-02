@@ -36,6 +36,7 @@ type Model struct {
 	rows          []listRow         // 表示用フラット行リスト (ステータスでグループ化)
 	collapsed     map[int]bool      // statusID → 折りたたみ中
 	taskCollapsed map[int]bool      // taskID → サブタスクを折りたたみ中
+	selected      map[int]bool      // taskID → 選択中 (移動操作の前段。インメモリのみで永続化しない)
 	cursor        int               // m.rows のインデックス (旧: m.tasks のインデックス)
 	mode          Mode
 	prevMode      Mode
@@ -52,7 +53,8 @@ type Model struct {
 	width  int
 	height int
 
-	saveErr error
+	saveErr   error
+	selectErr error // 選択操作の制約違反 (異なるステータス/階層) を一時表示する
 }
 
 func NewModel(repo storage.Repository, initial []task.Task, statuses task.StatusList, yamlDir string, cfg storage.AppConfig) Model {
@@ -76,6 +78,7 @@ func NewModel(repo storage.Repository, initial []task.Task, statuses task.Status
 		cfg:           cfg,
 		collapsed:     collapsed,
 		taskCollapsed: taskCollapsed,
+		selected:      make(map[int]bool),
 		mode:          ModeList,
 		keys:          newKeyMap(),
 	}
@@ -135,6 +138,21 @@ func (m Model) currentTask() (task.Task, int, bool) {
 		return task.Task{}, 0, false
 	}
 	return m.tasks[r.taskIndex], r.taskIndex, true
+}
+
+// firstSelectedTask は m.selected の中から1つタスクを返す (アンカー判定用)。
+// 反復順を安定させるため m.tasks の並びで最初に見つかったものを返す。
+// 該当が無ければ ok=false。
+func (m Model) firstSelectedTask() (task.Task, bool) {
+	if len(m.selected) == 0 {
+		return task.Task{}, false
+	}
+	for _, t := range m.tasks {
+		if m.selected[t.ID] {
+			return t, true
+		}
+	}
+	return task.Task{}, false
 }
 
 // currentStatusID は cursor が指す行が status (or 該当行のグループ) のステータス ID を返す。
@@ -687,6 +705,34 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.saveErr = err
 			}
 			return m, nil
+		case key.Matches(msg, m.keys.Select):
+			// s: タスク行のみ受け付け、選択状態をトグルする (移動操作の前段)。
+			// 選択は yaml に永続化しない。
+			// 制約: 既に選択中のタスクがある場合、新規追加するタスクは
+			//       同じ status_id かつ 同じ parent_id (同じ親の兄弟) である必要がある。
+			cur, _, ok := m.currentTask()
+			if !ok {
+				return m, nil
+			}
+			// 既に選択中なら無条件でトグル解除 (制約とは関係なく外せる)。
+			if m.selected[cur.ID] {
+				delete(m.selected, cur.ID)
+				m.selectErr = nil
+				return m, nil
+			}
+			if anchor, ok := m.firstSelectedTask(); ok {
+				if anchor.StatusID != cur.StatusID {
+					m.selectErr = fmt.Errorf("cannot select tasks across different statuses")
+					return m, nil
+				}
+				if anchor.ParentID != cur.ParentID {
+					m.selectErr = fmt.Errorf("cannot select tasks under different parents")
+					return m, nil
+				}
+			}
+			m.selected[cur.ID] = true
+			m.selectErr = nil
+			return m, nil
 		case key.Matches(msg, m.keys.NewTask):
 			// status 行: その status 配下にトップレベルの新規タスクを作成
 			// task 行: そのタスクの直下にサブタスクを作成 (深さ上限まで)
@@ -775,7 +821,7 @@ func (m Model) View() string {
 	listFocused := m.mode == ModeList || m.mode == ModeQuitConfirm
 	detailFocused := m.mode == ModeDetail || m.mode == ModeEditTitle || m.mode == ModeEditStatus
 
-	left := renderList(m.tasks, m.statuses, m.rows, m.collapsed, m.cursor, listFocused, leftW, bodyH)
+	left := renderList(m.tasks, m.statuses, m.rows, m.collapsed, m.selected, m.cursor, listFocused, leftW, bodyH)
 
 	var current *task.Task
 	if t, _, ok := m.currentTask(); ok {
@@ -819,6 +865,9 @@ func (m Model) View() string {
 
 	if m.saveErr != nil {
 		view += "\n" + lipgloss.NewStyle().Foreground(colorDanger).Render(fmt.Sprintf("save error: %v", m.saveErr))
+	}
+	if m.selectErr != nil {
+		view += "\n" + lipgloss.NewStyle().Foreground(colorDanger).Render(fmt.Sprintf("error: %v", m.selectErr))
 	}
 	return view
 }
