@@ -37,6 +37,7 @@ type Model struct {
 	collapsed     map[int]bool      // statusID → 折りたたみ中
 	taskCollapsed map[int]bool      // taskID → サブタスクを折りたたみ中
 	selected      map[int]bool      // taskID → 選択中 (移動操作の前段。インメモリのみで永続化しない)
+	moveAsChild   bool              // ModeMove 中、カーソル位置タスクの「最初の子」モードか (space でトグル)
 	cursor        int               // m.rows のインデックス (旧: m.tasks のインデックス)
 	mode          Mode
 	prevMode      Mode
@@ -103,6 +104,7 @@ func (m *Model) persist() error {
 
 // withRowsRebuilt はステータスとタスクの構成・折りたたみ状態から rows を再構築し、
 // cursor が範囲外/separator にいる場合は近接の navigable 行へ寄せる。
+// ModeMove + moveAsChild のときはカーソル直下に【移動先】プレースホルダ行を差し込む。
 func (m Model) withRowsRebuilt() Model {
 	m.rows = buildRows(m.statuses, m.tasks, m.collapsed, m.taskCollapsed)
 	if len(m.rows) == 0 {
@@ -115,7 +117,7 @@ func (m Model) withRowsRebuilt() Model {
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
-	if m.rows[m.cursor].kind == rowSeparator {
+	if !isNavigable(m.rows[m.cursor].kind) {
 		// 直前/直後で navigable な行へ
 		next := nextNavigable(m.rows, m.cursor)
 		if next == m.cursor {
@@ -124,6 +126,9 @@ func (m Model) withRowsRebuilt() Model {
 		if next != m.cursor {
 			m.cursor = next
 		}
+	}
+	if m.mode == ModeMove && m.moveAsChild {
+		m.rows = insertMovePlaceholder(m.rows, m.cursor)
 	}
 	return m
 }
@@ -138,6 +143,45 @@ func (m Model) currentTask() (task.Task, int, bool) {
 		return task.Task{}, 0, false
 	}
 	return m.tasks[r.taskIndex], r.taskIndex, true
+}
+
+// executeMove は ModeMove で p が押されたときに移動を確定する。
+// カーソル位置から MoveDestination を組み立て、task.MoveTasks を呼び出して結果を永続化する。
+// 完了後は selected/moveAsChild をクリアし ModeList へ戻る。
+func (m Model) executeMove() (tea.Model, tea.Cmd) {
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
+		return m, nil
+	}
+	r := m.rows[m.cursor]
+	var dst task.MoveDestination
+	switch r.kind {
+	case rowStatus:
+		// ステータスの先頭。
+		dst = task.MoveDestination{ParentID: 0, StatusID: r.statusID, InsertAt: 1}
+	case rowTask:
+		cur := m.tasks[r.taskIndex]
+		if m.moveAsChild {
+			// カーソルタスクの最初の子。
+			dst = task.MoveDestination{ParentID: cur.ID, StatusID: cur.StatusID, InsertAt: 1}
+		} else {
+			// 同じ親の中で、カーソルタスクの次。
+			dst = task.MoveDestination{ParentID: cur.ParentID, StatusID: cur.StatusID, InsertAt: cur.Position + 1}
+		}
+	default:
+		return m, nil
+	}
+
+	m.tasks = task.MoveTasks(m.tasks, m.selected, dst)
+	m.selected = make(map[int]bool)
+	m.moveAsChild = false
+	m.mode = ModeList
+	if err := m.persist(); err != nil {
+		m.saveErr = err
+		m = m.withRowsRebuilt()
+		return m, nil
+	}
+	m = m.withRowsRebuilt()
+	return m, nil
 }
 
 // firstSelectedTask は m.selected の中から1つタスクを返す (アンカー判定用)。
@@ -644,6 +688,55 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case ModeMove:
+		switch msg.String() {
+		case "esc":
+			// キャンセル: 選択もクリアして ModeList へ戻る。
+			m.selected = make(map[int]bool)
+			m.moveAsChild = false
+			m.selectErr = nil
+			m.mode = ModeList
+			m = m.withRowsRebuilt()
+			return m, nil
+		}
+		switch {
+		case key.Matches(msg, m.keys.Up):
+			// ナビゲーション: 子モードを解除してから移動 (位置が変われば【移動先】の位置もリセットされる)。
+			m.moveAsChild = false
+			m = m.withRowsRebuilt()
+			if next := prevNavigable(m.rows, m.cursor); next != m.cursor {
+				m.cursor = next
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			m.moveAsChild = false
+			m = m.withRowsRebuilt()
+			if next := nextNavigable(m.rows, m.cursor); next != m.cursor {
+				m.cursor = next
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Toggle):
+			// space: タスク行でのみ「最初の子モード」をトグル。status 行では無効。
+			if m.cursor < 0 || m.cursor >= len(m.rows) {
+				return m, nil
+			}
+			if m.rows[m.cursor].kind != rowTask {
+				return m, nil
+			}
+			m.moveAsChild = !m.moveAsChild
+			// rows をリビルドして【移動先】を再配置 (cursor は taskIndex 経由で復元)。
+			taskIdx := m.rows[m.cursor].taskIndex
+			m = m.withRowsRebuilt()
+			if r := findRowForTask(m.rows, taskIdx); r >= 0 {
+				m.cursor = r
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Paste):
+			return m.executeMove()
+		}
+		// l/→, h/← その他: 無効
+		return m, nil
+
 	case ModeList:
 		switch {
 		case key.Matches(msg, m.keys.Quit):
@@ -704,6 +797,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if err := m.persist(); err != nil {
 				m.saveErr = err
 			}
+			return m, nil
+		case key.Matches(msg, m.keys.Move):
+			// x: 選択中タスクがあるとき ModeMove へ遷移。なければ何もしない。
+			if len(m.selected) == 0 {
+				return m, nil
+			}
+			m.mode = ModeMove
+			m.moveAsChild = false
+			m.selectErr = nil
+			m = m.withRowsRebuilt()
 			return m, nil
 		case key.Matches(msg, m.keys.Select):
 			// s: タスク行のみ受け付け、選択状態をトグルする (移動操作の前段)。
@@ -818,7 +921,7 @@ func (m Model) View() string {
 	rightW := m.width - leftW - 1
 	bodyH := m.height - 1
 
-	listFocused := m.mode == ModeList || m.mode == ModeQuitConfirm
+	listFocused := m.mode == ModeList || m.mode == ModeQuitConfirm || m.mode == ModeMove
 	detailFocused := m.mode == ModeDetail || m.mode == ModeEditTitle || m.mode == ModeEditStatus
 
 	left := renderList(m.tasks, m.statuses, m.rows, m.collapsed, m.selected, m.cursor, listFocused, leftW, bodyH)

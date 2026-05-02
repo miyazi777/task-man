@@ -26,6 +26,8 @@ func renderList(tasks []task.Task, statuses task.StatusList, rows []listRow, col
 		case rowTask:
 			t := tasks[r.taskIndex]
 			lines = append(lines, renderTaskRow(t, statuses, r.depth, r.hasChildren, r.collapsed, selected[t.ID], i == cursor, focused, width))
+		case rowMovePlaceholder:
+			lines = append(lines, renderMovePlaceholder(r.depth, width))
 		}
 	}
 
@@ -104,6 +106,17 @@ func renderTaskRow(t task.Task, statuses task.StatusList, depth int, hasChildren
 		first = styleSelectMarker.Render("▌")
 	}
 	return first + strings.Repeat(" ", leftPad-1) + marker + titleRendered
+}
+
+// renderMovePlaceholder は ModeMove 時にカーソルタスク直下に挿入される【移動先】行を描画する。
+// depth は親タスクの depth + 1 を想定し、左パディングで階層感を出す。
+// 視認性のため黄色 (colorWarn) で太字。
+func renderMovePlaceholder(depth, width int) string {
+	const baseLeftPad, perDepth = 2, 2
+	leftPad := baseLeftPad + depth*perDepth
+	body := "+ 【移動先】"
+	style := lipgloss.NewStyle().Foreground(colorWarn).Bold(true)
+	return strings.Repeat(" ", leftPad) + style.Render(body)
 }
 
 func truncate(s string, w int) string {

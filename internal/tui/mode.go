@@ -13,6 +13,7 @@ const (
 	ModeRenameFile
 	ModeDeleteFileConfirm
 	ModeQuitConfirm
+	ModeMove
 )
 
 func (m Mode) String() string {
@@ -37,6 +38,8 @@ func (m Mode) String() string {
 		return "deletefileconfirm"
 	case ModeQuitConfirm:
 		return "quitconfirm"
+	case ModeMove:
+		return "move"
 	default:
 		return "unknown"
 	}
