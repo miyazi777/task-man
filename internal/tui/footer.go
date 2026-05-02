@@ -26,7 +26,6 @@ func renderFooter(mode, prevMode Mode, detailCursor int, width int) string {
 			{"k/↑", "up"}, {"j/↓", "down"},
 			{"l/→", "open"}, {"h/←", "close"},
 			{"enter", "detail"},
-			{"x", "move"},
 			{"a", "new/subtask"}, {"q", "quit"},
 		})
 	case ModeDetail:
@@ -56,11 +55,6 @@ func renderFooter(mode, prevMode Mode, detailCursor int, width int) string {
 	case ModeAddFile, ModeRenameFile:
 		content = renderHints([]hintItem{
 			{"Enter", "save"}, {"Esc", "discard"},
-		})
-	case ModeMove:
-		content = renderHints([]hintItem{
-			{"k/↑", "up"}, {"j/↓", "down"},
-			{"space", "child"}, {"p", "paste"}, {"Esc", "cancel"},
 		})
 	}
 

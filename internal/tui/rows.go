@@ -6,12 +6,12 @@ import (
 	"github.com/miyazi777/task-man/internal/task"
 )
 
-// listRow はリスト画面の 1 行を表す。種別は status ヘッダ / task / 空区切り / 移動先プレースホルダ のいずれか。
+// listRow はリスト画面の 1 行を表す。種別は status ヘッダ / task / 空区切り のいずれか。
 type listRow struct {
 	kind        rowKind
 	statusID    int  // status / task の所属
 	taskIndex   int  // task のときの m.tasks 上のインデックス
-	depth       int  // task / movePlaceholder のときのネスト深さ (0=トップレベル)
+	depth       int  // task のときのネスト深さ (0=トップレベル)
 	hasChildren bool // task が子タスクを持つか (マーカー表示用)
 	collapsed   bool // task の collapsed 状態 (マーカー表示用)
 }
@@ -22,7 +22,6 @@ const (
 	rowStatus rowKind = iota
 	rowTask
 	rowSeparator
-	rowMovePlaceholder // ModeMove で「最初の子モード」のときに挿入される【移動先】行
 )
 
 // buildRows はステータスを sequence 逆順 (大きい順) で並べ、
@@ -155,7 +154,7 @@ func taskDepth(tasks []task.Task, id int) int {
 }
 
 // nextNavigable は from より後ろの (status か task の) 最初の行を返す。
-// 見つからなければ from を返す。separator と移動先プレースホルダはスキップする。
+// 見つからなければ from を返す。separator はスキップする。
 func nextNavigable(rows []listRow, from int) int {
 	for i := from + 1; i < len(rows); i++ {
 		if isNavigable(rows[i].kind) {
@@ -166,7 +165,7 @@ func nextNavigable(rows []listRow, from int) int {
 }
 
 // prevNavigable は from より前の (status か task の) 最後の行を返す。
-// 見つからなければ from を返す。separator と移動先プレースホルダはスキップする。
+// 見つからなければ from を返す。separator はスキップする。
 func prevNavigable(rows []listRow, from int) int {
 	for i := from - 1; i >= 0; i-- {
 		if isNavigable(rows[i].kind) {
@@ -188,29 +187,6 @@ func firstNavigable(rows []listRow) int {
 
 func isNavigable(k rowKind) bool {
 	return k == rowStatus || k == rowTask
-}
-
-// insertMovePlaceholder は cursor 位置の直下に rowMovePlaceholder を 1 行挿入した新しい slice を返す。
-// cursor 行が rowTask のときのみ作用し、プレースホルダの depth は親の depth+1 を持つ。
-// それ以外 (rowStatus / rowSeparator / 範囲外) では rows をそのまま返す。
-func insertMovePlaceholder(rows []listRow, cursor int) []listRow {
-	if cursor < 0 || cursor >= len(rows) {
-		return rows
-	}
-	r := rows[cursor]
-	if r.kind != rowTask {
-		return rows
-	}
-	ph := listRow{
-		kind:     rowMovePlaceholder,
-		statusID: r.statusID,
-		depth:    r.depth + 1,
-	}
-	out := make([]listRow, 0, len(rows)+1)
-	out = append(out, rows[:cursor+1]...)
-	out = append(out, ph)
-	out = append(out, rows[cursor+1:]...)
-	return out
 }
 
 // findRowForTask は taskIndex を含む行のインデックスを返す。見つからなければ -1。

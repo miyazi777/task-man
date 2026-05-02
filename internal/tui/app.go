@@ -36,8 +36,6 @@ type Model struct {
 	rows          []listRow         // 表示用フラット行リスト (ステータスでグループ化)
 	collapsed     map[int]bool      // statusID → 折りたたみ中
 	taskCollapsed map[int]bool      // taskID → サブタスクを折りたたみ中
-	moving        int               // ModeMove 中の移動対象タスク ID (0 なら移動中でない)
-	moveAsChild   bool              // ModeMove 中、カーソル位置タスクの「最初の子」モードか (space でトグル)
 	cursor        int               // m.rows のインデックス (旧: m.tasks のインデックス)
 	mode          Mode
 	prevMode      Mode
@@ -102,7 +100,6 @@ func (m *Model) persist() error {
 
 // withRowsRebuilt はステータスとタスクの構成・折りたたみ状態から rows を再構築し、
 // cursor が範囲外/separator にいる場合は近接の navigable 行へ寄せる。
-// ModeMove + moveAsChild のときはカーソル直下に【移動先】プレースホルダ行を差し込む。
 func (m Model) withRowsRebuilt() Model {
 	m.rows = buildRows(m.statuses, m.tasks, m.collapsed, m.taskCollapsed)
 	if len(m.rows) == 0 {
@@ -124,9 +121,6 @@ func (m Model) withRowsRebuilt() Model {
 		if next != m.cursor {
 			m.cursor = next
 		}
-	}
-	if m.mode == ModeMove && m.moveAsChild {
-		m.rows = insertMovePlaceholder(m.rows, m.cursor)
 	}
 	return m
 }
@@ -195,60 +189,6 @@ func (m Model) applyCollapseChange(collapse bool) (tea.Model, tea.Cmd) {
 			m.saveErr = err
 		}
 		return m, nil
-	}
-	return m, nil
-}
-
-// executeMove は ModeMove で p が押されたときに移動を確定する。
-// カーソル位置から MoveDestination を組み立て、task.MoveTasks を呼び出して結果を永続化する。
-// 完了後は selected/moveAsChild をクリアし ModeList へ戻る。
-func (m Model) executeMove() (tea.Model, tea.Cmd) {
-	if m.cursor < 0 || m.cursor >= len(m.rows) {
-		return m, nil
-	}
-	r := m.rows[m.cursor]
-	var dst task.MoveDestination
-	switch r.kind {
-	case rowStatus:
-		// ステータスの先頭。
-		dst = task.MoveDestination{ParentID: 0, StatusID: r.statusID, InsertAt: 1}
-	case rowTask:
-		cur := m.tasks[r.taskIndex]
-		if m.moveAsChild {
-			// カーソルタスクの最初の子。
-			dst = task.MoveDestination{ParentID: cur.ID, StatusID: cur.StatusID, InsertAt: 1}
-		} else {
-			// 同じ親の中で、カーソルタスクの次。
-			dst = task.MoveDestination{ParentID: cur.ParentID, StatusID: cur.StatusID, InsertAt: cur.Position + 1}
-		}
-	default:
-		return m, nil
-	}
-
-	if m.moving == 0 {
-		m.mode = ModeList
-		m = m.withRowsRebuilt()
-		return m, nil
-	}
-	m.tasks = task.MoveTasks(m.tasks, map[int]bool{m.moving: true}, dst)
-	movedID := m.moving
-	m.moving = 0
-	m.moveAsChild = false
-	m.mode = ModeList
-	if err := m.persist(); err != nil {
-		m.saveErr = err
-		m = m.withRowsRebuilt()
-		return m, nil
-	}
-	m = m.withRowsRebuilt()
-	// 移動後のタスク行へカーソルを追従させる
-	for i, t := range m.tasks {
-		if t.ID == movedID {
-			if r := findRowForTask(m.rows, i); r >= 0 {
-				m.cursor = r
-			}
-			break
-		}
 	}
 	return m, nil
 }
@@ -742,54 +682,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case ModeMove:
-		switch msg.String() {
-		case "esc":
-			// キャンセル: 移動対象をクリアして ModeList へ戻る。
-			m.moving = 0
-			m.moveAsChild = false
-			m.mode = ModeList
-			m = m.withRowsRebuilt()
-			return m, nil
-		}
-		switch {
-		case key.Matches(msg, m.keys.Up):
-			// ナビゲーション: 子モードを解除してから移動 (位置が変われば【移動先】の位置もリセットされる)。
-			m.moveAsChild = false
-			m = m.withRowsRebuilt()
-			if next := prevNavigable(m.rows, m.cursor); next != m.cursor {
-				m.cursor = next
-			}
-			return m, nil
-		case key.Matches(msg, m.keys.Down):
-			m.moveAsChild = false
-			m = m.withRowsRebuilt()
-			if next := nextNavigable(m.rows, m.cursor); next != m.cursor {
-				m.cursor = next
-			}
-			return m, nil
-		case key.Matches(msg, m.keys.Toggle):
-			// space: タスク行でのみ「最初の子モード」をトグル。status 行では無効。
-			if m.cursor < 0 || m.cursor >= len(m.rows) {
-				return m, nil
-			}
-			if m.rows[m.cursor].kind != rowTask {
-				return m, nil
-			}
-			m.moveAsChild = !m.moveAsChild
-			// rows をリビルドして【移動先】を再配置 (cursor は taskIndex 経由で復元)。
-			taskIdx := m.rows[m.cursor].taskIndex
-			m = m.withRowsRebuilt()
-			if r := findRowForTask(m.rows, taskIdx); r >= 0 {
-				m.cursor = r
-			}
-			return m, nil
-		case key.Matches(msg, m.keys.Paste):
-			return m.executeMove()
-		}
-		// l/→, h/← その他: 無効
-		return m, nil
-
 	case ModeList:
 		switch {
 		case key.Matches(msg, m.keys.Quit):
@@ -824,18 +716,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Close):
 			// h/←: カーソル位置の status 行 / task 行を折りたたむ (既に折りたたみ済みなら no-op)。
 			return m.applyCollapseChange(true)
-		case key.Matches(msg, m.keys.Move):
-			// x: カーソル位置がタスク行のとき、そのタスクを移動対象として ModeMove へ遷移。
-			// status 行や空の行では何もしない。
-			cur, _, ok := m.currentTask()
-			if !ok {
-				return m, nil
-			}
-			m.moving = cur.ID
-			m.moveAsChild = false
-			m.mode = ModeMove
-			m = m.withRowsRebuilt()
-			return m, nil
 		case key.Matches(msg, m.keys.NewTask):
 			// status 行: その status 配下にトップレベルの新規タスクを作成
 			// task 行: そのタスクの直下にサブタスクを作成 (深さ上限まで)
@@ -921,7 +801,7 @@ func (m Model) View() string {
 	rightW := m.width - leftW - 1
 	bodyH := m.height - 1
 
-	listFocused := m.mode == ModeList || m.mode == ModeQuitConfirm || m.mode == ModeMove
+	listFocused := m.mode == ModeList || m.mode == ModeQuitConfirm
 	detailFocused := m.mode == ModeDetail || m.mode == ModeEditTitle || m.mode == ModeEditStatus
 
 	left := renderList(m.tasks, m.statuses, m.rows, m.collapsed, m.cursor, listFocused, leftW, bodyH)

@@ -14,7 +14,6 @@ var (
 	colorSubtle   = lipgloss.Color("#6c7086")
 	colorAccent   = lipgloss.Color("#89b4fa") // フォーカス・カーソル
 	colorBase     = lipgloss.Color("#1e1e2e") // カーソル反転時の前景 (= 通常背景色)
-	colorWarn     = lipgloss.Color("#f9e2af") // 入力中・終了確認アクセント
 	colorDanger   = lipgloss.Color("#f38ba8") // y:quit
 	colorOK       = lipgloss.Color("#a6e3a1") // n:cancel
 	colorDivider  = lipgloss.Color("#313244")
