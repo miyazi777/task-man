@@ -36,6 +36,8 @@ type Model struct {
 	rows          []listRow         // 表示用フラット行リスト (ステータスでグループ化)
 	collapsed     map[int]bool      // statusID → 折りたたみ中
 	taskCollapsed map[int]bool      // taskID → サブタスクを折りたたみ中
+	moving        int               // ModeMove 中の移動対象タスク ID (0 なら移動中でない)
+	moveSnapshot  []task.Task       // ModeMove 開始時の m.tasks のスナップショット (esc で復元)
 	cursor        int               // m.rows のインデックス (旧: m.tasks のインデックス)
 	mode          Mode
 	prevMode      Mode
@@ -191,6 +193,23 @@ func (m Model) applyCollapseChange(collapse bool) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+// cursorFollowMovingTask は m.moving が指すタスクの行へカーソルを合わせる。
+// rebuild 直後に呼び出して移動対象を視覚的に追従させるための補助関数。
+func (m Model) cursorFollowMovingTask() Model {
+	if m.moving == 0 {
+		return m
+	}
+	for i, t := range m.tasks {
+		if t.ID == m.moving {
+			if r := findRowForTask(m.rows, i); r >= 0 {
+				m.cursor = r
+			}
+			return m
+		}
+	}
+	return m
 }
 
 // currentStatusID は cursor が指す行が status (or 該当行のグループ) のステータス ID を返す。
@@ -682,6 +701,67 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case ModeMove:
+		switch {
+		case key.Matches(msg, m.keys.Back):
+			// esc: スナップショットから復元してキャンセル
+			if m.moveSnapshot != nil {
+				m.tasks = m.moveSnapshot
+			}
+			movedID := m.moving
+			m.moveSnapshot = nil
+			m.moving = 0
+			m.mode = ModeList
+			m = m.withRowsRebuilt()
+			for i, t := range m.tasks {
+				if t.ID == movedID {
+					if r := findRowForTask(m.rows, i); r >= 0 {
+						m.cursor = r
+					}
+					break
+				}
+			}
+			m = m.withFilesRefreshed()
+			return m, nil
+		case key.Matches(msg, m.keys.Move):
+			// m: 確定 → 永続化して ModeList へ
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			movedID := m.moving
+			m.moveSnapshot = nil
+			m.moving = 0
+			m.mode = ModeList
+			m = m.withRowsRebuilt()
+			for i, t := range m.tasks {
+				if t.ID == movedID {
+					if r := findRowForTask(m.rows, i); r >= 0 {
+						m.cursor = r
+					}
+					break
+				}
+			}
+			m = m.withFilesRefreshed()
+			return m, nil
+		case key.Matches(msg, m.keys.Up):
+			m.tasks = task.MoveTaskUp(m.tasks, m.statuses, m.moving)
+			m = m.withRowsRebuilt().cursorFollowMovingTask()
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			m.tasks = task.MoveTaskDown(m.tasks, m.statuses, m.moving)
+			m = m.withRowsRebuilt().cursorFollowMovingTask()
+			return m, nil
+		case key.Matches(msg, m.keys.Open):
+			m.tasks = task.IndentTask(m.tasks, m.moving)
+			m = m.withRowsRebuilt().cursorFollowMovingTask()
+			return m, nil
+		case key.Matches(msg, m.keys.Close):
+			m.tasks = task.OutdentTask(m.tasks, m.moving)
+			m = m.withRowsRebuilt().cursorFollowMovingTask()
+			return m, nil
+		}
+		return m, nil
+
 	case ModeList:
 		switch {
 		case key.Matches(msg, m.keys.Quit):
@@ -716,6 +796,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Close):
 			// h/←: カーソル位置の status 行 / task 行を折りたたむ (既に折りたたみ済みなら no-op)。
 			return m.applyCollapseChange(true)
+		case key.Matches(msg, m.keys.Move):
+			// m: カーソル位置がタスク行なら ModeMove へ遷移し、そのタスクを移動対象にする。
+			// status 行や空の行では何もしない。スナップショットを取って esc の復元に備える。
+			cur, _, ok := m.currentTask()
+			if !ok {
+				return m, nil
+			}
+			snapshot := make([]task.Task, len(m.tasks))
+			copy(snapshot, m.tasks)
+			m.moveSnapshot = snapshot
+			m.moving = cur.ID
+			m.mode = ModeMove
+			m = m.withRowsRebuilt()
+			return m, nil
 		case key.Matches(msg, m.keys.NewTask):
 			// status 行: その status 配下にトップレベルの新規タスクを作成
 			// task 行: そのタスクの直下にサブタスクを作成 (深さ上限まで)
@@ -801,7 +895,7 @@ func (m Model) View() string {
 	rightW := m.width - leftW - 1
 	bodyH := m.height - 1
 
-	listFocused := m.mode == ModeList || m.mode == ModeQuitConfirm
+	listFocused := m.mode == ModeList || m.mode == ModeQuitConfirm || m.mode == ModeMove
 	detailFocused := m.mode == ModeDetail || m.mode == ModeEditTitle || m.mode == ModeEditStatus
 
 	left := renderList(m.tasks, m.statuses, m.rows, m.collapsed, m.cursor, listFocused, leftW, bodyH)
