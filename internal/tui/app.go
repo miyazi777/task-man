@@ -893,8 +893,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.settingMenuCursor++
 			}
 			return m, nil
-		case key.Matches(msg, m.keys.Enter), key.Matches(msg, m.keys.Open):
-			// enter / l/→: 詳細ペインへフォーカス移動。
+		case key.Matches(msg, m.keys.Enter):
+			// enter: 詳細ペインへフォーカス移動。
 			if m.settingMenuCursor == settingMenuStatus {
 				m.mode = ModeSettingStatus
 				if m.settingStatusCursor >= len(m.statuses) {
@@ -912,8 +912,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.prevMode = m.mode
 			m.mode = ModeQuitConfirm
 			return m, nil
-		case key.Matches(msg, m.keys.Back), key.Matches(msg, m.keys.Close):
-			// esc / h/←: 左メニュー側にフォーカスを戻す。
+		case key.Matches(msg, m.keys.Back):
+			// esc: 左メニュー側にフォーカスを戻す。
 			m.mode = ModeSetting
 			return m, nil
 		case key.Matches(msg, m.keys.Up):
