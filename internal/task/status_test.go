@@ -201,6 +201,59 @@ func TestStatusListInsertAt(t *testing.T) {
 	}
 }
 
+func TestStatusListMoveStatusUp(t *testing.T) {
+	sl := DefaultStatuses() // todo(1)/doing(2)/done(3)
+	out := sl.MoveStatusUp(2)
+	// Sorted: doing(2), todo(1), done(3)、sequence は 1..3 に再採番
+	sorted := out.Sorted()
+	if sorted[0].ID != 2 || sorted[0].Sequence != 1 {
+		t.Errorf("[0]=%+v, want id=2 seq=1", sorted[0])
+	}
+	if sorted[1].ID != 1 || sorted[1].Sequence != 2 {
+		t.Errorf("[1]=%+v, want id=1 seq=2", sorted[1])
+	}
+	if sorted[2].ID != 3 || sorted[2].Sequence != 3 {
+		t.Errorf("[2]=%+v, want id=3 seq=3", sorted[2])
+	}
+}
+
+func TestStatusListMoveStatusUpAtTopNoOp(t *testing.T) {
+	sl := DefaultStatuses()
+	out := sl.MoveStatusUp(1) // 先頭
+	for i, s := range out.Sorted() {
+		want := sl.Sorted()[i]
+		if s.ID != want.ID || s.Sequence != want.Sequence {
+			t.Errorf("[%d]: got %+v, want %+v", i, s, want)
+		}
+	}
+}
+
+func TestStatusListMoveStatusDown(t *testing.T) {
+	sl := DefaultStatuses()
+	out := sl.MoveStatusDown(2) // doing → done と入れ替え
+	sorted := out.Sorted()
+	if sorted[0].ID != 1 || sorted[0].Sequence != 1 {
+		t.Errorf("[0]=%+v, want id=1 seq=1", sorted[0])
+	}
+	if sorted[1].ID != 3 || sorted[1].Sequence != 2 {
+		t.Errorf("[1]=%+v, want id=3 seq=2", sorted[1])
+	}
+	if sorted[2].ID != 2 || sorted[2].Sequence != 3 {
+		t.Errorf("[2]=%+v, want id=2 seq=3", sorted[2])
+	}
+}
+
+func TestStatusListMoveStatusDownAtBottomNoOp(t *testing.T) {
+	sl := DefaultStatuses()
+	out := sl.MoveStatusDown(3) // 末尾
+	for i, s := range out.Sorted() {
+		want := sl.Sorted()[i]
+		if s.ID != want.ID || s.Sequence != want.Sequence {
+			t.Errorf("[%d]: got %+v, want %+v", i, s, want)
+		}
+	}
+}
+
 func TestStatusListInsertAtEmpty(t *testing.T) {
 	sl := StatusList{}
 	out, newID, err := sl.InsertAt(0, "todo", "#6c7086")

@@ -20,10 +20,11 @@ var settingMenuLabels = []string{"status"}
 
 // renderSetting は設定画面を描画する。
 // menuFocused=true のとき左メニュー側にカーソル反転、=false なら右ペインの statusCursor 行に反転。
+// inMoveMode=true のとき右ペインのカーソル色を黄 (移動中) に切り替える。
 // statusCursor は m.statuses.Sorted() のインデックス。
-func renderSetting(statuses task.StatusList, menuCursor, statusCursor int, menuFocused bool, leftW, rightW, height int) (string, string) {
+func renderSetting(statuses task.StatusList, menuCursor, statusCursor int, menuFocused, inMoveMode bool, leftW, rightW, height int) (string, string) {
 	left := renderSettingMenu(menuCursor, menuFocused, leftW, height)
-	right := renderSettingStatusPane(statuses, statusCursor, !menuFocused, rightW, height)
+	right := renderSettingStatusPane(statuses, statusCursor, !menuFocused, inMoveMode, rightW, height)
 	return left, right
 }
 
@@ -43,57 +44,38 @@ func renderSettingMenu(menuCursor int, focused bool, width, height int) string {
 	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
 }
 
-func renderSettingStatusPane(statuses task.StatusList, statusCursor int, focused bool, width, height int) string {
+func renderSettingStatusPane(statuses task.StatusList, statusCursor int, focused, inMoveMode bool, width, height int) string {
 	header := lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("-- status setting --")
 	sorted := statuses.Sorted()
 
 	lines := []string{header}
 	for i, s := range sorted {
 		highlight := i == statusCursor && focused
-		lines = append(lines, renderStatusSettingRow(s, highlight, width))
+		lines = append(lines, renderStatusSettingRow(s, highlight, inMoveMode, width))
 	}
 	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
 }
 
-// renderStatusSettingRow は status 一行を「色見本 + label」で組み立てる。
-// highlight=true のときは行全体にカーソル背景 (colorAccent) を敷きつつ、色見本の前景色だけ
-// その status の色を保持する (色合いがわかるように)。label の前景色は colorBase に切り替える。
-func renderStatusSettingRow(s task.Status, highlight bool, width int) string {
-	swatchFg := lipgloss.Color(s.Color)
-	if s.Color == "" {
-		swatchFg = colorMuted
-	}
-
+// renderStatusSettingRow は status 一行をタスクリスト内のステータス表示 (statusRowStyleFor)
+// と同じく「カラー背景に黒抜きラベル」で描画する。
+// highlight=true のときは行全体にカーソル背景を敷き、inMoveMode=true なら黄 (移動中) に
+// 切り替える。
+func renderStatusSettingRow(s task.Status, highlight, inMoveMode bool, width int) string {
 	if highlight {
-		bg := colorAccent
-		swatch := lipgloss.NewStyle().Background(bg).Foreground(swatchFg).Render("███")
-		text := lipgloss.NewStyle().Background(bg).Foreground(colorBase).Bold(true).Render(" " + s.Label + " ")
-		leftPad := lipgloss.NewStyle().Background(bg).Render(" ")
-		row := leftPad + swatch + text
-		// 残幅を背景色で埋めて行全体を反転表示する。
-		used := ansi.StringWidth(ansi.Strip(row))
-		if used < width {
-			row += lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", width-used))
-		}
-		return row
+		raw := "  " + s.Label + " "
+		return cursorStyleFor(inMoveMode).Width(width).Render(raw)
 	}
-
-	swatch := lipgloss.NewStyle().Foreground(swatchFg).Render("███")
-	text := lipgloss.NewStyle().Foreground(colorText).Render(" " + s.Label + " ")
-	row := " " + swatch + text
-	used := ansi.StringWidth(ansi.Strip(row))
-	if used < width {
-		row += strings.Repeat(" ", width-used)
-	}
-	return row
+	prefix := " "
+	labelPart := statusRowStyleFor(s).Render(" " + s.Label + " ")
+	return lipgloss.NewStyle().Width(width).Render(prefix + labelPart)
 }
 
-// renderColorSwatch は ███ 3 cell の色見本を生成する (ピッカー用、背景は素のまま)。
+// renderColorSwatch は ██ 2 cell の色見本を生成する (ピッカー用、背景は素のまま)。
 func renderColorSwatch(hex string) string {
 	if hex == "" {
-		return "   "
+		return "  "
 	}
-	return lipgloss.NewStyle().Foreground(lipgloss.Color(hex)).Render("███")
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(hex)).Render("██")
 }
 
 // overlayColorPicker は status の色変更用ピッカーをポップアップ表示する。
@@ -117,11 +99,9 @@ func overlayColorPicker(bg string, choices []string, currentIdx, screenW, screen
 		if i == currentIdx {
 			marker = "> "
 		}
-		swatch := lipgloss.NewStyle().Background(colorPopupBg).Foreground(lipgloss.Color(hex)).Render("███")
-		bracketL := stylePopupFill.Foreground(colorText).Render("[")
-		bracketR := stylePopupFill.Foreground(colorText).Render("]")
+		swatch := lipgloss.NewStyle().Background(colorPopupBg).Foreground(lipgloss.Color(hex)).Render("██")
 		mk := stylePopupFill.Foreground(colorText).Render(marker)
-		raw := mk + bracketL + swatch + bracketR
+		raw := mk + swatch
 		// pad to contentW (背景色を popup bg に揃える)
 		used := ansi.StringWidth(ansi.Strip(raw))
 		if used < contentW {

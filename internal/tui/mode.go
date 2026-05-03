@@ -22,6 +22,7 @@ const (
 	ModeSettingStatusRename    // status のラベル変更入力
 	ModeSettingStatusAdd       // status の新規追加入力
 	ModeSettingStatusColor     // status の色選択ピッカー
+	ModeSettingStatusMove      // status の位置変更モード
 )
 
 func (m Mode) String() string {
@@ -64,6 +65,8 @@ func (m Mode) String() string {
 		return "settingstatusadd"
 	case ModeSettingStatusColor:
 		return "settingstatuscolor"
+	case ModeSettingStatusMove:
+		return "settingstatusmove"
 	default:
 		return "unknown"
 	}

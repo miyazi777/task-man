@@ -53,10 +53,12 @@ type Model struct {
 	fileCursor         int      // files のインデックス
 
 	// 設定画面 (ModeSetting / ModeSettingStatus*) 用の状態
-	settingMenuCursor   int      // 左メニュー (今は status のみ) のインデックス
-	settingStatusCursor int      // 右ペイン: m.statuses.Sorted() のインデックス
-	settingColorChoices []string // 色ピッカー候補 (#rrggbb 8 色)
-	settingColorCursor  int      // 色ピッカー上のカーソル
+	settingMenuCursor   int              // 左メニュー (今は status のみ) のインデックス
+	settingStatusCursor int              // 右ペイン: m.statuses.Sorted() のインデックス
+	settingColorChoices []string         // 色ピッカー候補 (#rrggbb 8 色)
+	settingColorCursor  int              // 色ピッカー上のカーソル
+	settingMovingStatus int              // ModeSettingStatusMove 中の対象 status ID (0 なら未選択)
+	settingMoveSnapshot task.StatusList  // ModeSettingStatusMove 開始時のスナップショット (esc 用)
 
 	width  int
 	height int
@@ -962,6 +964,71 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.inputErr = nil
 			m.mode = ModeSettingStatusAdd
 			return m, textinput.Blink
+		case key.Matches(msg, m.keys.Move):
+			// m: ステータス位置変更モードへ。スナップショットを取得して開始。
+			if len(sorted) == 0 {
+				return m, nil
+			}
+			cur := sorted[m.settingStatusCursor]
+			snapshot := make(task.StatusList, len(m.statuses))
+			copy(snapshot, m.statuses)
+			m.settingMoveSnapshot = snapshot
+			m.settingMovingStatus = cur.ID
+			m.mode = ModeSettingStatusMove
+			return m, nil
+		}
+		return m, nil
+
+	case ModeSettingStatusMove:
+		switch {
+		case key.Matches(msg, m.keys.Back):
+			// esc: スナップショットから復元してキャンセル
+			if m.settingMoveSnapshot != nil {
+				m.statuses = m.settingMoveSnapshot
+			}
+			movedID := m.settingMovingStatus
+			m.settingMoveSnapshot = nil
+			m.settingMovingStatus = 0
+			m.mode = ModeSettingStatus
+			// カーソルを移動対象の現位置に合わせる
+			sorted := m.statuses.Sorted()
+			for i, s := range sorted {
+				if s.ID == movedID {
+					m.settingStatusCursor = i
+					break
+				}
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Move):
+			// m: 確定 → 永続化して ModeSettingStatus へ
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			m.settingMoveSnapshot = nil
+			m.settingMovingStatus = 0
+			m.mode = ModeSettingStatus
+			return m, nil
+		case key.Matches(msg, m.keys.Up):
+			m.statuses = m.statuses.MoveStatusUp(m.settingMovingStatus)
+			// カーソルを移動対象の新位置に追従
+			sorted := m.statuses.Sorted()
+			for i, s := range sorted {
+				if s.ID == m.settingMovingStatus {
+					m.settingStatusCursor = i
+					break
+				}
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			m.statuses = m.statuses.MoveStatusDown(m.settingMovingStatus)
+			sorted := m.statuses.Sorted()
+			for i, s := range sorted {
+				if s.ID == m.settingMovingStatus {
+					m.settingStatusCursor = i
+					break
+				}
+			}
+			return m, nil
 		}
 		return m, nil
 
@@ -1245,7 +1312,7 @@ func (m Model) openCurrentFile() (Model, tea.Cmd) {
 // View 切替の判定に使う。
 func isSettingMode(m Mode) bool {
 	switch m {
-	case ModeSetting, ModeSettingStatus, ModeSettingStatusRename, ModeSettingStatusAdd, ModeSettingStatusColor:
+	case ModeSetting, ModeSettingStatus, ModeSettingStatusRename, ModeSettingStatusAdd, ModeSettingStatusColor, ModeSettingStatusMove:
 		return true
 	}
 	return false
@@ -1301,7 +1368,17 @@ func (m Model) View() string {
 	var left, right string
 	if isSettingMode(m.mode) {
 		menuFocused := m.mode == ModeSetting
-		left, right = renderSetting(m.statuses, m.settingMenuCursor, m.settingStatusCursor, menuFocused, leftW, rightW, bodyH)
+		inSettingMove := m.mode == ModeSettingStatusMove
+		left, right = renderSetting(m.statuses, m.settingMenuCursor, m.settingStatusCursor, menuFocused, inSettingMove, leftW, rightW, bodyH)
+		if inSettingMove {
+			banner := styleMoveBanner.Render("-- MOVE MODE --")
+			bannerW := lipgloss.Width(banner)
+			x := rightW - bannerW
+			if x < 0 {
+				x = 0
+			}
+			right = PlaceOverlay(x, 0, banner, right)
+		}
 	} else {
 		left = renderList(m.tasks, m.statuses, m.rows, m.collapsed, m.cursor, listFocused, inMoveMode, leftW, listH)
 		if inMoveMode {

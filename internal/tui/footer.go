@@ -101,6 +101,11 @@ func renderFooter(mode, prevMode Mode, detailCursor int, viewTrash bool, width i
 		content = renderHints([]hintItem{
 			{"k/↑", "up"}, {"j/↓", "down"}, {"Enter", "save"}, {"Esc", "cancel"},
 		})
+	case ModeSettingStatusMove:
+		content = renderHints([]hintItem{
+			{"k/↑", "up"}, {"j/↓", "down"},
+			{"m", "confirm"}, {"Esc", "cancel"},
+		})
 	}
 
 	bar := lipgloss.NewStyle().

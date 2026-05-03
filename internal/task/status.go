@@ -164,6 +164,54 @@ func (sl StatusList) InsertAt(insertIdx int, label, color string) (StatusList, i
 	return merged, newID, nil
 }
 
+// MoveStatusUp は id を持つ status を Sorted 順で 1 つ上に移動した新しい StatusList を返す。
+// 既に先頭または id が無い場合はコピーを返すだけ。
+func (sl StatusList) MoveStatusUp(id int) StatusList {
+	sorted := sl.Sorted()
+	idx := -1
+	for i, s := range sorted {
+		if s.ID == id {
+			idx = i
+			break
+		}
+	}
+	out := make(StatusList, len(sl))
+	copy(out, sl)
+	if idx <= 0 {
+		return out
+	}
+	ids := make([]int, len(sorted))
+	for i, s := range sorted {
+		ids[i] = s.ID
+	}
+	ids[idx-1], ids[idx] = ids[idx], ids[idx-1]
+	return sl.ResequenceByOrder(ids)
+}
+
+// MoveStatusDown は id を持つ status を Sorted 順で 1 つ下に移動した新しい StatusList を返す。
+// 既に末尾または id が無い場合はコピーを返すだけ。
+func (sl StatusList) MoveStatusDown(id int) StatusList {
+	sorted := sl.Sorted()
+	idx := -1
+	for i, s := range sorted {
+		if s.ID == id {
+			idx = i
+			break
+		}
+	}
+	out := make(StatusList, len(sl))
+	copy(out, sl)
+	if idx == -1 || idx >= len(sorted)-1 {
+		return out
+	}
+	ids := make([]int, len(sorted))
+	for i, s := range sorted {
+		ids[i] = s.ID
+	}
+	ids[idx], ids[idx+1] = ids[idx+1], ids[idx]
+	return sl.ResequenceByOrder(ids)
+}
+
 // ResequenceByOrder は orderedIDs の並び順で sequence を 1..N に振り直した新しい StatusList を返す。
 // orderedIDs に含まれない status はそのまま末尾扱い (sequence は付与されない) になるが、
 // 通常は全 status を含めて呼ぶ前提。
