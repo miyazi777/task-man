@@ -809,8 +809,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m = m.withFilesRefreshed()
 			return m, nil
-		case key.Matches(msg, m.keys.Move):
-			// m: 確定 → 永続化して ModeList へ
+		case key.Matches(msg, m.keys.Enter):
+			// enter: 確定 → 永続化して ModeList へ
 			if err := m.persist(); err != nil {
 				m.saveErr = err
 			}
@@ -990,6 +990,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settingMoveSnapshot = nil
 			m.settingMovingStatus = 0
 			m.mode = ModeSettingStatus
+			m = m.withRowsRebuilt()
 			// カーソルを移動対象の現位置に合わせる
 			sorted := m.statuses.Sorted()
 			for i, s := range sorted {
@@ -999,14 +1000,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, nil
-		case key.Matches(msg, m.keys.Move):
-			// m: 確定 → 永続化して ModeSettingStatus へ
+		case key.Matches(msg, m.keys.Enter):
+			// enter: 確定 → 永続化して ModeSettingStatus へ
 			if err := m.persist(); err != nil {
 				m.saveErr = err
 			}
 			m.settingMoveSnapshot = nil
 			m.settingMovingStatus = 0
 			m.mode = ModeSettingStatus
+			m = m.withRowsRebuilt()
 			return m, nil
 		case key.Matches(msg, m.keys.Up):
 			m.statuses = m.statuses.MoveStatusUp(m.settingMovingStatus)
@@ -1054,6 +1056,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if err := m.persist(); err != nil {
 				m.saveErr = err
 			}
+			m = m.withRowsRebuilt()
 			m.mode = ModeSettingStatus
 			m.input = textinput.Model{}
 			m.inputErr = nil
@@ -1091,6 +1094,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if err := m.persist(); err != nil {
 				m.saveErr = err
 			}
+			m = m.withRowsRebuilt()
 			// カーソルを新規ステータス行に合わせる
 			sorted := m.statuses.Sorted()
 			for i, s := range sorted {
@@ -1145,6 +1149,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if err := m.persist(); err != nil {
 				m.saveErr = err
 			}
+			m = m.withRowsRebuilt()
 			m.mode = ModeSettingStatus
 			return m, nil
 		case "esc":

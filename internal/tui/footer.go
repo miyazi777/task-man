@@ -75,7 +75,7 @@ func renderFooter(mode, prevMode Mode, detailCursor int, viewTrash bool, width i
 		content = renderHints([]hintItem{
 			{"k/↑", "up"}, {"j/↓", "down"},
 			{"l/→", "indent"}, {"h/←", "outdent"},
-			{"m", "confirm"}, {"Esc", "cancel"},
+			{"Enter", "confirm"}, {"Esc", "cancel"},
 		})
 	case ModePrefix:
 		content = renderHints([]hintItem{
@@ -104,7 +104,7 @@ func renderFooter(mode, prevMode Mode, detailCursor int, viewTrash bool, width i
 	case ModeSettingStatusMove:
 		content = renderHints([]hintItem{
 			{"k/↑", "up"}, {"j/↓", "down"},
-			{"m", "confirm"}, {"Esc", "cancel"},
+			{"Enter", "confirm"}, {"Esc", "cancel"},
 		})
 	}
 
