@@ -79,37 +79,76 @@ func renderColorSwatch(hex string) string {
 }
 
 // overlayColorPicker は status の色変更用ピッカーをポップアップ表示する。
-// choices は #rrggbb 形式の 8 色 (色相順)。currentIdx は選択中インデックス。
-func overlayColorPicker(bg string, choices []string, currentIdx, screenW, screenH int) string {
-	popupOuterW := popupWidth(screenW)
-	contentW := popupOuterW - 4
-	if contentW < 8 {
-		contentW = 8
+// grid[row][col] が #rrggbb 形式の色 (行 = 色相、列 = 明度)。
+// (curRow, curCol) のセルだけ [██] で囲んで強調、それ以外は  ██  で揃えて配置する。
+//
+// ポップアップ幅は「グリッド幅 / ラベル幅 / ヒント幅」のうち最大値に合わせて
+// コンテンツに過不足ない大きさになるよう動的算出する。
+func overlayColorPicker(bg string, grid [][]string, curRow, curCol, screenW, screenH int) string {
+	cols := 0
+	if len(grid) > 0 {
+		cols = len(grid[0])
+	}
+	// セル幅 4 (左 1 + ██ + 右 1)。グリッド幅 = cols * 4。
+	gridW := cols * 4
+	if gridW < 8 {
+		gridW = 8
+	}
+
+	labelText := "Status Color:"
+	labelW := ansi.StringWidth(labelText)
+
+	hints := []hintItem{
+		{"k/↑", "up"}, {"j/↓", "down"}, {"h/←", "left"}, {"l/→", "right"},
+		{"Enter", "save"}, {"Esc", "cancel"},
+	}
+	hintRendered := renderPopupHints(hints)
+	hintW := ansi.StringWidth(ansi.Strip(hintRendered))
+
+	contentW := gridW
+	if labelW > contentW {
+		contentW = labelW
+	}
+	if hintW > contentW {
+		contentW = hintW
+	}
+	popupOuterW := contentW + 4 // 左右の border (2) + 余白 (2)
+	if popupOuterW > screenW {
+		popupOuterW = screenW
+		contentW = popupOuterW - 4
+		if contentW < gridW {
+			contentW = gridW
+		}
 	}
 	innerW := popupOuterW - 2
 
-	topRow := buildBorderRow("╭", "╮", stylePopupLabel.Render("Status Color:"), innerW)
-	bottomRow := buildBorderRow("╰", "╯", renderPopupHints([]hintItem{
-		{"k/↑", "up"}, {"j/↓", "down"}, {"Enter", "save"}, {"Esc", "cancel"},
-	}), innerW)
+	topRow := buildBorderRow("╭", "╮", stylePopupLabel.Render(labelText), innerW)
+	bottomRow := buildBorderRow("╰", "╯", hintRendered, innerW)
 
 	rows := []string{topRow}
-	for i, hex := range choices {
-		marker := "  "
-		if i == currentIdx {
-			marker = "> "
+	for r, rowCells := range grid {
+		// 1 行 = cols * (左マーカー1 + 色2 + 右マーカー1) = cols * 4 cell
+		var line string
+		for c, hex := range rowCells {
+			active := r == curRow && c == curCol
+			swatch := lipgloss.NewStyle().Background(colorPopupBg).Foreground(lipgloss.Color(hex)).Render("██")
+			var leftMk, rightMk string
+			if active {
+				leftMk = stylePopupFill.Foreground(colorText).Bold(true).Render("[")
+				rightMk = stylePopupFill.Foreground(colorText).Bold(true).Render("]")
+			} else {
+				leftMk = stylePopupFill.Render(" ")
+				rightMk = stylePopupFill.Render(" ")
+			}
+			line += leftMk + swatch + rightMk
 		}
-		swatch := lipgloss.NewStyle().Background(colorPopupBg).Foreground(lipgloss.Color(hex)).Render("██")
-		mk := stylePopupFill.Foreground(colorText).Render(marker)
-		raw := mk + swatch
-		// pad to contentW (背景色を popup bg に揃える)
-		used := ansi.StringWidth(ansi.Strip(raw))
+		used := ansi.StringWidth(ansi.Strip(line))
 		if used < contentW {
-			raw += stylePopupFill.Render(strings.Repeat(" ", contentW-used))
+			line += stylePopupFill.Render(strings.Repeat(" ", contentW-used))
 		}
 		row := stylePopupBorder.Render("│") +
 			stylePopupFill.Render(" ") +
-			raw +
+			line +
 			stylePopupFill.Render(" ") +
 			stylePopupBorder.Render("│")
 		rows = append(rows, row)
@@ -120,41 +159,84 @@ func overlayColorPicker(bg string, choices []string, currentIdx, screenW, screen
 	return centerOverlay(popup, bg, screenW, screenH)
 }
 
-// statusColorChoices は currentColor の S/V を保持しつつ、Hue を 0,45,...,315 に振った
-// 8 色 (#rrggbb) を色相順で返す。currentColor が無効/グレーなら適当な S/V を補う。
-func statusColorChoices(currentColor string) []string {
-	_, s, v := hexToHSV(currentColor)
-	if s < 0.2 {
-		s = 0.6
-	}
-	if v < 0.2 {
-		v = 0.85
-	}
-	out := make([]string, 8)
-	for i := 0; i < 8; i++ {
-		hue := float64(i) * 45.0
-		out[i] = hsvToHex(hue, s, v)
-	}
-	return out
+// 色ピッカーのグリッド寸法。
+//   行 = 明度 3 段階 (行ごとに V から 0.25 を差し引く)
+//   列 = 固定パレットの 12 色 (Google 風カラーパレットの上段 8 + 下段 4 を左から順に並べたもの)
+const (
+	colorPickerRows  = 3
+	colorPickerCols  = 12
+	colorPickerVStep = 0.25
+)
+
+// colorPickerBaseHexes は色ピッカーのベース色 (列 0)。
+// 画像参照 — 1 段目左→右: purple, indigo, blue, cyan, green, lime, yellow, orange、
+// 2 段目左→右: red, pink, brown, grey の順。これらをこの画面では上→下に展開する。
+var colorPickerBaseHexes = []string{
+	"#a855f7", // purple
+	"#6366f1", // indigo
+	"#3b82f6", // blue
+	"#0ea5e9", // sky / cyan
+	"#22c55e", // green
+	"#84cc16", // lime
+	"#eab308", // yellow
+	"#f97316", // orange
+	"#ef4444", // red
+	"#ec4899", // pink
+	"#a16207", // brown
+	"#9ca3af", // grey
 }
 
-// nearestColorChoiceIndex は choices の中から currentColor に最も近い hue のインデックスを返す。
-func nearestColorChoiceIndex(choices []string, currentColor string) int {
-	curH, _, _ := hexToHSV(currentColor)
-	best := 0
-	bestDiff := 360.0
-	for i, hex := range choices {
-		h, _, _ := hexToHSV(hex)
-		d := math.Abs(h - curH)
-		if d > 180 {
-			d = 360 - d
-		}
-		if d < bestDiff {
-			bestDiff = d
-			best = i
+// statusColorChoices は明度 3 段階 × 固定 12 色パレットの色グリッド (#rrggbb) を返す。
+// grid[row][col] でアクセス。row=0 が各色のベース、row 増加で明度が 0.25 ずつ低下。
+// col はパレット順 (purple, indigo, blue, ...)。
+func statusColorChoices() [][]string {
+	grid := make([][]string, colorPickerRows)
+	for r := 0; r < colorPickerRows; r++ {
+		grid[r] = make([]string, colorPickerCols)
+		for c, hex := range colorPickerBaseHexes {
+			h, s, v := hexToHSV(hex)
+			colV := v - colorPickerVStep*float64(r)
+			if colV < 0 {
+				colV = 0
+			}
+			grid[r][c] = hsvToHex(h, s, colV)
 		}
 	}
-	return best
+	return grid
+}
+
+// nearestColorChoiceCell は grid 内で currentColor に最も近い (row, col) を返す。
+// 距離は hue 差 + S 差 + V 差で評価する。S が 0 に近い (= グレー) 同士なら hue 差は無視。
+// grid が空なら (0, 0)。
+func nearestColorChoiceCell(grid [][]string, currentColor string) (int, int) {
+	if len(grid) == 0 {
+		return 0, 0
+	}
+	curH, curS, curV := hexToHSV(currentColor)
+	bestRow, bestCol := 0, 0
+	bestDiff := math.MaxFloat64
+	for r, row := range grid {
+		for c, hex := range row {
+			h, s, v := hexToHSV(hex)
+			dH := math.Abs(h - curH)
+			if dH > 180 {
+				dH = 360 - dH
+			}
+			// グレー同士は hue 比較しない (グレーでは hue が定義されない)。
+			if s < 0.05 || curS < 0.05 {
+				dH = 0
+			}
+			// hue は 0..360、S/V は 0..1。S/V を 360 倍してスケールを揃える。
+			dS := math.Abs(s-curS) * 360
+			dV := math.Abs(v-curV) * 360
+			diff := dH + dS + dV
+			if diff < bestDiff {
+				bestDiff = diff
+				bestRow, bestCol = r, c
+			}
+		}
+	}
+	return bestRow, bestCol
 }
 
 // hsvToHex は HSV (h: 0..360, s/v: 0..1) を #rrggbb に変換する。

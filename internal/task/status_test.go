@@ -254,6 +254,79 @@ func TestStatusListMoveStatusDownAtBottomNoOp(t *testing.T) {
 	}
 }
 
+func TestStatusListDeleteByID_MiddleFallsBackToNext(t *testing.T) {
+	sl := DefaultStatuses() // 1=todo seq1, 2=doing seq2, 3=done seq3
+	out, fb, err := sl.DeleteByID(2)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	// doing が消えて、fallback は sequence が 1 つ大きい (= 表示上 1 つ下) done (id 3)
+	if fb != 3 {
+		t.Errorf("fallback=%d, want 3 (done)", fb)
+	}
+	if len(out) != 2 {
+		t.Fatalf("len=%d, want 2", len(out))
+	}
+	// 残りは todo(seq=1), done(seq=2) に再採番
+	sorted := out.Sorted()
+	if sorted[0].ID != 1 || sorted[0].Sequence != 1 {
+		t.Errorf("[0]=%+v, want id=1 seq=1", sorted[0])
+	}
+	if sorted[1].ID != 3 || sorted[1].Sequence != 2 {
+		t.Errorf("[1]=%+v, want id=3 seq=2", sorted[1])
+	}
+}
+
+func TestStatusListDeleteByID_TopFallsBackToNext(t *testing.T) {
+	sl := DefaultStatuses()
+	out, fb, err := sl.DeleteByID(1) // 最小 sequence の todo を削除
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	// fallback は sequence が 1 つ大きい doing (id 2)
+	if fb != 2 {
+		t.Errorf("fallback=%d, want 2 (doing)", fb)
+	}
+	sorted := out.Sorted()
+	if sorted[0].ID != 2 || sorted[0].Sequence != 1 {
+		t.Errorf("[0]=%+v, want id=2 seq=1", sorted[0])
+	}
+	if sorted[1].ID != 3 || sorted[1].Sequence != 2 {
+		t.Errorf("[1]=%+v, want id=3 seq=2", sorted[1])
+	}
+}
+
+func TestStatusListDeleteByID_BottomFallsBackToPrev(t *testing.T) {
+	sl := DefaultStatuses()
+	// 最大 sequence の done を削除すると次が無いので、1 つ前 (sequence 値が小さい) の doing にフォールバック。
+	out, fb, err := sl.DeleteByID(3)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if fb != 2 {
+		t.Errorf("fallback=%d, want 2 (doing)", fb)
+	}
+	if len(out) != 2 {
+		t.Fatalf("len=%d, want 2", len(out))
+	}
+}
+
+func TestStatusListDeleteByID_LastReturnsError(t *testing.T) {
+	sl := StatusList{{ID: 1, Sequence: 1, Label: "todo"}}
+	_, _, err := sl.DeleteByID(1)
+	if !errors.Is(err, ErrCannotDeleteLastStatus) {
+		t.Errorf("expected ErrCannotDeleteLastStatus, got %v", err)
+	}
+}
+
+func TestStatusListDeleteByID_NotFound(t *testing.T) {
+	sl := DefaultStatuses()
+	_, _, err := sl.DeleteByID(99)
+	if err == nil {
+		t.Error("expected error for missing id")
+	}
+}
+
 func TestStatusListInsertAtEmpty(t *testing.T) {
 	sl := StatusList{}
 	out, newID, err := sl.InsertAt(0, "todo", "#6c7086")

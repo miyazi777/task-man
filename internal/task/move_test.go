@@ -120,6 +120,47 @@ func TestMoveTaskDown_AtBottomOfTopLevel_MovesToHigherSequenceStatus(t *testing.
 	}
 }
 
+func TestReassignTasksToFallback_RewritesStatusAndRenumbers(t *testing.T) {
+	// status 1 は元から A,B が居る (pos 1,2)。status 2 を削除して status 1 へ寄せる。
+	tasks := []Task{
+		{ID: 10, Title: "A", StatusID: 1, Position: 1},
+		{ID: 11, Title: "B", StatusID: 1, Position: 2},
+		{ID: 20, Title: "X", StatusID: 2, Position: 1},
+		{ID: 21, Title: "Y", StatusID: 2, Position: 2},
+	}
+	out := ReassignTasksToFallback(tasks, 2, 1)
+	// すべて status 1 になる
+	if got := statusMap(out); got[10] != 1 || got[11] != 1 || got[20] != 1 || got[21] != 1 {
+		t.Fatalf("statusMap = %v, want all in status 1", got)
+	}
+	// position は (oldPos, id) 昇順で再採番される。
+	// A(pos1,id10), X(pos1,id20), B(pos2,id11), Y(pos2,id21) → 1,2,3,4
+	want := map[int]int{10: 1, 20: 2, 11: 3, 21: 4}
+	if got := posMap(out); !reflect.DeepEqual(got, want) {
+		t.Errorf("posMap = %v, want %v", got, want)
+	}
+	// 元の slice は変更されない
+	if tasks[2].StatusID != 2 {
+		t.Error("source tasks must remain unchanged")
+	}
+}
+
+func TestReassignTasksToFallback_SubtaskFollowsByStatusOnly(t *testing.T) {
+	// 親が status 2 / 子も status 2 → 親子ともに status 1 へ。
+	// 子の position は同じ親の中で完結しているのでそのまま。
+	tasks := []Task{
+		{ID: 1, Title: "P", StatusID: 2, Position: 1},
+		{ID: 2, Title: "C", StatusID: 2, ParentID: 1, Position: 1},
+	}
+	out := ReassignTasksToFallback(tasks, 2, 1)
+	if got := statusMap(out); got[1] != 1 || got[2] != 1 {
+		t.Fatalf("statusMap = %v, want both in status 1", got)
+	}
+	if out[1].Position != 1 {
+		t.Errorf("child position = %d, want 1", out[1].Position)
+	}
+}
+
 func TestIndentTask_BecomesChildOfPreviousSibling(t *testing.T) {
 	tasks := []Task{
 		{ID: 1, Title: "A", StatusID: 1, Position: 1},

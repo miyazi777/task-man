@@ -310,6 +310,24 @@ func OutdentTask(tasks []Task, id int) []Task {
 	return tasks
 }
 
+// ReassignTasksToFallback は status_id == fromStatusID のタスクの StatusID を toStatusID に
+// 書き換え、移動先 (toStatusID) の top-level グループの position を 1..N に再採番した新しい tasks を返す。
+// status 削除時にそのステータスを参照していたタスクを別ステータスへ寄せる用途を想定。
+// 子タスク (parent_id != 0) の position は同じ親の中で完結しているため触らない。
+// 元の tasks スライスは変更しない。
+func ReassignTasksToFallback(tasks []Task, fromStatusID, toStatusID int) []Task {
+	out := make([]Task, len(tasks))
+	copy(out, tasks)
+	for i := range out {
+		if out[i].StatusID == fromStatusID {
+			out[i].StatusID = toStatusID
+		}
+	}
+	peers := peerIndexes(out, 0, toStatusID)
+	renumberPositions(out, peers)
+	return out
+}
+
 func indexOf(idxs []int, target int) int {
 	for i, j := range idxs {
 		if j == target {

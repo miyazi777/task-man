@@ -21,8 +21,9 @@ const (
 	ModeSettingStatus          // 設定画面 status サブ (右ペイン側にフォーカス)
 	ModeSettingStatusRename    // status のラベル変更入力
 	ModeSettingStatusAdd       // status の新規追加入力
-	ModeSettingStatusColor     // status の色選択ピッカー
-	ModeSettingStatusMove      // status の位置変更モード
+	ModeSettingStatusColor          // status の色選択ピッカー
+	ModeSettingStatusMove           // status の位置変更モード
+	ModeSettingStatusDeleteConfirm  // status 削除確認 (y/n オーバーレイ)
 )
 
 func (m Mode) String() string {
@@ -67,6 +68,8 @@ func (m Mode) String() string {
 		return "settingstatuscolor"
 	case ModeSettingStatusMove:
 		return "settingstatusmove"
+	case ModeSettingStatusDeleteConfirm:
+		return "settingstatusdeleteconfirm"
 	default:
 		return "unknown"
 	}

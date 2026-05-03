@@ -55,8 +55,9 @@ type Model struct {
 	// 設定画面 (ModeSetting / ModeSettingStatus*) 用の状態
 	settingMenuCursor   int              // 左メニュー (今は status のみ) のインデックス
 	settingStatusCursor int              // 右ペイン: m.statuses.Sorted() のインデックス
-	settingColorChoices []string         // 色ピッカー候補 (#rrggbb 8 色)
-	settingColorCursor  int              // 色ピッカー上のカーソル
+	settingColorChoices [][]string       // 色ピッカー候補グリッド (#rrggbb)。grid[row][col]
+	settingColorRow     int              // 色ピッカー上の行カーソル (色相)
+	settingColorCol     int              // 色ピッカー上の列カーソル (明度)
 	settingMovingStatus int              // ModeSettingStatusMove 中の対象 status ID (0 なら未選択)
 	settingMoveSnapshot task.StatusList  // ModeSettingStatusMove 開始時のスナップショット (esc 用)
 
@@ -302,6 +303,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// 画面下に表示中のエラーメッセージは esc で消せる。
+	// 各モード固有の esc 動作より先に処理する (エラー表示中は最初の esc が「エラー消去」、
+	// 次の esc から通常のモード戻り)。
+	if m.saveErr != nil && msg.String() == "esc" {
+		m.saveErr = nil
+		return m, nil
+	}
 	switch m.mode {
 	case ModeAddFile:
 		switch msg.String() {
@@ -950,8 +958,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			cur := sorted[m.settingStatusCursor]
-			m.settingColorChoices = statusColorChoices(cur.Color)
-			m.settingColorCursor = nearestColorChoiceIndex(m.settingColorChoices, cur.Color)
+			m.settingColorChoices = statusColorChoices()
+			m.settingColorRow, m.settingColorCol = nearestColorChoiceCell(m.settingColorChoices, cur.Color)
 			m.mode = ModeSettingStatusColor
 			return m, nil
 		case key.Matches(msg, m.keys.NewTask):
@@ -975,6 +983,55 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settingMoveSnapshot = snapshot
 			m.settingMovingStatus = cur.ID
 			m.mode = ModeSettingStatusMove
+			return m, nil
+		case key.Matches(msg, m.keys.DeleteTask):
+			// d: ステータス削除確認モーダルへ遷移。
+			// 1 つしか無い場合は遷移せずエラー表示のみ。
+			if len(sorted) == 0 {
+				return m, nil
+			}
+			if len(m.statuses) <= 1 {
+				m.saveErr = task.ErrCannotDeleteLastStatus
+				return m, nil
+			}
+			m.prevMode = m.mode
+			m.mode = ModeSettingStatusDeleteConfirm
+			return m, nil
+		}
+		return m, nil
+
+	case ModeSettingStatusDeleteConfirm:
+		switch {
+		case key.Matches(msg, m.keys.ConfirmY):
+			sorted := m.statuses.Sorted()
+			if m.settingStatusCursor >= len(sorted) {
+				m.mode = ModeSettingStatus
+				return m, nil
+			}
+			cur := sorted[m.settingStatusCursor]
+			newStatuses, fallbackID, err := m.statuses.DeleteByID(cur.ID)
+			if err != nil {
+				m.saveErr = err
+				m.mode = ModeSettingStatus
+				return m, nil
+			}
+			m.tasks = task.ReassignTasksToFallback(m.tasks, cur.ID, fallbackID)
+			m.statuses = newStatuses
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			m = m.withRowsRebuilt()
+			sortedAfter := m.statuses.Sorted()
+			if m.settingStatusCursor >= len(sortedAfter) {
+				m.settingStatusCursor = len(sortedAfter) - 1
+			}
+			if m.settingStatusCursor < 0 {
+				m.settingStatusCursor = 0
+			}
+			m.mode = ModeSettingStatus
+			return m, nil
+		case key.Matches(msg, m.keys.ConfirmN):
+			m.mode = ModeSettingStatus
 			return m, nil
 		}
 		return m, nil
@@ -1084,7 +1141,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if len(m.statuses) == 0 {
 				insertIdx = 0
 			}
-			defaultColor := statusColorChoices("")[0]
+			// 新規ステータスのデフォルト色: グリッド先頭セル (パレット先頭 = purple のベース)。
+			defaultColor := statusColorChoices()[0][0]
 			inserted, newID, err := m.statuses.InsertAt(insertIdx, label, defaultColor)
 			if err != nil {
 				m.saveErr = err
@@ -1119,27 +1177,45 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case ModeSettingStatusColor:
+		grid := m.settingColorChoices
+		rows, cols := len(grid), 0
+		if rows > 0 {
+			cols = len(grid[0])
+		}
 		switch {
 		case key.Matches(msg, m.keys.Up):
-			if m.settingColorCursor > 0 {
-				m.settingColorCursor--
+			if m.settingColorRow > 0 {
+				m.settingColorRow--
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.Down):
-			if m.settingColorCursor < len(m.settingColorChoices)-1 {
-				m.settingColorCursor++
+			if m.settingColorRow < rows-1 {
+				m.settingColorRow++
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Close):
+			// h/← で 1 列左へ。先頭列なら no-op (esc とは別役割)。
+			if m.settingColorCol > 0 {
+				m.settingColorCol--
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Open):
+			// l/→ で 1 列右へ。
+			if m.settingColorCol < cols-1 {
+				m.settingColorCol++
 			}
 			return m, nil
 		}
 		switch msg.String() {
 		case "enter":
 			sorted := m.statuses.Sorted()
-			if m.settingStatusCursor >= len(sorted) || m.settingColorCursor >= len(m.settingColorChoices) {
+			if m.settingStatusCursor >= len(sorted) ||
+				m.settingColorRow >= rows || m.settingColorCol >= cols {
 				m.mode = ModeSettingStatus
 				return m, nil
 			}
 			id := sorted[m.settingStatusCursor].ID
-			newColor := m.settingColorChoices[m.settingColorCursor]
+			newColor := grid[m.settingColorRow][m.settingColorCol]
 			updated, err := m.statuses.SetColorByID(id, newColor)
 			if err != nil {
 				m.saveErr = err
@@ -1317,7 +1393,7 @@ func (m Model) openCurrentFile() (Model, tea.Cmd) {
 // View 切替の判定に使う。
 func isSettingMode(m Mode) bool {
 	switch m {
-	case ModeSetting, ModeSettingStatus, ModeSettingStatusRename, ModeSettingStatusAdd, ModeSettingStatusColor, ModeSettingStatusMove:
+	case ModeSetting, ModeSettingStatus, ModeSettingStatusRename, ModeSettingStatusAdd, ModeSettingStatusColor, ModeSettingStatusMove, ModeSettingStatusDeleteConfirm:
 		return true
 	}
 	return false
@@ -1433,7 +1509,15 @@ func (m Model) View() string {
 	case ModeSettingStatusAdd:
 		view = overlayInputPopup(view, "Add status:", m.input.View(), m.inputErr, m.width, m.height-1)
 	case ModeSettingStatusColor:
-		view = overlayColorPicker(view, m.settingColorChoices, m.settingColorCursor, m.width, m.height-1)
+		view = overlayColorPicker(view, m.settingColorChoices, m.settingColorRow, m.settingColorCol, m.width, m.height-1)
+	case ModeSettingStatusDeleteConfirm:
+		msg := "delete status?"
+		if sorted := m.statuses.Sorted(); m.settingStatusCursor < len(sorted) {
+			msg = "delete status \"" + sorted[m.settingStatusCursor].Label + "\" ?"
+		}
+		view = overlayConfirmPopup(view, "Delete?", msg,
+			[]hintItem{{"y", "delete"}, {"n/esc", "cancel"}},
+			m.width, m.height-1)
 	case ModeQuitConfirm:
 		view = overlayConfirmPopup(view, "Quit?", "are you sure?",
 			[]hintItem{{"y", "quit"}, {"n/esc", "cancel"}},
@@ -1465,7 +1549,7 @@ func (m Model) View() string {
 	}
 
 	if m.saveErr != nil {
-		view += "\n" + lipgloss.NewStyle().Foreground(colorDanger).Render(fmt.Sprintf("save error: %v", m.saveErr))
+		view = overlayErrorPopup(view, m.saveErr.Error(), m.width, m.height-1)
 	}
 	return view
 }
@@ -1573,6 +1657,37 @@ func overlayConfirmPopup(bg, label, message string, hints []hintItem, screenW, s
 		message = ansi.Truncate(message, contentW, "")
 	}
 	body := stylePopupFill.Foreground(colorText).Render(message)
+	padded := stylePopupFill.Width(contentW).Render(body)
+	msgRow := stylePopupBorder.Render("│") +
+		stylePopupFill.Render(" ") +
+		padded +
+		stylePopupFill.Render(" ") +
+		stylePopupBorder.Render("│")
+
+	popup := lipgloss.JoinVertical(lipgloss.Left, topRow, msgRow, bottomRow)
+	return centerOverlay(popup, bg, screenW, screenH)
+}
+
+// overlayErrorPopup はエラーメッセージ用の中央オーバーレイを描画する。
+// 上罫線にラベル "Error"、本文 1 行、下罫線に "esc:dismiss" ヒント。
+// 本文は danger 色 (赤) で強調する。
+func overlayErrorPopup(bg, message string, screenW, screenH int) string {
+	popupOuterW := popupWidth(screenW)
+	contentW := popupOuterW - 4
+	if contentW < 4 {
+		contentW = 4
+	}
+	innerW := popupOuterW - 2
+
+	topRow := buildBorderRow("╭", "╮", stylePopupError.Render("Error"), innerW)
+	bottomRow := buildBorderRow("╰", "╯", renderPopupHints([]hintItem{
+		{"esc", "dismiss"},
+	}), innerW)
+
+	if w := ansi.StringWidth(message); w > contentW {
+		message = ansi.Truncate(message, contentW, "")
+	}
+	body := stylePopupFill.Foreground(colorDanger).Render(message)
 	padded := stylePopupFill.Width(contentW).Render(body)
 	msgRow := stylePopupBorder.Render("│") +
 		stylePopupFill.Render(" ") +

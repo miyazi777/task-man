@@ -19,8 +19,9 @@ type Status struct {
 type StatusList []Status
 
 var (
-	ErrStatusEmptyLabel = errors.New("status label must not be empty")
-	ErrStatusInvalidID  = errors.New("status id must be greater than 0")
+	ErrStatusEmptyLabel        = errors.New("status label must not be empty")
+	ErrStatusInvalidID         = errors.New("status id must be greater than 0")
+	ErrCannotDeleteLastStatus  = errors.New("cannot delete the last remaining status")
 )
 
 // DefaultStatuses は statuses 未定義時に注入されるデフォルト集合。
@@ -162,6 +163,50 @@ func (sl StatusList) InsertAt(insertIdx int, label, color string) (StatusList, i
 		merged[i].Sequence = i + 1
 	}
 	return merged, newID, nil
+}
+
+// DeleteByID は id を持つ status を削除した新しい StatusList と、
+// その status を参照していたタスクの再割当て先 (fallback status id) を返す。
+//
+// fallback の決定 (rows.go は sequence 昇順で描画 = 表示上「下」 = sequence 値が大きい方):
+//  - Sorted で対象の次 (sequence が 1 つ大きい = 表示上 1 つ下) の status があればそれ。
+//  - 無ければ (= 対象が最大 sequence) Sorted で対象の前 (sequence が 1 つ小さい = 表示上 1 つ上) の status。
+//
+// status が 1 つしか無い場合は ErrCannotDeleteLastStatus。
+// id が見つからない場合もエラー。
+// 削除後は sequence を 1..N-1 に振り直す。元のリストは変更しない。
+func (sl StatusList) DeleteByID(id int) (StatusList, int, error) {
+	if len(sl) <= 1 {
+		return nil, 0, ErrCannotDeleteLastStatus
+	}
+	sorted := sl.Sorted()
+	idx := -1
+	for i, s := range sorted {
+		if s.ID == id {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return nil, 0, fmt.Errorf("status id %d not found", id)
+	}
+	var fallbackID int
+	if idx < len(sorted)-1 {
+		fallbackID = sorted[idx+1].ID
+	} else {
+		fallbackID = sorted[idx-1].ID
+	}
+	out := make(StatusList, 0, len(sl)-1)
+	for _, s := range sorted {
+		if s.ID == id {
+			continue
+		}
+		out = append(out, s)
+	}
+	for i := range out {
+		out[i].Sequence = i + 1
+	}
+	return out, fallbackID, nil
 }
 
 // MoveStatusUp は id を持つ status を Sorted 順で 1 つ上に移動した新しい StatusList を返す。
