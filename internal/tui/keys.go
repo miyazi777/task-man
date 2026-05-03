@@ -14,6 +14,8 @@ type keyMap struct {
 	DeleteTask  key.Binding // d - タスクをゴミ箱へ / ゴミ箱ビューでは完全削除
 	RestoreTask key.Binding // r - ゴミ箱ビューのタスクを通常リストへ復帰
 	ToggleTrash key.Binding // T - 通常リスト ↔ ゴミ箱ビューのトグル
+	Prefix      key.Binding // ; - prefix モードへ遷移
+	PrefixTrash key.Binding // t - prefix 中: ゴミ箱表示トグル
 	AddFile     key.Binding // a (Files セクション)
 	RenameFile  key.Binding // r (Files セクション)
 	DeleteFile  key.Binding // d (Files セクション)
@@ -36,6 +38,8 @@ func newKeyMap() keyMap {
 		DeleteTask:  key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
 		RestoreTask: key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "restore")),
 		ToggleTrash: key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "trash")),
+		Prefix:      key.NewBinding(key.WithKeys(";"), key.WithHelp(";", "prefix")),
+		PrefixTrash: key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "trash")),
 		AddFile:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
 		RenameFile:  key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "rename")),
 		DeleteFile:  key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),

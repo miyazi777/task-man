@@ -16,6 +16,7 @@ const (
 	ModeMove
 	ModeTrashConfirm      // タスクをゴミ箱へ移動するときの確認
 	ModeDeleteTaskConfirm // ゴミ箱内タスクの完全削除確認
+	ModePrefix            // ; を押した直後の prefix 入力待ち状態
 )
 
 func (m Mode) String() string {
@@ -46,6 +47,8 @@ func (m Mode) String() string {
 		return "trashconfirm"
 	case ModeDeleteTaskConfirm:
 		return "deletetaskconfirm"
+	case ModePrefix:
+		return "prefix"
 	default:
 		return "unknown"
 	}

@@ -838,6 +838,27 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case ModePrefix:
+		switch {
+		case key.Matches(msg, m.keys.Back):
+			// esc: prefix 入力をキャンセルし元のモードへ戻る。
+			m.mode = m.prevMode
+			return m, nil
+		case key.Matches(msg, m.keys.PrefixTrash):
+			// t: ゴミ箱ビューのトグル (タスクリストでの T と同じ動作)。
+			m.viewTrash = !m.viewTrash
+			m = m.withRowsRebuilt()
+			if first := firstNavigable(m.rows); first >= 0 {
+				m.cursor = first
+			} else {
+				m.cursor = 0
+			}
+			m = m.withFilesRefreshed()
+			m.mode = m.prevMode
+			return m, nil
+		}
+		return m, nil
+
 	case ModeList:
 		switch {
 		case key.Matches(msg, m.keys.Quit):
@@ -889,8 +910,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m = m.withRowsRebuilt()
 			return m, nil
 		case key.Matches(msg, m.keys.ToggleTrash):
-			// T: 通常リスト ↔ ゴミ箱ビューのトグル。
-			m.viewTrash = !m.viewTrash
+			// T: ゴミ箱ビュー → 通常リストへ戻る (ゴミ箱への遷移は ; t prefix に集約)。
+			if !m.viewTrash {
+				return m, nil
+			}
+			m.viewTrash = false
 			m = m.withRowsRebuilt()
 			if first := firstNavigable(m.rows); first >= 0 {
 				m.cursor = first
@@ -898,6 +922,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.cursor = 0
 			}
 			m = m.withFilesRefreshed()
+			return m, nil
+		case key.Matches(msg, m.keys.Prefix):
+			// ;: prefix モードへ遷移。次のキー入力を待つ。
+			m.prevMode = m.mode
+			m.mode = ModePrefix
 			return m, nil
 		case key.Matches(msg, m.keys.DeleteTask):
 			// d: タスク行のとき、通常リスト → ゴミ箱へ移動、ゴミ箱ビュー → 完全削除。
@@ -1019,7 +1048,7 @@ func (m Model) View() string {
 	rightW := m.width - leftW - 1
 	bodyH := m.height - 1
 
-	listFocused := m.mode == ModeList || m.mode == ModeQuitConfirm || m.mode == ModeMove
+	listFocused := m.mode == ModeList || m.mode == ModeQuitConfirm || m.mode == ModeMove || m.mode == ModePrefix
 	detailFocused := m.mode == ModeDetail || m.mode == ModeEditTitle || m.mode == ModeEditStatus
 
 	inMoveMode := m.mode == ModeMove

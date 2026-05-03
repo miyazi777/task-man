@@ -39,7 +39,8 @@ func renderFooter(mode, prevMode Mode, detailCursor int, viewTrash bool, width i
 			{"enter", "detail"},
 			{"m", "move"},
 			{"a", "new/subtask"},
-			{"d", "delete"}, {"T", "trash"},
+			{"d", "delete"},
+			{";", "prefix"},
 			{"q", "quit"},
 		})
 	case ModeDetail:
@@ -75,6 +76,10 @@ func renderFooter(mode, prevMode Mode, detailCursor int, viewTrash bool, width i
 			{"k/↑", "up"}, {"j/↓", "down"},
 			{"l/→", "indent"}, {"h/←", "outdent"},
 			{"m", "confirm"}, {"Esc", "cancel"},
+		})
+	case ModePrefix:
+		content = renderHints([]hintItem{
+			{"t", "trash"}, {"esc", "back"},
 		})
 	}
 
