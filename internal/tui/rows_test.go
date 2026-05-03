@@ -26,11 +26,11 @@ func TestBuildRowsOrderAndGrouping(t *testing.T) {
 	}
 	rows := buildRows(statuses, tasks, nil, nil, false)
 
-	// 期待: done ヘッダ, b, sep, doing ヘッダ, d, sep, todo ヘッダ, a, c
+	// 期待: todo ヘッダ, a, c, sep, doing ヘッダ, d, sep, done ヘッダ, b
 	wantKinds := []rowKind{
+		rowStatus, rowTask, rowTask, rowSeparator,
 		rowStatus, rowTask, rowSeparator,
-		rowStatus, rowTask, rowSeparator,
-		rowStatus, rowTask, rowTask,
+		rowStatus, rowTask,
 	}
 	if len(rows) != len(wantKinds) {
 		t.Fatalf("len=%d, want %d (rows=%+v)", len(rows), len(wantKinds), rows)
@@ -40,20 +40,20 @@ func TestBuildRowsOrderAndGrouping(t *testing.T) {
 			t.Errorf("[%d]: kind=%v want %v", i, rows[i].kind, k)
 		}
 	}
-	// done が先頭、todo が末尾
-	if rows[0].statusID != 3 {
-		t.Errorf("first status: got %d want 3 (done)", rows[0].statusID)
+	// todo が先頭、done が末尾 (sequence 昇順 = yaml 順)
+	if rows[0].statusID != 1 {
+		t.Errorf("first status: got %d want 1 (todo)", rows[0].statusID)
 	}
-	if rows[6].statusID != 1 {
-		t.Errorf("last status: got %d want 1 (todo)", rows[6].statusID)
+	if rows[7].statusID != 3 {
+		t.Errorf("last status: got %d want 3 (done)", rows[7].statusID)
+	}
+	// todo 配下のタスク: a → c の順 (yaml 出現順)
+	if rows[1].taskIndex != 0 || rows[2].taskIndex != 2 {
+		t.Errorf("todo tasks: got idx %d,%d want 0,2", rows[1].taskIndex, rows[2].taskIndex)
 	}
 	// done 配下のタスク
-	if rows[1].taskIndex != 1 {
-		t.Errorf("done task: got idx %d want 1", rows[1].taskIndex)
-	}
-	// todo 配下: a → c の順 (yaml 出現順)
-	if rows[7].taskIndex != 0 || rows[8].taskIndex != 2 {
-		t.Errorf("todo tasks: got idx %d,%d want 0,2", rows[7].taskIndex, rows[8].taskIndex)
+	if rows[8].taskIndex != 1 {
+		t.Errorf("done task: got idx %d want 1", rows[8].taskIndex)
 	}
 }
 
@@ -66,26 +66,26 @@ func TestBuildRowsCollapsed(t *testing.T) {
 	collapsed := map[int]bool{2: true} // doing を折りたたみ
 	rows := buildRows(statuses, tasks, collapsed, nil, false)
 
-	// 期待: done ヘッダ, sep, doing ヘッダ (タスクなし), sep, todo ヘッダ, a
+	// 期待: todo ヘッダ, a, sep, doing ヘッダ (タスクなし), sep, done ヘッダ
 	if len(rows) != 6 {
 		t.Fatalf("len=%d, want 6", len(rows))
 	}
-	if rows[2].kind != rowStatus || rows[2].statusID != 2 {
-		t.Errorf("doing header expected at idx 2, got %+v", rows[2])
+	if rows[3].kind != rowStatus || rows[3].statusID != 2 {
+		t.Errorf("doing header expected at idx 3, got %+v", rows[3])
 	}
-	// doing 配下にタスクが居ないこと
-	if rows[3].kind != rowSeparator {
-		t.Errorf("idx 3 should be separator (no task), got %+v", rows[3])
+	// doing 配下にタスクが居ないこと (即 separator)
+	if rows[4].kind != rowSeparator {
+		t.Errorf("idx 4 should be separator (no task), got %+v", rows[4])
 	}
 }
 
 func TestNavigableSkipsSeparator(t *testing.T) {
 	statuses := threeStatusesNoTrash()
 	tasks := []task.Task{
-		{ID: 1, Title: "a", StatusID: 3}, // done のみ
+		{ID: 1, Title: "a", StatusID: 1}, // todo のみ
 	}
 	rows := buildRows(statuses, tasks, nil, nil, false)
-	// rows: [done, a, sep, doing, sep, todo]
+	// rows: [todo, a, sep, doing, sep, done]
 	if got := nextNavigable(rows, 1); got != 3 {
 		t.Errorf("nextNavigable from 1 = %d, want 3 (skip sep)", got)
 	}

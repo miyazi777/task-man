@@ -51,31 +51,31 @@ func TestMoveTaskUp_SwapsWithPreviousSibling(t *testing.T) {
 	}
 }
 
-func TestMoveTaskUp_AtTopOfTopLevel_MovesToHigherSequenceStatus(t *testing.T) {
-	// 表示は sequence 降順 (done が上、todo が下)。視覚的「上」 = sequence が大きい方。
-	// status 2 (doing) の先頭にある B を up → status 3 (done) の末尾へ。
+func TestMoveTaskUp_AtTopOfTopLevel_MovesToLowerSequenceStatus(t *testing.T) {
+	// 表示は sequence 昇順 (todo が上、done が下)。視覚的「上」 = sequence が小さい方。
+	// status 2 (doing) の先頭にある B を up → status 1 (todo) の末尾へ。
 	tasks := []Task{
-		{ID: 1, Title: "A", StatusID: 3, Position: 1},
+		{ID: 1, Title: "A", StatusID: 1, Position: 1},
 		{ID: 2, Title: "B", StatusID: 2, Position: 1},
 		{ID: 3, Title: "B-child", StatusID: 2, ParentID: 2, Position: 1},
 		{ID: 4, Title: "C", StatusID: 2, Position: 2},
 	}
 	out := MoveTaskUp(tasks, threeStatuses(), 2)
-	if got := statusMap(out); got[2] != 3 || got[3] != 3 {
-		t.Fatalf("statusMap = %v want B and B-child in status 3", got)
+	if got := statusMap(out); got[2] != 1 || got[3] != 1 {
+		t.Fatalf("statusMap = %v want B and B-child in status 1", got)
 	}
 	if got := posMap(out); got[1] != 1 || got[2] != 2 || got[4] != 1 {
 		t.Fatalf("posMap = %v want A=1 B=2 C=1", got)
 	}
 }
 
-func TestMoveTaskUp_AtTopOfHighestStatus_NoOp(t *testing.T) {
-	// status 3 が最上位。さらに上は無い。
+func TestMoveTaskUp_AtTopOfLowestSequenceStatus_NoOp(t *testing.T) {
+	// status 1 が視覚的に最上位 (sequence 昇順描画)。さらに上は無い。
 	tasks := []Task{
-		{ID: 1, Title: "A", StatusID: 3, Position: 1},
+		{ID: 1, Title: "A", StatusID: 1, Position: 1},
 	}
 	out := MoveTaskUp(tasks, threeStatuses(), 1)
-	if got := statusMap(out); got[1] != 3 {
+	if got := statusMap(out); got[1] != 1 {
 		t.Fatalf("statusMap changed: %v", got)
 	}
 }
@@ -104,16 +104,16 @@ func TestMoveTaskDown_SwapsWithNextSibling(t *testing.T) {
 	}
 }
 
-func TestMoveTaskDown_AtBottomOfTopLevel_MovesToLowerSequenceStatus(t *testing.T) {
-	// 視覚的「下」 = sequence が小さい方。status 2 (doing) の末尾にある B を down → status 1 (todo) の先頭へ。
+func TestMoveTaskDown_AtBottomOfTopLevel_MovesToHigherSequenceStatus(t *testing.T) {
+	// 視覚的「下」 = sequence が大きい方。status 2 (doing) の末尾にある B を down → status 3 (done) の先頭へ。
 	tasks := []Task{
 		{ID: 1, Title: "A", StatusID: 2, Position: 1},
 		{ID: 2, Title: "B", StatusID: 2, Position: 2},
-		{ID: 3, Title: "X", StatusID: 1, Position: 1},
+		{ID: 3, Title: "X", StatusID: 3, Position: 1},
 	}
 	out := MoveTaskDown(tasks, threeStatuses(), 2)
-	if got := statusMap(out); got[2] != 1 {
-		t.Fatalf("B status = %d want 1", got[2])
+	if got := statusMap(out); got[2] != 3 {
+		t.Fatalf("B status = %d want 3", got[2])
 	}
 	if got := posMap(out); got[2] != 1 || got[3] != 2 {
 		t.Fatalf("positions = %v want B=1 X=2", got)

@@ -114,8 +114,9 @@ func setSubtreeStatusID(tasks []Task, id, newStatusID int) {
 }
 
 // MoveTaskUp は id を兄弟内で 1 つ上へ移動する。先頭にいて top-level の場合は視覚的に上のステータス
-// (= sequence が大きい方) の末尾へ移動する (子孫の status_id も追従)。先頭・top-level かつそのステータス
-// が無い、または非 top-level で先頭の場合は no-op。子孫は parent_id 関係を保つので暗黙的に一緒に移動する。
+// (= sequence が小さい方。rows.go は sequence 昇順で描画) の末尾へ移動する (子孫の status_id も追従)。
+// 先頭・top-level かつそのステータスが無い、または非 top-level で先頭の場合は no-op。
+// 子孫は parent_id 関係を保つので暗黙的に一緒に移動する。
 func MoveTaskUp(tasks []Task, statuses StatusList, id int) []Task {
 	idx := taskIndexByID(tasks, id)
 	if idx == -1 {
@@ -135,8 +136,8 @@ func MoveTaskUp(tasks []Task, statuses StatusList, id int) []Task {
 	if t.ParentID != 0 {
 		return tasks
 	}
-	// 視覚的に上 = sequence が大きいステータス (rows.go は sequence 降順で描画)。
-	upperStatusID, ok := neighborStatusID(statuses, t.StatusID, +1)
+	// 視覚的に上 = sequence が小さいステータス (rows.go は sequence 昇順で描画)。
+	upperStatusID, ok := neighborStatusID(statuses, t.StatusID, -1)
 	if !ok {
 		return tasks
 	}
@@ -160,7 +161,7 @@ func MoveTaskUp(tasks []Task, statuses StatusList, id int) []Task {
 }
 
 // MoveTaskDown は id を兄弟内で 1 つ下へ移動する。末尾にいて top-level の場合は視覚的に下のステータス
-// (= sequence が小さい方) の先頭へ移動する (子孫の status_id も追従)。
+// (= sequence が大きい方) の先頭へ移動する (子孫の status_id も追従)。
 func MoveTaskDown(tasks []Task, statuses StatusList, id int) []Task {
 	idx := taskIndexByID(tasks, id)
 	if idx == -1 {
@@ -180,8 +181,8 @@ func MoveTaskDown(tasks []Task, statuses StatusList, id int) []Task {
 	if t.ParentID != 0 {
 		return tasks
 	}
-	// 視覚的に下 = sequence が小さいステータス。
-	lowerStatusID, ok := neighborStatusID(statuses, t.StatusID, -1)
+	// 視覚的に下 = sequence が大きいステータス。
+	lowerStatusID, ok := neighborStatusID(statuses, t.StatusID, +1)
 	if !ok {
 		return tasks
 	}

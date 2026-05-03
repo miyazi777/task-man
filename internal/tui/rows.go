@@ -24,7 +24,7 @@ const (
 	rowSeparator
 )
 
-// buildRows はステータスを sequence 逆順 (大きい順) で並べ、
+// buildRows はステータスを sequence 昇順 (小さい順) で並べ (= yaml 上の sequence 順)、
 // 各ステータス配下に該当タスクを position 昇順 (タイブレーカは id 昇順) で並べたフラットな行列を返す。
 //
 //   - showTrash=false: IsTrashBox=true のタスクを除外 (通常リスト)
@@ -98,7 +98,7 @@ func buildRows(statuses task.StatusList, tasks []task.Task, statusCollapsed, tas
 		}
 	}
 
-	for i := len(sorted) - 1; i >= 0; i-- {
+	for i := 0; i < len(sorted); i++ {
 		s := sorted[i]
 		rows = append(rows, listRow{kind: rowStatus, statusID: s.ID})
 		if !statusCollapsed[s.ID] {
@@ -128,7 +128,7 @@ func buildRows(statuses task.StatusList, tasks []task.Task, statusCollapsed, tas
 				emit(j, 0, s.ID)
 			}
 		}
-		if i > 0 {
+		if i < len(sorted)-1 {
 			rows = append(rows, listRow{kind: rowSeparator})
 		}
 	}
