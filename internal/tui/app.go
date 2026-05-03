@@ -52,6 +52,12 @@ type Model struct {
 	files              []string // 現タスクのディレクトリ内ファイル一覧
 	fileCursor         int      // files のインデックス
 
+	// 設定画面 (ModeSetting / ModeSettingStatus*) 用の状態
+	settingMenuCursor   int      // 左メニュー (今は status のみ) のインデックス
+	settingStatusCursor int      // 右ペイン: m.statuses.Sorted() のインデックス
+	settingColorChoices []string // 色ピッカー候補 (#rrggbb 8 色)
+	settingColorCursor  int      // 色ピッカー上のカーソル
+
 	width  int
 	height int
 
@@ -283,7 +289,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// textinput の cursor blink などを反映するため、入力中のモードでは Update を委譲する。
-	if m.mode == ModeNewTask || m.mode == ModeNewSubtask || m.mode == ModeEditTitle || m.mode == ModeAddFile || m.mode == ModeRenameFile {
+	if m.mode == ModeNewTask || m.mode == ModeNewSubtask || m.mode == ModeEditTitle ||
+		m.mode == ModeAddFile || m.mode == ModeRenameFile ||
+		m.mode == ModeSettingStatusRename || m.mode == ModeSettingStatusAdd {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		return m, cmd
@@ -856,6 +864,225 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m = m.withFilesRefreshed()
 			m.mode = m.prevMode
 			return m, nil
+		case key.Matches(msg, m.keys.PrefixSetting):
+			// s: 設定画面へ遷移。左メニューにフォーカス。
+			m.mode = ModeSetting
+			m.settingMenuCursor = settingMenuStatus
+			m.settingStatusCursor = 0
+			return m, nil
+		}
+		return m, nil
+
+	case ModeSetting:
+		switch {
+		case key.Matches(msg, m.keys.Quit):
+			m.prevMode = m.mode
+			m.mode = ModeQuitConfirm
+			return m, nil
+		case key.Matches(msg, m.keys.Back):
+			// esc: 設定画面を抜けてタスクリストへ戻る。
+			m.mode = ModeList
+			return m, nil
+		case key.Matches(msg, m.keys.Up):
+			if m.settingMenuCursor > 0 {
+				m.settingMenuCursor--
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			if m.settingMenuCursor < len(settingMenuLabels)-1 {
+				m.settingMenuCursor++
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Enter), key.Matches(msg, m.keys.Open):
+			// enter / l/→: 詳細ペインへフォーカス移動。
+			if m.settingMenuCursor == settingMenuStatus {
+				m.mode = ModeSettingStatus
+				if m.settingStatusCursor >= len(m.statuses) {
+					m.settingStatusCursor = 0
+				}
+			}
+			return m, nil
+		}
+		return m, nil
+
+	case ModeSettingStatus:
+		sorted := m.statuses.Sorted()
+		switch {
+		case key.Matches(msg, m.keys.Quit):
+			m.prevMode = m.mode
+			m.mode = ModeQuitConfirm
+			return m, nil
+		case key.Matches(msg, m.keys.Back), key.Matches(msg, m.keys.Close):
+			// esc / h/←: 左メニュー側にフォーカスを戻す。
+			m.mode = ModeSetting
+			return m, nil
+		case key.Matches(msg, m.keys.Up):
+			if m.settingStatusCursor > 0 {
+				m.settingStatusCursor--
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			if m.settingStatusCursor < len(sorted)-1 {
+				m.settingStatusCursor++
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.RenameFile):
+			// r: ステータス名変更
+			if len(sorted) == 0 {
+				return m, nil
+			}
+			cur := sorted[m.settingStatusCursor]
+			inputW := popupWidth(m.width) - 7
+			if inputW < 1 {
+				inputW = 1
+			}
+			m.input = newTitleInput(inputW)
+			m.input.SetValue(cur.Label)
+			m.input.CursorEnd()
+			m.inputErr = task.ValidateTitleChars(m.input.Value())
+			m.mode = ModeSettingStatusRename
+			return m, textinput.Blink
+		case key.Matches(msg, m.keys.Color):
+			// c: 色変更ピッカー
+			if len(sorted) == 0 {
+				return m, nil
+			}
+			cur := sorted[m.settingStatusCursor]
+			m.settingColorChoices = statusColorChoices(cur.Color)
+			m.settingColorCursor = nearestColorChoiceIndex(m.settingColorChoices, cur.Color)
+			m.mode = ModeSettingStatusColor
+			return m, nil
+		case key.Matches(msg, m.keys.NewTask):
+			// a: 新規ステータス追加 (カーソル位置に挿入)
+			inputW := popupWidth(m.width) - 7
+			if inputW < 1 {
+				inputW = 1
+			}
+			m.input = newTitleInput(inputW)
+			m.inputErr = nil
+			m.mode = ModeSettingStatusAdd
+			return m, textinput.Blink
+		}
+		return m, nil
+
+	case ModeSettingStatusRename:
+		switch msg.String() {
+		case "enter":
+			label := strings.TrimSpace(m.input.Value())
+			if label == "" || m.inputErr != nil {
+				return m, nil
+			}
+			sorted := m.statuses.Sorted()
+			if m.settingStatusCursor >= len(sorted) {
+				m.mode = ModeSettingStatus
+				return m, nil
+			}
+			id := sorted[m.settingStatusCursor].ID
+			renamed, err := m.statuses.RenameByID(id, label)
+			if err != nil {
+				m.saveErr = err
+				return m, nil
+			}
+			m.statuses = renamed
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			m.mode = ModeSettingStatus
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			return m, nil
+		case "esc":
+			m.mode = ModeSettingStatus
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		m.inputErr = task.ValidateTitleChars(m.input.Value())
+		return m, cmd
+
+	case ModeSettingStatusAdd:
+		switch msg.String() {
+		case "enter":
+			label := strings.TrimSpace(m.input.Value())
+			if label == "" || m.inputErr != nil {
+				return m, nil
+			}
+			// カーソル位置に挿入。空リスト時は先頭。
+			insertIdx := m.settingStatusCursor
+			if len(m.statuses) == 0 {
+				insertIdx = 0
+			}
+			defaultColor := statusColorChoices("")[0]
+			inserted, newID, err := m.statuses.InsertAt(insertIdx, label, defaultColor)
+			if err != nil {
+				m.saveErr = err
+				return m, nil
+			}
+			m.statuses = inserted
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			// カーソルを新規ステータス行に合わせる
+			sorted := m.statuses.Sorted()
+			for i, s := range sorted {
+				if s.ID == newID {
+					m.settingStatusCursor = i
+					break
+				}
+			}
+			m.mode = ModeSettingStatus
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			return m, nil
+		case "esc":
+			m.mode = ModeSettingStatus
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		m.inputErr = task.ValidateTitleChars(m.input.Value())
+		return m, cmd
+
+	case ModeSettingStatusColor:
+		switch {
+		case key.Matches(msg, m.keys.Up):
+			if m.settingColorCursor > 0 {
+				m.settingColorCursor--
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			if m.settingColorCursor < len(m.settingColorChoices)-1 {
+				m.settingColorCursor++
+			}
+			return m, nil
+		}
+		switch msg.String() {
+		case "enter":
+			sorted := m.statuses.Sorted()
+			if m.settingStatusCursor >= len(sorted) || m.settingColorCursor >= len(m.settingColorChoices) {
+				m.mode = ModeSettingStatus
+				return m, nil
+			}
+			id := sorted[m.settingStatusCursor].ID
+			newColor := m.settingColorChoices[m.settingColorCursor]
+			updated, err := m.statuses.SetColorByID(id, newColor)
+			if err != nil {
+				m.saveErr = err
+				return m, nil
+			}
+			m.statuses = updated
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			m.mode = ModeSettingStatus
+			return m, nil
+		case "esc":
+			m.mode = ModeSettingStatus
+			return m, nil
 		}
 		return m, nil
 
@@ -1014,6 +1241,16 @@ func (m Model) openCurrentFile() (Model, tea.Cmd) {
 	})
 }
 
+// isSettingMode は現在のモードが設定画面 (左/右ペイン or 設定画面内のサブモード) かを返す。
+// View 切替の判定に使う。
+func isSettingMode(m Mode) bool {
+	switch m {
+	case ModeSetting, ModeSettingStatus, ModeSettingStatusRename, ModeSettingStatusAdd, ModeSettingStatusColor:
+		return true
+	}
+	return false
+}
+
 // firstStatusID は sequence/id 順で先頭の status id を返す。statuses が空なら 0。
 func (m Model) firstStatusID() int {
 	sorted := m.statuses.Sorted()
@@ -1060,27 +1297,34 @@ func (m Model) View() string {
 			listH = 1
 		}
 	}
-	left := renderList(m.tasks, m.statuses, m.rows, m.collapsed, m.cursor, listFocused, inMoveMode, leftW, listH)
-	if inMoveMode {
-		banner := styleMoveBanner.Render("-- MOVE MODE --")
-		bannerW := lipgloss.Width(banner)
-		x := leftW - bannerW
-		if x < 0 {
-			x = 0
-		}
-		left = PlaceOverlay(x, 0, banner, left)
-	}
-	if m.viewTrash {
-		// 左ペインの最上部に「-- TRASH BOX --」ヘッダ行 (黒抜き赤背景) を 1 行追加。
-		header := styleTrashHeader.Width(leftW).Render("-- TRASH BOX --")
-		left = lipgloss.JoinVertical(lipgloss.Left, header, left)
-	}
 
-	var current *task.Task
-	if t, _, ok := m.currentTask(); ok {
-		current = &t
+	var left, right string
+	if isSettingMode(m.mode) {
+		menuFocused := m.mode == ModeSetting
+		left, right = renderSetting(m.statuses, m.settingMenuCursor, m.settingStatusCursor, menuFocused, leftW, rightW, bodyH)
+	} else {
+		left = renderList(m.tasks, m.statuses, m.rows, m.collapsed, m.cursor, listFocused, inMoveMode, leftW, listH)
+		if inMoveMode {
+			banner := styleMoveBanner.Render("-- MOVE MODE --")
+			bannerW := lipgloss.Width(banner)
+			x := leftW - bannerW
+			if x < 0 {
+				x = 0
+			}
+			left = PlaceOverlay(x, 0, banner, left)
+		}
+		if m.viewTrash {
+			// 左ペインの最上部に「-- TRASH BOX --」ヘッダ行 (黒抜き赤背景) を 1 行追加。
+			header := styleTrashHeader.Width(leftW).Render("-- TRASH BOX --")
+			left = lipgloss.JoinVertical(lipgloss.Left, header, left)
+		}
+
+		var current *task.Task
+		if t, _, ok := m.currentTask(); ok {
+			current = &t
+		}
+		right = renderDetail(current, m.statuses, m.files, detailFocused, m.detailCursor, m.fileCursor, rightW, bodyH)
 	}
-	right := renderDetail(current, m.statuses, m.files, detailFocused, m.detailCursor, m.fileCursor, rightW, bodyH)
 
 	divider := strings.Repeat("│\n", bodyH)
 	divider = styleDivider.Render(strings.TrimRight(divider, "\n"))
@@ -1102,6 +1346,12 @@ func (m Model) View() string {
 		view = overlayInputPopup(view, "Rename:", m.input.View(), m.inputErr, m.width, m.height-1)
 	case ModeEditStatus:
 		view = overlayStatusPicker(view, m.statuses.Sorted(), m.statusPickerCursor, m.width, m.height-1)
+	case ModeSettingStatusRename:
+		view = overlayInputPopup(view, "Rename status:", m.input.View(), m.inputErr, m.width, m.height-1)
+	case ModeSettingStatusAdd:
+		view = overlayInputPopup(view, "Add status:", m.input.View(), m.inputErr, m.width, m.height-1)
+	case ModeSettingStatusColor:
+		view = overlayColorPicker(view, m.settingColorChoices, m.settingColorCursor, m.width, m.height-1)
 	case ModeQuitConfirm:
 		view = overlayConfirmPopup(view, "Quit?", "are you sure?",
 			[]hintItem{{"y", "quit"}, {"n/esc", "cancel"}},

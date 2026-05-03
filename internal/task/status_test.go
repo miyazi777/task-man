@@ -139,3 +139,78 @@ func TestStatusListValidateDuplicateID(t *testing.T) {
 		t.Fatal("expected error for duplicated id")
 	}
 }
+
+func TestStatusListRenameByID(t *testing.T) {
+	sl := DefaultStatuses()
+	out, err := sl.RenameByID(2, "in-progress")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got := out[1].Label; got != "in-progress" {
+		t.Errorf("[1].Label=%q, want in-progress", got)
+	}
+	if sl[1].Label != "doing" {
+		t.Error("source must remain unchanged")
+	}
+	if _, err := sl.RenameByID(99, "x"); err == nil {
+		t.Error("expected error for missing id")
+	}
+	if _, err := sl.RenameByID(1, ""); err == nil {
+		t.Error("expected error for empty label")
+	}
+}
+
+func TestStatusListSetColorByID(t *testing.T) {
+	sl := DefaultStatuses()
+	out, err := sl.SetColorByID(1, "#abcdef")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got := out[0].Color; got != "#abcdef" {
+		t.Errorf("[0].Color=%q, want #abcdef", got)
+	}
+	if _, err := sl.SetColorByID(99, "#000000"); err == nil {
+		t.Error("expected error for missing id")
+	}
+}
+
+func TestStatusListInsertAt(t *testing.T) {
+	sl := DefaultStatuses()
+	out, newID, err := sl.InsertAt(1, "review", "#fab387")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if newID != 4 {
+		t.Errorf("newID=%d, want 4", newID)
+	}
+	// Sorted: todo(1), review(4), doing(2), done(3)、sequence は 1..4 に振り直し
+	if out[0].Label != "todo" || out[0].Sequence != 1 {
+		t.Errorf("[0]=%+v, want todo seq=1", out[0])
+	}
+	if out[1].Label != "review" || out[1].Sequence != 2 || out[1].ID != 4 {
+		t.Errorf("[1]=%+v, want review id=4 seq=2", out[1])
+	}
+	if out[2].Label != "doing" || out[2].Sequence != 3 {
+		t.Errorf("[2]=%+v, want doing seq=3", out[2])
+	}
+	if out[3].Label != "done" || out[3].Sequence != 4 {
+		t.Errorf("[3]=%+v, want done seq=4", out[3])
+	}
+	if _, _, err := sl.InsertAt(0, "", "#000000"); err == nil {
+		t.Error("expected error for empty label")
+	}
+}
+
+func TestStatusListInsertAtEmpty(t *testing.T) {
+	sl := StatusList{}
+	out, newID, err := sl.InsertAt(0, "todo", "#6c7086")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if newID != 1 {
+		t.Errorf("newID=%d, want 1", newID)
+	}
+	if len(out) != 1 || out[0].Label != "todo" || out[0].Sequence != 1 {
+		t.Errorf("got %+v, want single todo seq=1", out)
+	}
+}

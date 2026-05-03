@@ -14,9 +14,14 @@ const (
 	ModeDeleteFileConfirm
 	ModeQuitConfirm
 	ModeMove
-	ModeTrashConfirm      // タスクをゴミ箱へ移動するときの確認
-	ModeDeleteTaskConfirm // ゴミ箱内タスクの完全削除確認
-	ModePrefix            // ; を押した直後の prefix 入力待ち状態
+	ModeTrashConfirm           // タスクをゴミ箱へ移動するときの確認
+	ModeDeleteTaskConfirm      // ゴミ箱内タスクの完全削除確認
+	ModePrefix                 // ; を押した直後の prefix 入力待ち状態
+	ModeSetting                // 設定画面 (左メニュー側にフォーカス)
+	ModeSettingStatus          // 設定画面 status サブ (右ペイン側にフォーカス)
+	ModeSettingStatusRename    // status のラベル変更入力
+	ModeSettingStatusAdd       // status の新規追加入力
+	ModeSettingStatusColor     // status の色選択ピッカー
 )
 
 func (m Mode) String() string {
@@ -49,6 +54,16 @@ func (m Mode) String() string {
 		return "deletetaskconfirm"
 	case ModePrefix:
 		return "prefix"
+	case ModeSetting:
+		return "setting"
+	case ModeSettingStatus:
+		return "settingstatus"
+	case ModeSettingStatusRename:
+		return "settingstatusrename"
+	case ModeSettingStatusAdd:
+		return "settingstatusadd"
+	case ModeSettingStatusColor:
+		return "settingstatuscolor"
 	default:
 		return "unknown"
 	}

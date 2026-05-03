@@ -100,6 +100,88 @@ func (sl StatusList) AssignMissingIDs() (StatusList, bool) {
 	return out, changed
 }
 
+// RenameByID は id を持つ status の Label を newLabel に置き換えた新しい StatusList を返す。
+// 該当 id が無い、または label が空のときはエラー。元のリストは変更しない。
+func (sl StatusList) RenameByID(id int, newLabel string) (StatusList, error) {
+	if newLabel == "" {
+		return nil, ErrStatusEmptyLabel
+	}
+	out := make(StatusList, len(sl))
+	copy(out, sl)
+	for i := range out {
+		if out[i].ID == id {
+			out[i].Label = newLabel
+			return out, nil
+		}
+	}
+	return nil, fmt.Errorf("status id %d not found", id)
+}
+
+// SetColorByID は id を持つ status の Color を newColor に置き換えた新しい StatusList を返す。
+// 該当 id が無いときはエラー。色フォーマットの妥当性検証は呼び出し側責任。
+func (sl StatusList) SetColorByID(id int, newColor string) (StatusList, error) {
+	out := make(StatusList, len(sl))
+	copy(out, sl)
+	for i := range out {
+		if out[i].ID == id {
+			out[i].Color = newColor
+			return out, nil
+		}
+	}
+	return nil, fmt.Errorf("status id %d not found", id)
+}
+
+// InsertAt は sl を Sorted 順とみなし、insertIdx の位置 (0..len(sl)) に label/color の
+// 新規 status を挿入する。新規 id は既存最大 +1 で採番し、Sequence は 1..N で振り直す。
+// 戻り値は (新しい StatusList, 新規 status の id, error)。
+func (sl StatusList) InsertAt(insertIdx int, label, color string) (StatusList, int, error) {
+	if label == "" {
+		return nil, 0, ErrStatusEmptyLabel
+	}
+	if insertIdx < 0 {
+		insertIdx = 0
+	}
+	if insertIdx > len(sl) {
+		insertIdx = len(sl)
+	}
+	max := 0
+	for _, s := range sl {
+		if s.ID > max {
+			max = s.ID
+		}
+	}
+	newID := max + 1
+	newStatus := Status{ID: newID, Label: label, Color: color}
+
+	sorted := sl.Sorted()
+	merged := make(StatusList, 0, len(sorted)+1)
+	merged = append(merged, sorted[:insertIdx]...)
+	merged = append(merged, newStatus)
+	merged = append(merged, sorted[insertIdx:]...)
+	for i := range merged {
+		merged[i].Sequence = i + 1
+	}
+	return merged, newID, nil
+}
+
+// ResequenceByOrder は orderedIDs の並び順で sequence を 1..N に振り直した新しい StatusList を返す。
+// orderedIDs に含まれない status はそのまま末尾扱い (sequence は付与されない) になるが、
+// 通常は全 status を含めて呼ぶ前提。
+func (sl StatusList) ResequenceByOrder(orderedIDs []int) StatusList {
+	out := make(StatusList, len(sl))
+	copy(out, sl)
+	rank := make(map[int]int, len(orderedIDs))
+	for i, id := range orderedIDs {
+		rank[id] = i + 1
+	}
+	for i := range out {
+		if r, ok := rank[out[i].ID]; ok {
+			out[i].Sequence = r
+		}
+	}
+	return out
+}
+
 // Validate は id 重複・id<=0・label 空のチェックを行う。
 func (sl StatusList) Validate() error {
 	seen := make(map[int]struct{}, len(sl))
