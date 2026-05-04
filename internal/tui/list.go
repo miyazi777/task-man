@@ -69,7 +69,8 @@ func renderStatusHeader(statuses task.StatusList, statusID int, isCollapsed, isC
 // 子を持たないタスクでもタイトル位置を揃えるため空白 2 cell を予約する。
 // statusBadge が非空のときは行の右端に " <label>" を右寄せ表示する (子タスクの status が
 // 親グループと異なる場合の視覚マーカー)。
-// allTags は t.Tags の id 解決用。タイトル直後に "[tag1][tag2]" 形式でタグカラーの色文字を付与する。
+// allTags は t.Tags の id 解決用。タイトル直後に詳細画面と同じカラー背景チップ ` <name> ` を
+// 半角スペース 1 区切りで並べる。
 func renderTaskRow(t task.Task, statuses task.StatusList, allTags task.TagList, depth int, hasChildren, collapsed, isCursor, listFocused, inMoveMode bool, statusBadge string, width int) string {
 	const baseLeftPad, perDepth, markerW, rightPad = 2, 2, 2, 1
 	leftPad := baseLeftPad + depth*perDepth
@@ -88,7 +89,7 @@ func renderTaskRow(t task.Task, statuses task.StatusList, allTags task.TagList, 
 		badgeW = lipgloss.Width(statusBadge)
 	}
 
-	// 行幅見積もりに先立ち、タグバッジ群の利用幅を決める。
+	// 行幅見積もりに先立ち、タグチップ群の利用幅を決める。
 	// 利用可能幅は title の最小幅 (8 cell) を確保した上での残り。
 	const minTitleW, gapMin = 8, 1
 	tagsAvail := width - leftPad - markerW - minTitleW - 1 /*sp before tags*/ - badgeW - gapMin - rightPad
@@ -99,11 +100,12 @@ func renderTaskRow(t task.Task, statuses task.StatusList, allTags task.TagList, 
 		tagsAvail = 0
 	}
 
-	// 入る分だけタグを採用し、残りはドロップ。各タグは "[<name>]" で 表示幅 = name+2。
+	// 入る分だけタグを採用し、残りはドロップ。各タグは "#<name>" (name+1 cell) を foreground 着色、
+	// タグ間セパレータは半角スペース 1 (詳細画面と同じレイアウト)。
 	type inlineTag struct {
-		plain    string
-		rendered string
-		w        int
+		plain    string // 反転カーソル用のプレーン文字列
+		rendered string // 通常表示用 (foreground 着色)
+		w        int    // 表示幅
 	}
 	var tags []inlineTag
 	tagsW := 0
@@ -113,13 +115,17 @@ func renderTaskRow(t task.Task, statuses task.StatusList, allTags task.TagList, 
 			if !ok {
 				continue
 			}
-			plain := "[" + tg.Name + "]"
+			plain := "#" + tg.Name
 			w := lipgloss.Width(plain)
-			if tagsW+w > tagsAvail {
+			sep := 0
+			if len(tags) > 0 {
+				sep = 1
+			}
+			if tagsW+sep+w > tagsAvail {
 				break
 			}
-			tags = append(tags, inlineTag{plain: plain, rendered: renderInlineTagBadge(tg, listFocused), w: w})
-			tagsW += w
+			tags = append(tags, inlineTag{plain: plain, rendered: renderTagChip(tg), w: w})
+			tagsW += sep + w
 		}
 	}
 
@@ -150,7 +156,10 @@ func renderTaskRow(t task.Task, statuses task.StatusList, allTags task.TagList, 
 	if isCursor && listFocused {
 		// カーソル行は反転表示で行全体が同じ bg になるため、タグもプレーン文字列で渡す。
 		var tagsPlain string
-		for _, tg := range tags {
+		for i, tg := range tags {
+			if i > 0 {
+				tagsPlain += " "
+			}
 			tagsPlain += tg.plain
 		}
 		var inlineTagsPart string
@@ -171,7 +180,10 @@ func renderTaskRow(t task.Task, statuses task.StatusList, allTags task.TagList, 
 	var tagsRendered string
 	if tagsW > 0 {
 		tagsRendered = " "
-		for _, tg := range tags {
+		for i, tg := range tags {
+			if i > 0 {
+				tagsRendered += " "
+			}
 			tagsRendered += tg.rendered
 		}
 	}
@@ -192,17 +204,6 @@ func renderTaskRow(t task.Task, statuses task.StatusList, allTags task.TagList, 
 	return strings.Repeat(" ", leftPad) + marker + titleRendered + tagsRendered + badgeRendered
 }
 
-// renderInlineTagBadge はタスクリストのタグ表示 "[name]" を描画する。
-// foreground = タグ色 (Color 未指定なら colorMuted)、背景なし。listFocused=false のときは dim。
-func renderInlineTagBadge(tg task.Tag, listFocused bool) string {
-	style := lipgloss.NewStyle().Foreground(colorMuted)
-	if !listFocused {
-		style = lipgloss.NewStyle().Foreground(colorDim)
-	} else if tg.Color != "" {
-		style = lipgloss.NewStyle().Foreground(lipgloss.Color(tg.Color))
-	}
-	return style.Render("[" + tg.Name + "]")
-}
 
 // cursorStyleFor は ModeMove の有無で標準/警告色のどちらの反転スタイルを返すか切り替える。
 func cursorStyleFor(inMoveMode bool) lipgloss.Style {

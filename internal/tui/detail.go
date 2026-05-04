@@ -16,6 +16,7 @@ type detailRowKind int
 const (
 	detailRowTitle detailRowKind = iota
 	detailRowStatus
+	detailRowTags  // Tags 行 (常に存在、Enter でタグピッカー起動)
 	detailRowField // 拡張項目 (FieldDef)。具体的な field は fieldID で識別
 	detailRowFiles // Files セクション。fileCursor を別途持つ
 )
@@ -26,13 +27,15 @@ type detailRow struct {
 	fieldID int // detailRowField のときのみ意味がある
 }
 
-// buildDetailRows は詳細画面の論理行リストを Title → Status → fields (position 順) → Files の
-// 順番で構築する。fields が空ならフィールド行は挟まれない。
+// buildDetailRows は詳細画面の論理行リストを Title → Status → Tags → fields (position 順) → Files の
+// 順番で構築する。fields が空ならフィールド行は挟まれない。Tags 行はタスク有無に関わらず常に存在する
+// (Enter でタグピッカーを起動する経路として cursor target を確保)。
 func buildDetailRows(fields task.FieldDefList) []detailRow {
 	sorted := fields.Sorted()
-	rows := make([]detailRow, 0, 3+len(sorted))
+	rows := make([]detailRow, 0, 4+len(sorted))
 	rows = append(rows, detailRow{kind: detailRowTitle})
 	rows = append(rows, detailRow{kind: detailRowStatus})
+	rows = append(rows, detailRow{kind: detailRowTags})
 	for _, f := range sorted {
 		rows = append(rows, detailRow{kind: detailRowField, fieldID: f.ID})
 	}
@@ -89,10 +92,9 @@ func renderDetail(t *task.Task, statuses task.StatusList, fields task.FieldDefLi
 			bodyLines = append(bodyLines, renderDetailField("Title", t.Title, focused, hasCursor, statusStyleFor(status), false, labelW, width))
 		case detailRowStatus:
 			bodyLines = append(bodyLines, renderDetailField("Status", statusText, focused, hasCursor, statusStyleFor(status), true, labelW, width))
-			// Status の直後に Tags 行を追加 (read-only、カーソル対象外)。タグ 0 件のときは行ごと省略。
-			if tagsRow, _ := renderTagsRow(*t, tags, focused, labelW, width); tagsRow != "" {
-				bodyLines = append(bodyLines, tagsRow)
-			}
+		case detailRowTags:
+			tagsRow, _ := renderTagsRow(*t, tags, focused, hasCursor, labelW, width)
+			bodyLines = append(bodyLines, tagsRow)
 		case detailRowField:
 			def, ok := fields.ByID(r.fieldID)
 			if !ok {
@@ -150,14 +152,18 @@ func renderDetailField(label, value string, focused, hasCursor bool, valueStatus
 }
 
 // renderTagsRow は Tags 行を構築する。
-// タグはステータス風のカラー背景チップ " <name> " で描画し、間に半角スペース 1 を挟む。
-// タグ 0 件のときは空文字列 + 0 行を返し、呼び出し側で行ごと省略してもらう。
+// タグは "#<name>" を foreground 着色して描画し、間に半角スペース 1 を挟む。
+// タグ 0 件でもラベルだけは 1 行表示する (Enter でタグピッカーを起動するための cursor target)。
 // 1 行に並びきらないときは折り返す (継続行は label 幅と同じだけインデント)。
+// hasCursor=true のときは先頭行に反転スタイル (styleCursorRow) を適用する。
 // 第二戻り値は実際の表示行数。
-func renderTagsRow(t task.Task, tags task.TagList, focused bool, labelW, width int) (string, int) {
-	if len(t.Tags) == 0 {
-		return "", 0
+func renderTagsRow(t task.Task, tags task.TagList, focused, hasCursor bool, labelW, width int) (string, int) {
+	leadW := 2 + labelW + 1 // "  " + label + " "
+	availW := width - leadW
+	if availW < 6 {
+		availW = 6
 	}
+
 	// 解決済みのタグ集合を作る (未知 ID はスキップ)。
 	resolved := make([]task.Tag, 0, len(t.Tags))
 	for _, id := range t.Tags {
@@ -165,32 +171,30 @@ func renderTagsRow(t task.Task, tags task.TagList, focused bool, labelW, width i
 			resolved = append(resolved, tg)
 		}
 	}
-	if len(resolved) == 0 {
-		return "", 0
-	}
 
-	leadW := 2 + labelW + 1 // "  " + label + " "
-	availW := width - leadW
-	if availW < 6 {
-		availW = 6
-	}
-
-	// 各チップは "<sp><name><sp>" で 表示幅 = name+2。トークン間のセパレータは半角スペース 1。
+	// 各タグの "#<name>" を構築し、availW に収まるよう折り返してラインに分ける。
 	type chip struct {
-		w       int    // 表示幅
-		rendered string // ANSI 含む描画済み文字列
+		w        int    // 表示幅
+		plain    string // "#<name>" (反転背景時の素描画用)
+		rendered string // 通常表示用 (foreground 着色)
 	}
-	chips := make([]chip, len(resolved))
-	for i, tg := range resolved {
-		text := " " + tg.Name + " "
-		chips[i] = chip{
-			w:        ansi.StringWidth(text),
+	chips := make([]chip, 0, len(resolved))
+	for _, tg := range resolved {
+		plain := "#" + tg.Name
+		chips = append(chips, chip{
+			w:        ansi.StringWidth(plain),
+			plain:    plain,
 			rendered: renderTagChip(tg),
-		}
+		})
 	}
 
-	var lines []string
-	var cur strings.Builder
+	type line struct {
+		plain    string
+		rendered string
+	}
+	var lines []line
+	var curPlain strings.Builder
+	var curRendered strings.Builder
 	curW := 0
 	for i, ch := range chips {
 		sep := 0
@@ -198,45 +202,57 @@ func renderTagsRow(t task.Task, tags task.TagList, focused bool, labelW, width i
 			sep = 1
 		}
 		if curW+sep+ch.w > availW && curW > 0 {
-			lines = append(lines, cur.String())
-			cur.Reset()
+			lines = append(lines, line{plain: curPlain.String(), rendered: curRendered.String()})
+			curPlain.Reset()
+			curRendered.Reset()
 			curW = 0
 			sep = 0
 		}
 		if sep > 0 {
-			cur.WriteString(" ")
+			curPlain.WriteString(" ")
+			curRendered.WriteString(" ")
 			curW++
 		}
-		cur.WriteString(ch.rendered)
+		curPlain.WriteString(ch.plain)
+		curRendered.WriteString(ch.rendered)
 		curW += ch.w
 	}
-	if cur.Len() > 0 {
-		lines = append(lines, cur.String())
+	if curW > 0 {
+		lines = append(lines, line{plain: curPlain.String(), rendered: curRendered.String()})
+	}
+	// タグ 0 件のときは空のラインを 1 つ用意してラベルだけ表示する。
+	if len(lines) == 0 {
+		lines = []line{{plain: "", rendered: ""}}
 	}
 
 	paddedLabel := padDetailLabel("Tags", labelW)
-	labelRendered := styleLabel.Render(paddedLabel)
 	indent := strings.Repeat(" ", leadW)
 
 	out := make([]string, 0, len(lines))
-	for i, line := range lines {
+	for i, ln := range lines {
 		if i == 0 {
-			out = append(out, "  "+labelRendered+" "+line)
+			if hasCursor && focused {
+				// 先頭行はカーソル反転で行全体を塗る。チップ色は失うがプレーン文字列で安定描画。
+				raw := "  " + paddedLabel + " " + ln.plain
+				out = append(out, styleCursorRow.Width(width).Render(raw))
+			} else {
+				out = append(out, "  "+styleLabel.Render(paddedLabel)+" "+ln.rendered)
+			}
 		} else {
-			out = append(out, indent+line)
+			out = append(out, indent+ln.rendered)
 		}
 	}
-	_ = focused // チップ自体は常に色付き表示 (ステータスと同じ扱い)
+	_ = focused // チップ自体は常に色付き表示 (非カーソル時)
 	return strings.Join(out, "\n"), len(out)
 }
 
 // tagsRowLineCount は renderTagsRow が出力する表示行数を計算だけする (描画はしない)。
-// dividerRow 計算で使う。
+// dividerRow 計算で使う。タグ 0 件でも常に >= 1 を返す (Tags 行はラベルだけでも表示するため)。
 func tagsRowLineCount(t *task.Task, tags task.TagList, labelW, width int) int {
 	if t == nil {
 		return 0
 	}
-	_, n := renderTagsRow(*t, tags, true, labelW, width)
+	_, n := renderTagsRow(*t, tags, true, false, labelW, width)
 	return n
 }
 

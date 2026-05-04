@@ -95,6 +95,27 @@ func TestTagListRenameByID(t *testing.T) {
 	}
 }
 
+func TestTagListDeleteByID(t *testing.T) {
+	tl := TagList{{ID: 1, Name: "a"}, {ID: 2, Name: "b"}, {ID: 3, Name: "c"}}
+	out, err := tl.DeleteByID(2)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(out) != 2 {
+		t.Fatalf("len=%d, want 2", len(out))
+	}
+	if out[0].ID != 1 || out[1].ID != 3 {
+		t.Errorf("got ids=%d,%d, want 1,3", out[0].ID, out[1].ID)
+	}
+	// source unchanged
+	if len(tl) != 3 {
+		t.Error("source must remain unchanged")
+	}
+	if _, err := tl.DeleteByID(99); err == nil {
+		t.Error("expected error for missing id")
+	}
+}
+
 func TestTagListSetColorByID(t *testing.T) {
 	tl := TagList{{ID: 1, Name: "a"}, {ID: 2, Name: "b"}}
 	out, err := tl.SetColorByID(2, "#ff00ff")

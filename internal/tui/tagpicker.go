@@ -33,8 +33,8 @@ func overlayTagPicker(bg string, allTags task.TagList, assignedIDs []int, cursor
 		contentW = hintW
 	}
 	for _, tg := range sorted {
-		// "  ✓ " (4 cell) + " <name> " (name + 2 cell) のチップ形式
-		w := ansi.StringWidth("  ✓ ") + ansi.StringWidth(tg.Name) + 2
+		// "  ✓ " (4 cell) + "#<name>" (name + 1 cell) の foreground 着色形式
+		w := ansi.StringWidth("  ✓ ") + ansi.StringWidth(tg.Name) + 1
 		if w > contentW {
 			contentW = w
 		}

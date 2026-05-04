@@ -839,6 +839,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.prevMode = ModeDetail
 				m.mode = ModeEditStatus
 				return m, nil
+			case detailRowTags:
+				// Tags 行 enter: タグピッカーを開く。閉じたら ModeDetail に戻る。
+				m.prevMode = ModeDetail
+				return m.openTagPicker(t.ID)
 			case detailRowField:
 				def, ok := m.fields.ByID(row.fieldID)
 				if !ok {
@@ -1058,6 +1062,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "g":
 			// g: タグ追加/解除モーダルを開く。
+			m.prevMode = ModeList
 			return m.openTagPicker(t.ID)
 		}
 		return m, nil
@@ -1088,7 +1093,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		switch {
 		case key.Matches(msg, m.keys.Back):
-			m.mode = ModeList
+			// 戻り先は呼び出し元が prevMode に設定 (ModeList or ModeDetail)。
+			m.mode = editReturnMode(m.prevMode)
 			m.input = textinput.Model{}
 			m.inputErr = nil
 			m.tagPickerCursor = 0
@@ -1122,6 +1128,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settingColorChoices = statusColorChoices()
 			m.settingColorRow, m.settingColorCol = nearestColorChoiceCell(m.settingColorChoices, tg.Color)
 			m.mode = ModeTagColorPicker
+			return m, nil
+		case "d":
+			// 既存タグ行 (cursor>=1) のときだけ削除確認モーダルへ遷移。
+			// 入力行 (cursor=0) では typing として "d" を取り込ませるため透過。
+			if m.tagPickerCursor == 0 {
+				break
+			}
+			idx := m.tagPickerCursor - 1
+			if idx < 0 || idx >= listLen {
+				return m, nil
+			}
+			m.prevMode = m.mode
+			m.mode = ModeTagPickerDeleteConfirm
 			return m, nil
 		case "r":
 			// 既存タグ行 (cursor>=1) のときだけ rename ポップアップへ遷移。

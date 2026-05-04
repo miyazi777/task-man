@@ -36,6 +36,7 @@ const (
 	ModeTagPicker                   // タグ追加/解除モーダル (create input + 既存タグリスト)
 	ModeTagColorPicker              // タグの色変更ピッカー (ModeTagPicker から c キーで遷移)
 	ModeTagPickerRename             // タグ名変更入力 (ModeTagPicker から r キーで遷移)
+	ModeTagPickerDeleteConfirm      // タグ削除確認 (y/n オーバーレイ)
 )
 
 func (m Mode) String() string {
@@ -106,6 +107,8 @@ func (m Mode) String() string {
 		return "tagcolorpicker"
 	case ModeTagPickerRename:
 		return "tagpickerrename"
+	case ModeTagPickerDeleteConfirm:
+		return "tagpickerdeleteconfirm"
 	default:
 		return "unknown"
 	}

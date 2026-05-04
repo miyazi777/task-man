@@ -190,6 +190,24 @@ func (tl TagList) RenameByID(id int, newName string) (TagList, error) {
 	return nil, fmt.Errorf("tag id %d not found", id)
 }
 
+// DeleteByID は id を持つ Tag を削除した新しいリストを返す。
+// 該当 id が無いときはエラー。
+func (tl TagList) DeleteByID(id int) (TagList, error) {
+	out := make(TagList, 0, len(tl))
+	found := false
+	for _, t := range tl {
+		if t.ID == id {
+			found = true
+			continue
+		}
+		out = append(out, t)
+	}
+	if !found {
+		return nil, fmt.Errorf("tag id %d not found", id)
+	}
+	return out, nil
+}
+
 // SetColorByID は id を持つ Tag の Color を新しい値に置き換えた新しいリストを返す。
 // 該当 id が無いときはエラー。
 func (tl TagList) SetColorByID(id int, color string) (TagList, error) {
