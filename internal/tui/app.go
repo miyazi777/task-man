@@ -1064,6 +1064,26 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// g: タグ追加/解除モーダルを開く。
 			m.prevMode = ModeList
 			return m.openTagPicker(t.ID)
+		case "f":
+			// f: 該当タスクの Files 先頭ファイルへカーソルジャンプ (詳細モードへ遷移)。
+			//    ファイルが 0 件なら no-op。
+			if len(m.files) == 0 {
+				return m, nil
+			}
+			filesRow := -1
+			for i, r := range m.detailRows {
+				if r.kind == detailRowFiles {
+					filesRow = i
+					break
+				}
+			}
+			if filesRow < 0 {
+				return m, nil
+			}
+			m.detailCursor = filesRow
+			m.fileCursor = 0
+			m.mode = ModeDetail
+			return m, nil
 		}
 		return m, nil
 
