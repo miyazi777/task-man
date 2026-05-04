@@ -21,6 +21,11 @@ func newFieldValueInput(width int) textinput.Model {
 	return newPopupInput(width, task.MaxFieldTextValueRunes)
 }
 
+// newFieldURLValueInput は拡張項目 (url 型) の値入力用 textinput を返す。
+func newFieldURLValueInput(width int) textinput.Model {
+	return newPopupInput(width, task.MaxFieldURLValueRunes)
+}
+
 // prevFieldType / nextFieldType は ModeSettingFieldAdd の type セレクター用。
 // 現状は text のみだが将来追加に備えて循環できる構造にしておく。
 func prevFieldType(cur task.FieldType) task.FieldType {

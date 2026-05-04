@@ -247,6 +247,41 @@ func TestValidateFieldDateValue(t *testing.T) {
 	}
 }
 
+func TestValidateFieldURLValue(t *testing.T) {
+	cases := []struct {
+		in     string
+		wantOK bool
+	}{
+		{"", true},                            // 空は未設定として許容
+		{"https://example.com", true},         // 妥当
+		{"http://example.com/path?q=1", true}, // クエリ付き
+		{"ftp://files.example.com", true},     // 任意 scheme
+		{"https://日本語.example.com", true},     // 国際化ドメイン
+		{"example.com", false},                // scheme 無し
+		{"https://", false},                   // host 無し
+		{"not a url", false},                  // 形式違反
+		{"/relative/path", false},             // 相対参照
+	}
+	for _, c := range cases {
+		err := ValidateFieldURLValue(c.in)
+		if (err == nil) != c.wantOK {
+			t.Errorf("%q: ok=%v, err=%v", c.in, err == nil, err)
+		}
+	}
+}
+
+func TestValidateFieldURLValueLength(t *testing.T) {
+	long := strings.Repeat("a", MaxFieldURLValueRunes-len("https://"))
+	ok := "https://" + long
+	if err := ValidateFieldURLValue(ok); err != nil {
+		t.Errorf("at-limit value should be valid, got %v", err)
+	}
+	tooLong := "https://" + long + "b"
+	if err := ValidateFieldURLValue(tooLong); !errors.Is(err, ErrFieldURLValueTooLong) {
+		t.Errorf("over-limit should err with ErrFieldURLValueTooLong, got %v", err)
+	}
+}
+
 func TestTaskFieldListValidate(t *testing.T) {
 	defs := FieldDefList{
 		{ID: 10, Name: "a", Type: FieldTypeText, Position: 1},

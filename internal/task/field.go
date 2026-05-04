@@ -3,7 +3,9 @@ package task
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"sort"
+	"strings"
 	"time"
 	"unicode/utf8"
 )
@@ -14,13 +16,14 @@ type FieldType string
 const (
 	FieldTypeText FieldType = "text"
 	FieldTypeDate FieldType = "date" // yyyy-mm-dd の文字列を保持する。空文字列も許容 (未設定状態)。
+	FieldTypeURL  FieldType = "url"  // 絶対 URL 文字列を保持する。空文字列も許容 (未設定状態)。
 )
 
 // FieldDateLayout は date 型 value の文字列フォーマット。
 const FieldDateLayout = "2006-01-02"
 
 // AllFieldTypes は UI セレクターでの選択肢順序を兼ねる。
-var AllFieldTypes = []FieldType{FieldTypeText, FieldTypeDate}
+var AllFieldTypes = []FieldType{FieldTypeText, FieldTypeDate, FieldTypeURL}
 
 // IsKnownFieldType は ft が定義済みの FieldType か判定する。
 func IsKnownFieldType(ft FieldType) bool {
@@ -37,6 +40,8 @@ const (
 	MaxFieldNameRunes = 18
 	// MaxFieldTextValueRunes は text 型 value の最大文字数 (rune 単位)。仕様: 200。
 	MaxFieldTextValueRunes = 200
+	// MaxFieldURLValueRunes は url 型 value の最大文字数 (rune 単位)。仕様: 320。
+	MaxFieldURLValueRunes = 320
 )
 
 var (
@@ -116,6 +121,50 @@ func ValidateFieldDateValue(s string) error {
 	}
 	if _, err := time.Parse(FieldDateLayout, s); err != nil {
 		return fmt.Errorf("%w: %q", ErrFieldInvalidDateValue, s)
+	}
+	return nil
+}
+
+// ErrFieldURLValueTooLong は url 型 value が 320 rune を超えた場合のエラー。
+var ErrFieldURLValueTooLong = fmt.Errorf("field url value must be at most %d characters", MaxFieldURLValueRunes)
+
+// ErrFieldInvalidURLValue は url 型 value が URL 形式 (scheme + host) として解釈できない場合のエラー。
+var ErrFieldInvalidURLValue = errors.New("field url value must be a valid URL with scheme and host (e.g. https://example.com)")
+
+// ValidateFieldURLValueChars は url 型 value のライブ入力検証。
+// 320 rune 上限と NUL のみチェックし、入力途中の不完全な文字列は許容する。
+func ValidateFieldURLValueChars(s string) error {
+	if utf8.RuneCountInString(s) > MaxFieldURLValueRunes {
+		return ErrFieldURLValueTooLong
+	}
+	for _, r := range s {
+		if r == 0 {
+			return &FieldValueForbiddenCharError{Char: r}
+		}
+	}
+	return nil
+}
+
+// ValidateFieldURLValue は url 型 value の保存時検証。
+// 空文字列は未設定として許容する。それ以外は scheme と host を持つ絶対 URL であることを要求する。
+func ValidateFieldURLValue(s string) error {
+	if s == "" {
+		return nil
+	}
+	if err := ValidateFieldURLValueChars(s); err != nil {
+		return err
+	}
+	// url.Parse は許容度が高く相対参照もパースしてしまうため、scheme/host の存在を明示的にチェックする。
+	u, err := url.Parse(s)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrFieldInvalidURLValue, err)
+	}
+	if u.Scheme == "" || u.Host == "" {
+		return ErrFieldInvalidURLValue
+	}
+	// scheme は英字始まりの ASCII で構成されることを要求 (url.Parse がほぼ担保するが念のため)。
+	if strings.ContainsAny(u.Scheme, " \t\r\n") {
+		return ErrFieldInvalidURLValue
 	}
 	return nil
 }
@@ -456,6 +505,10 @@ func (tfl TaskFieldList) Validate(defs FieldDefList) error {
 			}
 		case FieldTypeDate:
 			if err := ValidateFieldDateValue(f.Value); err != nil {
+				return fmt.Errorf("fields[%d]: %w", i, err)
+			}
+		case FieldTypeURL:
+			if err := ValidateFieldURLValue(f.Value); err != nil {
 				return fmt.Errorf("fields[%d]: %w", i, err)
 			}
 		}

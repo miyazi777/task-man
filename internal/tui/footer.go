@@ -13,11 +13,12 @@ type hintItem struct {
 
 // renderFooter は画面下部のヒント帯を描画する。
 // onFilesRow は ModeDetail のときカーソルが Files 行を指しているかを示す (a/r/d ヒント切替用)。
+// onURLRow は ModeDetail のときカーソルが url 型項目行を指しているかを示す (enter:open / e:edit ヒント用)。
 // 確認モード (Quit/Delete) のときは prevMode のヒントを引き継ぎ、ポップアップにフォーカスを譲る。
 // viewTrash は ModeList のときにヒントを通常用 / ゴミ箱用で切り替えるためのフラグ。
-func renderFooter(mode, prevMode Mode, onFilesRow bool, viewTrash bool, width int) string {
+func renderFooter(mode, prevMode Mode, onFilesRow bool, onURLRow bool, viewTrash bool, width int) string {
 	if mode == ModeQuitConfirm || mode == ModeDeleteFileConfirm || mode == ModeTrashConfirm || mode == ModeDeleteTaskConfirm || mode == ModeSettingStatusDeleteConfirm {
-		return renderFooter(prevMode, ModeList, onFilesRow, viewTrash, width)
+		return renderFooter(prevMode, ModeList, onFilesRow, onURLRow, viewTrash, width)
 	}
 
 	var content string
@@ -44,13 +45,20 @@ func renderFooter(mode, prevMode Mode, onFilesRow bool, viewTrash bool, width in
 			{"q", "quit"},
 		})
 	case ModeDetail:
-		if onFilesRow {
+		switch {
+		case onFilesRow:
 			content = renderHints([]hintItem{
 				{"k/↑", "up"}, {"j/↓", "down"}, {"enter", "open"},
 				{"a", "add"}, {"r", "rename"}, {"d", "delete"},
 				{"esc", "back"}, {"q", "quit"},
 			})
-		} else {
+		case onURLRow:
+			content = renderHints([]hintItem{
+				{"k/↑", "up"}, {"j/↓", "down"},
+				{"enter", "edit"}, {"o", "open"},
+				{"esc", "back"}, {"q", "quit"},
+			})
+		default:
 			content = renderHints([]hintItem{
 				{"k/↑", "up"}, {"j/↓", "down"}, {"enter", "edit"}, {"esc", "back"}, {"q", "quit"},
 			})

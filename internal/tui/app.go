@@ -831,19 +831,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.mode = ModeEditFieldDateValue
 					return m, nil
 				default:
-					// text 型: 入力ポップアップ。ラベルは <field name>:。
-					inputW := popupWidth(m.width) - 7
-					if inputW < 1 {
-						inputW = 1
-					}
-					m.input = newFieldValueInput(inputW)
+					// text / url 型: 入力ポップアップ。ラベルは <field name>:。
+					// url 型でブラウザを開くのは o キーに割り当てており、enter は常に編集。
+					var existing string
 					if tf, ok := t.Fields.ByFieldID(def.ID); ok {
-						m.input.SetValue(tf.Value)
-						m.input.CursorEnd()
+						existing = tf.Value
 					}
-					m.inputErr = task.ValidateFieldTextValueChars(m.input.Value())
-					m.mode = ModeEditFieldValue
-					return m, textinput.Blink
+					return m.openFieldEditPopup(def, existing)
 				}
 			case detailRowFiles:
 				if len(m.files) == 0 {
@@ -887,6 +881,33 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.prevMode = m.mode
 			m.mode = ModeDeleteFileConfirm
+			return m, nil
+		case msg.String() == "o":
+			// o: url 型項目で値を OS のデフォルトブラウザで開く。
+			// enter は編集ポップアップに統一しているため、開く操作は別キーに分けている。
+			row, ok := m.currentDetailRow()
+			if !ok || row.kind != detailRowField {
+				return m, nil
+			}
+			def, ok := m.fields.ByID(row.fieldID)
+			if !ok || def.Type != task.FieldTypeURL {
+				return m, nil
+			}
+			t, _, ok := m.currentTask()
+			if !ok {
+				return m, nil
+			}
+			tf, ok := t.Fields.ByFieldID(def.ID)
+			if !ok || tf.Value == "" {
+				return m, nil
+			}
+			if err := task.ValidateFieldURLValue(tf.Value); err != nil {
+				m.saveErr = err
+				return m, nil
+			}
+			if err := openURLInBrowser(tf.Value); err != nil {
+				m.saveErr = err
+			}
 			return m, nil
 		}
 		return m, nil
@@ -1661,11 +1682,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ModeEditFieldValue:
+		def, _ := m.fields.ByID(m.editingFieldID)
 		switch msg.String() {
 		case "enter":
 			value := m.input.Value()
 			if m.inputErr != nil {
 				return m, nil
+			}
+			// url 型は保存時に scheme + host を要求する形式チェックを行う。
+			if def.Type == task.FieldTypeURL {
+				if err := task.ValidateFieldURLValue(value); err != nil {
+					m.inputErr = err
+					return m, nil
+				}
 			}
 			_, taskIdx, ok := m.currentTask()
 			if !ok {
@@ -1696,7 +1725,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
-		m.inputErr = task.ValidateFieldTextValueChars(m.input.Value())
+		m.inputErr = validateFieldValueLiveByType(def.Type, m.input.Value())
 		return m, cmd
 
 	case ModeEditFieldDateValue:
@@ -1886,6 +1915,40 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+// openFieldEditPopup は拡張項目 (text/url) の値編集ポップアップを開く。
+// type に応じて入力欄の charLimit と live バリデーションを切り替える。
+// editingFieldID は呼び出し側が事前にセットしておく前提。
+func (m Model) openFieldEditPopup(def task.FieldDef, existing string) (Model, tea.Cmd) {
+	inputW := popupWidth(m.width) - 7
+	if inputW < 1 {
+		inputW = 1
+	}
+	switch def.Type {
+	case task.FieldTypeURL:
+		m.input = newFieldURLValueInput(inputW)
+	default:
+		m.input = newFieldValueInput(inputW)
+	}
+	if existing != "" {
+		m.input.SetValue(existing)
+		m.input.CursorEnd()
+	}
+	m.inputErr = validateFieldValueLiveByType(def.Type, m.input.Value())
+	m.mode = ModeEditFieldValue
+	return m, textinput.Blink
+}
+
+// validateFieldValueLiveByType はライブ入力検証を type で切り替える。
+// 入力途中は形式チェックは行わず、長さ・禁止文字のみを評価する。
+func validateFieldValueLiveByType(ft task.FieldType, value string) error {
+	switch ft {
+	case task.FieldTypeURL:
+		return task.ValidateFieldURLValueChars(value)
+	default:
+		return task.ValidateFieldTextValueChars(value)
+	}
 }
 
 // openCurrentFile は現在のファイルカーソルが指すファイルを外部エディタで開く tea.Cmd を返す。
@@ -2125,10 +2188,18 @@ func (m Model) View() string {
 	}
 
 	onFilesRow := false
-	if row, ok := m.currentDetailRow(); ok && row.kind == detailRowFiles {
-		onFilesRow = true
+	onURLRow := false
+	if row, ok := m.currentDetailRow(); ok {
+		switch row.kind {
+		case detailRowFiles:
+			onFilesRow = true
+		case detailRowField:
+			if def, ok := m.fields.ByID(row.fieldID); ok && def.Type == task.FieldTypeURL {
+				onURLRow = true
+			}
+		}
 	}
-	footer := renderFooter(m.mode, m.prevMode, onFilesRow, m.viewTrash, m.width)
+	footer := renderFooter(m.mode, m.prevMode, onFilesRow, onURLRow, m.viewTrash, m.width)
 
 	view := lipgloss.JoinVertical(lipgloss.Left, body, footer)
 
