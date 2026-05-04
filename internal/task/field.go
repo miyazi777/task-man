@@ -4,18 +4,23 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 	"unicode/utf8"
 )
 
-// FieldType は拡張項目の値の型。現状 text のみだが、将来 url / date を追加予定。
+// FieldType は拡張項目の値の型。
 type FieldType string
 
 const (
 	FieldTypeText FieldType = "text"
+	FieldTypeDate FieldType = "date" // yyyy-mm-dd の文字列を保持する。空文字列も許容 (未設定状態)。
 )
 
+// FieldDateLayout は date 型 value の文字列フォーマット。
+const FieldDateLayout = "2006-01-02"
+
 // AllFieldTypes は UI セレクターでの選択肢順序を兼ねる。
-var AllFieldTypes = []FieldType{FieldTypeText}
+var AllFieldTypes = []FieldType{FieldTypeText, FieldTypeDate}
 
 // IsKnownFieldType は ft が定義済みの FieldType か判定する。
 func IsKnownFieldType(ft FieldType) bool {
@@ -97,6 +102,20 @@ func ValidateFieldTextValueChars(s string) error {
 		if r == 0 {
 			return &FieldValueForbiddenCharError{Char: r}
 		}
+	}
+	return nil
+}
+
+// ErrFieldInvalidDateValue は date 型 value が yyyy-mm-dd でパースできない場合のエラー。
+var ErrFieldInvalidDateValue = errors.New("field date value must be yyyy-mm-dd")
+
+// ValidateFieldDateValue は date 型 value を検証する。空文字列は未設定として許容する。
+func ValidateFieldDateValue(s string) error {
+	if s == "" {
+		return nil
+	}
+	if _, err := time.Parse(FieldDateLayout, s); err != nil {
+		return fmt.Errorf("%w: %q", ErrFieldInvalidDateValue, s)
 	}
 	return nil
 }
@@ -433,6 +452,10 @@ func (tfl TaskFieldList) Validate(defs FieldDefList) error {
 		switch def.Type {
 		case FieldTypeText:
 			if err := ValidateFieldTextValueChars(f.Value); err != nil {
+				return fmt.Errorf("fields[%d]: %w", i, err)
+			}
+		case FieldTypeDate:
+			if err := ValidateFieldDateValue(f.Value); err != nil {
 				return fmt.Errorf("fields[%d]: %w", i, err)
 			}
 		}

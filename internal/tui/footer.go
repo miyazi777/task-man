@@ -116,6 +116,13 @@ func renderFooter(mode, prevMode Mode, onFilesRow bool, viewTrash bool, width in
 		content = renderHints([]hintItem{
 			{"Enter", "save"}, {"Esc", "discard"},
 		})
+	case ModeEditFieldDateValue:
+		content = renderHints([]hintItem{
+			{"h/←", "prev"}, {"l/→", "next"},
+			{"j/↓", "down"}, {"k/↑", "up"},
+			{"p", "prev mo"}, {"n", "next mo"},
+			{"Enter", "save"}, {"Esc", "cancel"},
+		})
 	case ModeSettingStatus:
 		content = renderHints([]hintItem{
 			{"k/↑", "up"}, {"j/↓", "down"},

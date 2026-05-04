@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -67,8 +68,9 @@ type Model struct {
 	addFieldFocus int            // 0=name 行 (textinput), 1=type 行 (selector)
 	addFieldType  task.FieldType // 現在選択中の type
 
-	// ModeEditFieldValue 用の状態
-	editingFieldID int // 編集中の FieldDef.ID
+	// ModeEditFieldValue / ModeEditFieldDateValue 用の状態
+	editingFieldID int       // 編集中の FieldDef.ID
+	calendarCursor time.Time // ModeEditFieldDateValue のカーソル日付
 
 	width  int
 	height int
@@ -813,24 +815,36 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.mode = ModeEditStatus
 				return m, nil
 			case detailRowField:
-				// 値編集ポップアップを開く。ラベルは <field name>:。
 				def, ok := m.fields.ByID(row.fieldID)
 				if !ok {
 					return m, nil
 				}
-				inputW := popupWidth(m.width) - 7
-				if inputW < 1 {
-					inputW = 1
-				}
-				m.input = newFieldValueInput(inputW)
-				if tf, ok := t.Fields.ByFieldID(def.ID); ok {
-					m.input.SetValue(tf.Value)
-					m.input.CursorEnd()
-				}
-				m.inputErr = task.ValidateFieldTextValueChars(m.input.Value())
 				m.editingFieldID = def.ID
-				m.mode = ModeEditFieldValue
-				return m, textinput.Blink
+				switch def.Type {
+				case task.FieldTypeDate:
+					// date 型: カレンダーモーダル。既存値があればその日付、無ければ今日。
+					var existing string
+					if tf, ok := t.Fields.ByFieldID(def.ID); ok {
+						existing = tf.Value
+					}
+					m.calendarCursor = parseFieldDateOrToday(existing)
+					m.mode = ModeEditFieldDateValue
+					return m, nil
+				default:
+					// text 型: 入力ポップアップ。ラベルは <field name>:。
+					inputW := popupWidth(m.width) - 7
+					if inputW < 1 {
+						inputW = 1
+					}
+					m.input = newFieldValueInput(inputW)
+					if tf, ok := t.Fields.ByFieldID(def.ID); ok {
+						m.input.SetValue(tf.Value)
+						m.input.CursorEnd()
+					}
+					m.inputErr = task.ValidateFieldTextValueChars(m.input.Value())
+					m.mode = ModeEditFieldValue
+					return m, textinput.Blink
+				}
 			case detailRowFiles:
 				if len(m.files) == 0 {
 					return m, nil
@@ -1684,6 +1698,59 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.inputErr = task.ValidateFieldTextValueChars(m.input.Value())
 		return m, cmd
 
+	case ModeEditFieldDateValue:
+		switch {
+		case key.Matches(msg, m.keys.Back):
+			m.mode = ModeDetail
+			return m, nil
+		case key.Matches(msg, m.keys.Enter):
+			_, taskIdx, ok := m.currentTask()
+			if !ok {
+				m.mode = ModeDetail
+				return m, nil
+			}
+			value := formatFieldDate(m.calendarCursor)
+			t := m.tasks[taskIdx]
+			t.Fields = t.Fields.SetValue(m.editingFieldID, value)
+			if err := t.Fields.Validate(m.fields); err != nil {
+				m.saveErr = err
+				return m, nil
+			}
+			m.tasks[taskIdx] = t
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+				return m, nil
+			}
+			m.mode = ModeDetail
+			return m, nil
+		case key.Matches(msg, m.keys.Close):
+			// h/← : 前日
+			m.calendarCursor = m.calendarCursor.AddDate(0, 0, -1)
+			return m, nil
+		case key.Matches(msg, m.keys.Open):
+			// l/→ : 翌日
+			m.calendarCursor = m.calendarCursor.AddDate(0, 0, 1)
+			return m, nil
+		case key.Matches(msg, m.keys.Up):
+			// k/↑ : 前週
+			m.calendarCursor = m.calendarCursor.AddDate(0, 0, -7)
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			// j/↓ : 翌週
+			m.calendarCursor = m.calendarCursor.AddDate(0, 0, 7)
+			return m, nil
+		}
+		switch msg.String() {
+		case "p":
+			// 前月。カーソル日が新月で存在しない場合 (例: 3/31 → 2/28) は末日にクランプ。
+			m.calendarCursor = shiftMonth(m.calendarCursor, -1)
+			return m, nil
+		case "n":
+			m.calendarCursor = shiftMonth(m.calendarCursor, 1)
+			return m, nil
+		}
+		return m, nil
+
 	case ModeList:
 		switch {
 		case key.Matches(msg, m.keys.Quit):
@@ -2091,6 +2158,8 @@ func (m Model) View() string {
 			label = def.Name + ":"
 		}
 		view = overlayInputPopup(view, label, m.input.View(), m.inputErr, m.width, m.height-1)
+	case ModeEditFieldDateValue:
+		view = overlayCalendarPopup(view, m.calendarCursor, m.width, m.height-1)
 	case ModeSettingFieldDeleteConfirm:
 		msg := "delete field?"
 		if sorted := m.fields.Sorted(); m.settingFieldCursor < len(sorted) {

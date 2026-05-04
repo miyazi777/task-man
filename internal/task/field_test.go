@@ -60,7 +60,7 @@ func TestFieldDefListAddDef(t *testing.T) {
 		t.Errorf("exact 18 should be ok, got %v", err)
 	}
 	// 不明 type
-	if _, _, err := fl.AddDef("x", FieldType("date")); !errors.Is(err, ErrFieldUnknownType) {
+	if _, _, err := fl.AddDef("x", FieldType("number")); !errors.Is(err, ErrFieldUnknownType) {
 		t.Errorf("unknown type should be ErrFieldUnknownType, got %v", err)
 	}
 }
@@ -161,7 +161,7 @@ func TestFieldDefListValidate(t *testing.T) {
 			{ID: 1, Name: "b", Type: FieldTypeText, Position: 2},
 		}},
 		{"empty name", FieldDefList{{ID: 1, Name: "", Type: FieldTypeText, Position: 1}}},
-		{"unknown type", FieldDefList{{ID: 1, Name: "a", Type: FieldType("date"), Position: 1}}},
+		{"unknown type", FieldDefList{{ID: 1, Name: "a", Type: FieldType("number"), Position: 1}}},
 		{"invalid pos", FieldDefList{{ID: 1, Name: "a", Type: FieldTypeText, Position: 0}}},
 	}
 	for _, c := range cases {
@@ -224,6 +224,26 @@ func TestTaskFieldListRemoveByFieldID(t *testing.T) {
 	out := tfl.RemoveByFieldID(10)
 	if len(out) != 1 || out[0].FieldID != 20 {
 		t.Errorf("remove failed, got %+v", out)
+	}
+}
+
+func TestValidateFieldDateValue(t *testing.T) {
+	cases := []struct {
+		in     string
+		wantOK bool
+	}{
+		{"", true},            // 空は未設定として許容
+		{"2025-01-01", true},  // 妥当
+		{"2026-12-31", true},  // 妥当
+		{"2025/01/01", false}, // フォーマット違い
+		{"2025-13-01", false}, // 月が不正
+		{"abcd-ef-gh", false}, // パース不能
+	}
+	for _, c := range cases {
+		err := ValidateFieldDateValue(c.in)
+		if (err == nil) != c.wantOK {
+			t.Errorf("%q: ok=%v, err=%v", c.in, err == nil, err)
+		}
 	}
 }
 

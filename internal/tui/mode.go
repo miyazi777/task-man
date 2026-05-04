@@ -30,7 +30,8 @@ const (
 	ModeSettingFieldRename          // field の name 変更入力
 	ModeSettingFieldMove            // field の position 変更モード
 	ModeSettingFieldDeleteConfirm   // field 削除確認
-	ModeEditFieldValue              // 詳細画面で field の値編集
+	ModeEditFieldValue              // 詳細画面で text 型 field の値編集 (textinput)
+	ModeEditFieldDateValue          // 詳細画面で date 型 field の値編集 (calendar)
 )
 
 func (m Mode) String() string {
@@ -91,6 +92,8 @@ func (m Mode) String() string {
 		return "settingfielddeleteconfirm"
 	case ModeEditFieldValue:
 		return "editfieldvalue"
+	case ModeEditFieldDateValue:
+		return "editfielddatevalue"
 	default:
 		return "unknown"
 	}
