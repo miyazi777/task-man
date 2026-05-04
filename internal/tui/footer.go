@@ -92,7 +92,12 @@ func renderFooter(mode, prevMode Mode, onFilesRow bool, onURLRow bool, viewTrash
 		})
 	case ModeOperation:
 		content = renderHints([]hintItem{
-			{"t", "title"}, {"s", "status"}, {"esc", "back"},
+			{"t", "title"}, {"s", "status"}, {"g", "tags"}, {"esc", "back"},
+		})
+	case ModeTagPicker:
+		content = renderHints([]hintItem{
+			{"k/↑", "up"}, {"j/↓", "down"},
+			{"Enter", "add/toggle"}, {"Esc", "close"},
 		})
 	case ModeSetting:
 		content = renderHints([]hintItem{

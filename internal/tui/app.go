@@ -27,6 +27,7 @@ type Model struct {
 	tasks         []task.Task
 	statuses      task.StatusList
 	fields        task.FieldDefList // 拡張項目スキーマ (top-level)
+	tags          task.TagList      // タグ集合 (top-level)
 	yamlDir       string            // tasks.yaml の置かれたディレクトリ
 	cfg           storage.AppConfig // data_base_directory + editor
 	rows          []listRow         // 表示用フラット行リスト (ステータスでグループ化)
@@ -72,13 +73,19 @@ type Model struct {
 	editingFieldID int       // 編集中の FieldDef.ID
 	calendarCursor time.Time // ModeEditFieldDateValue のカーソル日付
 
+	// ModeTagPicker 用の状態
+	// tagPickerTaskID = 対象タスク ID (モーダルが開いている間にカーソルが動いても固定)
+	// tagPickerCursor = 0 が create input、1..N が既存タグ (Sorted 順) のインデックス
+	tagPickerTaskID  int
+	tagPickerCursor  int
+
 	width  int
 	height int
 
 	saveErr error
 }
 
-func NewModel(repo storage.Repository, initial []task.Task, statuses task.StatusList, fields task.FieldDefList, yamlDir string, cfg storage.AppConfig) Model {
+func NewModel(repo storage.Repository, initial []task.Task, statuses task.StatusList, fields task.FieldDefList, tags task.TagList, yamlDir string, cfg storage.AppConfig) Model {
 	collapsed := make(map[int]bool)
 	for _, s := range statuses {
 		if s.Collapsed {
@@ -96,6 +103,7 @@ func NewModel(repo storage.Repository, initial []task.Task, statuses task.Status
 		tasks:         initial,
 		statuses:      statuses,
 		fields:        fields,
+		tags:          tags,
 		yamlDir:       yamlDir,
 		cfg:           cfg,
 		collapsed:     collapsed,
@@ -145,6 +153,7 @@ func (m *Model) persist() error {
 		Tasks:    m.tasks,
 		Statuses: m.statuses,
 		Fields:   m.fields,
+		Tags:     m.tags,
 		Config:   m.cfg,
 	})
 }
@@ -335,7 +344,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mode == ModeAddFile || m.mode == ModeRenameFile ||
 		m.mode == ModeSettingStatusRename || m.mode == ModeSettingStatusAdd ||
 		m.mode == ModeSettingFieldRename || m.mode == ModeEditFieldValue ||
-		(m.mode == ModeSettingFieldAdd && m.addFieldFocus == 0) {
+		(m.mode == ModeSettingFieldAdd && m.addFieldFocus == 0) ||
+		(m.mode == ModeTagPicker && m.tagPickerCursor == 0) {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		return m, cmd
@@ -554,7 +564,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				StatusID: initialStatusID,
 				Position: task.NextPosition(m.tasks, 0),
 			}
-			if err := t.Validate(m.statuses); err != nil {
+			if err := t.Validate(m.statuses, m.tags); err != nil {
 				m.saveErr = err
 				return m, nil
 			}
@@ -619,7 +629,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				ParentID: cur.ID,
 				Position: task.NextPosition(m.tasks, cur.ID),
 			}
-			if err := t.Validate(m.statuses); err != nil {
+			if err := t.Validate(m.statuses, m.tags); err != nil {
 				m.saveErr = err
 				return m, nil
 			}
@@ -673,7 +683,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			updated := m.tasks[taskIdx]
 			updated.Title = title
-			if err := updated.Validate(m.statuses); err != nil {
+			if err := updated.Validate(m.statuses, m.tags); err != nil {
 				m.saveErr = err
 				return m, nil
 			}
@@ -1037,6 +1047,127 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.prevMode = ModeList
 			m.mode = ModeEditStatus
 			return m, nil
+		case "g":
+			// g: タグ追加/解除モーダルを開く。
+			return m.openTagPicker(t.ID)
+		}
+		return m, nil
+
+	case ModeTagPicker:
+		// 対象タスクを毎回引き直し (削除されていたら閉じる)。
+		taskIdx := -1
+		for i, tt := range m.tasks {
+			if tt.ID == m.tagPickerTaskID {
+				taskIdx = i
+				break
+			}
+		}
+		if taskIdx == -1 {
+			m.mode = ModeList
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			return m, nil
+		}
+		sortedTags := m.tags.Sorted()
+		listLen := len(sortedTags)
+
+		switch {
+		case key.Matches(msg, m.keys.Back):
+			m.mode = ModeList
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			m.tagPickerCursor = 0
+			m.tagPickerTaskID = 0
+			return m, nil
+		case key.Matches(msg, m.keys.Up):
+			if m.tagPickerCursor > 0 {
+				m.tagPickerCursor--
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			if m.tagPickerCursor < listLen { // 0..listLen (list 末端まで)
+				m.tagPickerCursor++
+			}
+			return m, nil
+		}
+
+		switch msg.String() {
+		case "enter":
+			if m.tagPickerCursor == 0 {
+				// create input: 新規タグ作成 + 即時付与。
+				name := strings.TrimSpace(m.input.Value())
+				if name == "" || m.inputErr != nil {
+					return m, nil
+				}
+				newTags, newID, err := m.tags.AddTag(name)
+				if err != nil {
+					m.inputErr = err
+					return m, nil
+				}
+				m.tags = newTags
+				// 同タスクに即座に付与 (上限到達時のみ skip + エラー表示)。
+				if len(m.tasks[taskIdx].Tags) >= task.MaxTagsPerTask {
+					m.inputErr = task.ErrTaskTooManyTags
+					// tag は追加済みなので保存はする
+					if err := m.persist(); err != nil {
+						m.saveErr = err
+					}
+					return m, nil
+				}
+				m.tasks[taskIdx].Tags = append(m.tasks[taskIdx].Tags, newID)
+				if err := m.persist(); err != nil {
+					m.saveErr = err
+					return m, nil
+				}
+				// 入力をクリア、カーソルを新規タグに移動 (Sorted の末尾位置)。
+				m.input.SetValue("")
+				m.inputErr = nil
+				newSorted := m.tags.Sorted()
+				for i, tg := range newSorted {
+					if tg.ID == newID {
+						m.tagPickerCursor = i + 1
+						break
+					}
+				}
+				return m, nil
+			}
+			// 既存タグ: cursor=1..listLen に対応する Sorted インデックス。
+			idx := m.tagPickerCursor - 1
+			if idx < 0 || idx >= listLen {
+				return m, nil
+			}
+			tagID := sortedTags[idx].ID
+			// toggle: 既に付与済みなら外す、未付与なら追加 (上限チェック)。
+			tags := m.tasks[taskIdx].Tags
+			pos := -1
+			for i, id := range tags {
+				if id == tagID {
+					pos = i
+					break
+				}
+			}
+			if pos >= 0 {
+				m.tasks[taskIdx].Tags = append(tags[:pos], tags[pos+1:]...)
+			} else {
+				if len(tags) >= task.MaxTagsPerTask {
+					m.saveErr = task.ErrTaskTooManyTags
+					return m, nil
+				}
+				m.tasks[taskIdx].Tags = append(tags, tagID)
+			}
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			return m, nil
+		}
+
+		// cursor=0 (create input) のときはタイピングを textinput に委譲。
+		// list 行 (cursor>=1) のときは何も受け付けない。
+		if m.tagPickerCursor == 0 {
+			var cmd tea.Cmd
+			m.input, cmd = m.input.Update(msg)
+			m.inputErr = task.ValidateTagNameChars(m.input.Value())
+			return m, cmd
 		}
 		return m, nil
 
@@ -1970,6 +2101,22 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // openFieldEditPopup は拡張項目 (text/url) の値編集ポップアップを開く。
 // type に応じて入力欄の charLimit と live バリデーションを切り替える。
 // editingFieldID は呼び出し側が事前にセットしておく前提。
+// openTagPicker は taskID を対象にタグピッカーモーダルを開く。
+// 入力欄を初期化し、cursor を 0 (create input) に置く。
+func (m Model) openTagPicker(taskID int) (Model, tea.Cmd) {
+	inputW := popupWidth(m.width) - 7
+	if inputW < 1 {
+		inputW = 1
+	}
+	m.input = newPopupInput(inputW, task.MaxTagNameRunes)
+	m.input.Placeholder = "create tag"
+	m.inputErr = nil
+	m.tagPickerTaskID = taskID
+	m.tagPickerCursor = 0
+	m.mode = ModeTagPicker
+	return m, textinput.Blink
+}
+
 func (m Model) openFieldEditPopup(def task.FieldDef, existing string) (Model, tea.Cmd) {
 	inputW := popupWidth(m.width) - 7
 	if inputW < 1 {
@@ -2231,7 +2378,7 @@ func (m Model) View() string {
 		if t, _, ok := m.currentTask(); ok {
 			current = &t
 		}
-		mid := renderDetail(current, m.statuses, m.fields, m.files, m.detailRows, detailFocused, m.detailCursor, m.fileCursor, midW, bodyH)
+		mid := renderDetail(current, m.statuses, m.fields, m.tags, m.files, m.detailRows, detailFocused, m.detailCursor, m.fileCursor, midW, bodyH)
 
 		// プレビュー: 現在タスクの fileCursor が指すファイルを対象にする。
 		// 現在タスク無し / ファイル無し / カーソル範囲外 のいずれでも空ペイン。
@@ -2246,11 +2393,13 @@ func (m Model) View() string {
 		// 詳細ペインの Files: 下の罫線と視覚的につなげるため、左右のペイン縦区切り線に
 		// T 字接合 (├ / ┤) を入れる。タスクが選択されておらず Files: ブロックが描画
 		// されないときは通常の │ のままにする。
-		// 罫線の行位置は detailRows に含まれる field 数によって変動するため
-		// detailFilesDividerRow(rows) で動的に算出する。
+		// 罫線の行位置は detailRows に含まれる field 数 + Tags 行の折り返し行数で変動するため
+		// 動的に算出する。
 		junctionRow := -1
 		if current != nil {
-			junctionRow = detailFilesDividerRow(m.detailRows)
+			labelW := detailLabelWidth(m.fields)
+			tagsLines := tagsRowLineCount(current, m.tags, labelW, midW)
+			junctionRow = detailFilesDividerRow(m.detailRows, tagsLines)
 		}
 		leftDivider := buildPaneDivider(bodyH, "├", junctionRow)
 		rightDivider := buildPaneDivider(bodyH, "┤", junctionRow)
@@ -2285,6 +2434,16 @@ func (m Model) View() string {
 		view = overlayInputPopup(view, "Rename:", m.input.View(), m.inputErr, m.width, m.height-1)
 	case ModeEditStatus:
 		view = overlayStatusPicker(view, m.statuses.Sorted(), m.statusPickerCursor, m.width, m.height-1)
+	case ModeTagPicker:
+		var assigned []int
+		for _, tt := range m.tasks {
+			if tt.ID == m.tagPickerTaskID {
+				assigned = tt.Tags
+				break
+			}
+		}
+		// 行全体の背景色を popup bg に統一するため、textinput.View() ではなく値とカーソル位置を渡して自前描画する。
+		view = overlayTagPicker(view, m.tags, assigned, m.tagPickerCursor, m.input.Value(), m.input.Position(), m.inputErr, m.width, m.height-1)
 	case ModeSettingStatusRename:
 		view = overlayInputPopup(view, "Rename status:", m.input.View(), m.inputErr, m.width, m.height-1)
 	case ModeSettingStatusAdd:

@@ -8,12 +8,14 @@ import (
 
 func TestTaskValidate(t *testing.T) {
 	sl := DefaultStatuses()
+	tags := TagList{{ID: 1, Name: "a"}, {ID: 2, Name: "b"}}
 	cases := []struct {
 		name    string
 		task    Task
 		wantErr error
 	}{
 		{"valid", Task{ID: 1, Title: "x", StatusID: 1}, nil},
+		{"valid with tags", Task{ID: 1, Title: "x", StatusID: 1, Tags: []int{1, 2}}, nil},
 		{"empty title", Task{ID: 1, Title: "", StatusID: 1}, ErrEmptyTitle},
 		{"zero id", Task{ID: 0, Title: "x", StatusID: 1}, ErrInvalidID},
 		{"negative id", Task{ID: -1, Title: "x", StatusID: 1}, ErrInvalidID},
@@ -21,10 +23,12 @@ func TestTaskValidate(t *testing.T) {
 		{"title at limit", Task{ID: 1, Title: strings.Repeat("あ", MaxTitleRunes), StatusID: 1}, nil},
 		{"unknown status_id", Task{ID: 1, Title: "x", StatusID: 99}, ErrUnknownStatusID},
 		{"zero status_id", Task{ID: 1, Title: "x", StatusID: 0}, ErrUnknownStatusID},
+		{"unknown tag_id", Task{ID: 1, Title: "x", StatusID: 1, Tags: []int{99}}, ErrTagUnknownID},
+		{"too many tags", Task{ID: 1, Title: "x", StatusID: 1, Tags: []int{1, 2, 1, 2, 1, 2}}, ErrTaskTooManyTags},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			err := c.task.Validate(sl)
+			err := c.task.Validate(sl, tags)
 			if c.wantErr == nil && err != nil {
 				t.Errorf("expected nil, got %v", err)
 			}

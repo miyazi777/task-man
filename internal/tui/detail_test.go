@@ -45,15 +45,19 @@ func TestBuildDetailRowsWithFields(t *testing.T) {
 	}
 }
 
-// detailFilesDividerRow は fields 数に応じて変動 (基準: fields 0 → 5)。
+// detailFilesDividerRow は fields 数 + tags 表示行数に応じて変動。
+// tags 0 行のときは従来どおり 5 + N。tags 1 行以上で 5 + N + L。
 func TestDetailFilesDividerRow(t *testing.T) {
 	cases := []struct {
-		fields int
-		want   int
+		fields    int
+		tagsLines int
+		want      int
 	}{
-		{0, 5},
-		{1, 6},
-		{3, 8},
+		{0, 0, 5},
+		{1, 0, 6},
+		{3, 0, 8},
+		{0, 1, 6},
+		{2, 2, 9},
 	}
 	for _, c := range cases {
 		defs := make(task.FieldDefList, c.fields)
@@ -61,8 +65,8 @@ func TestDetailFilesDividerRow(t *testing.T) {
 			defs[i] = task.FieldDef{ID: i + 1, Name: "x", Type: task.FieldTypeText, Position: i + 1}
 		}
 		rows := buildDetailRows(defs)
-		if got := detailFilesDividerRow(rows); got != c.want {
-			t.Errorf("fields=%d: got %d, want %d", c.fields, got, c.want)
+		if got := detailFilesDividerRow(rows, c.tagsLines); got != c.want {
+			t.Errorf("fields=%d tags=%d: got %d, want %d", c.fields, c.tagsLines, got, c.want)
 		}
 	}
 }

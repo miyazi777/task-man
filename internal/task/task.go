@@ -23,6 +23,7 @@ type Task struct {
 	Collapsed  bool // サブタスクをタスクリスト上で折りたたんでいるか (永続化対象)
 	IsTrashBox bool // ゴミ箱に入っているか。true のとき通常リストでは非表示、トラッシュ箱ビューで表示される。status_id は元のまま保持される。
 	Fields     TaskFieldList // 拡張項目の値。スキーマは top-level FieldDefList で別管理。
+	Tags       []int         // タグ ID 参照。スキーマは top-level TagList で別管理。最大 MaxTagsPerTask 個。
 }
 
 var (
@@ -68,8 +69,8 @@ func ValidateTitleChars(s string) error {
 	return nil
 }
 
-// Validate はタスク自身の整合性と、status_id が statuses に存在するかをチェックする。
-func (t Task) Validate(statuses StatusList) error {
+// Validate はタスク自身の整合性と、status_id が statuses / tags が tags に存在するかをチェックする。
+func (t Task) Validate(statuses StatusList, tags TagList) error {
 	if t.Title == "" {
 		return ErrEmptyTitle
 	}
@@ -81,6 +82,19 @@ func (t Task) Validate(statuses StatusList) error {
 	}
 	if _, ok := statuses.ByID(t.StatusID); !ok {
 		return fmt.Errorf("%w: %d", ErrUnknownStatusID, t.StatusID)
+	}
+	if len(t.Tags) > MaxTagsPerTask {
+		return ErrTaskTooManyTags
+	}
+	seen := make(map[int]struct{}, len(t.Tags))
+	for _, tagID := range t.Tags {
+		if _, dup := seen[tagID]; dup {
+			return fmt.Errorf("duplicate tag_id %d in task %d", tagID, t.ID)
+		}
+		seen[tagID] = struct{}{}
+		if _, ok := tags.ByID(tagID); !ok {
+			return fmt.Errorf("%w: %d (task %d)", ErrTagUnknownID, tagID, t.ID)
+		}
 	}
 	return nil
 }

@@ -40,25 +40,28 @@ func buildDetailRows(fields task.FieldDefList) []detailRow {
 	return rows
 }
 
-// detailFilesDividerRow は detailRows と「タスクが存在する」前提で、Files: 直下の罫線が
-// 何行目に来るかを返す。物理レイアウト: ID(1) + Title(1) + Status(1) + N field rows + 空行(1)
-// + Files: header(1) + 罫線(1) → 罫線位置 = 4 + N + 1 = 5 + N。
+// detailFilesDividerRow は detailRows と Tags 行の表示行数 (tagsLines) を受け取り、
+// Files: 直下の罫線が何行目に来るかを返す。
+// 物理レイアウト: ID(1) + Title(1) + Status(1) + Tags(L) + N field rows + 空行(1)
+// + Files: header(1) + 罫線(1) → 罫線位置 = 5 + L + N。
+// L (tags 行数) が 0 の場合は従来どおり 5 + N。
 // 左右のペイン縦区切り線に T 字接合を入れるために使う。
-func detailFilesDividerRow(rows []detailRow) int {
+func detailFilesDividerRow(rows []detailRow, tagsLines int) int {
 	n := 0
 	for _, r := range rows {
 		if r.kind == detailRowField {
 			n++
 		}
 	}
-	return 5 + n
+	return 5 + n + tagsLines
 }
 
 // renderDetail は右ペインを描画する。
 //   - rows: 詳細画面の論理行リスト (buildDetailRows の出力)
 //   - cursor: rows のインデックス。focused 時にその行を反転表示する
 //   - fileCursor: rows[cursor].kind == detailRowFiles のとき、ファイル一覧内の選択 index
-func renderDetail(t *task.Task, statuses task.StatusList, fields task.FieldDefList, files []string, rows []detailRow, focused bool, cursor, fileCursor, width, height int) string {
+//   - tags: 全タグ集合 (t.Tags の id を解決するため)
+func renderDetail(t *task.Task, statuses task.StatusList, fields task.FieldDefList, tags task.TagList, files []string, rows []detailRow, focused bool, cursor, fileCursor, width, height int) string {
 	if width <= 0 {
 		width = 40
 	}
@@ -86,6 +89,10 @@ func renderDetail(t *task.Task, statuses task.StatusList, fields task.FieldDefLi
 			bodyLines = append(bodyLines, renderDetailField("Title", t.Title, focused, hasCursor, statusStyleFor(status), false, labelW, width))
 		case detailRowStatus:
 			bodyLines = append(bodyLines, renderDetailField("Status", statusText, focused, hasCursor, statusStyleFor(status), true, labelW, width))
+			// Status の直後に Tags 行を追加 (read-only、カーソル対象外)。タグ 0 件のときは行ごと省略。
+			if tagsRow, _ := renderTagsRow(*t, tags, focused, labelW, width); tagsRow != "" {
+				bodyLines = append(bodyLines, tagsRow)
+			}
 		case detailRowField:
 			def, ok := fields.ByID(r.fieldID)
 			if !ok {
@@ -140,6 +147,89 @@ func renderDetailField(label, value string, focused, hasCursor bool, valueStatus
 		valueRendered = styleValueDim.Render(value)
 	}
 	return "  " + labelRendered + " " + valueRendered
+}
+
+// renderTagsRow は Tags 行を構築する。
+// タグ 0 件のときは空文字列 + 0 行を返し、呼び出し側で行ごと省略してもらう。
+// 1 行に並びきらないときは折り返す (継続行は label 幅と同じだけインデント)。
+// 第二戻り値は実際の表示行数。
+func renderTagsRow(t task.Task, tags task.TagList, focused bool, labelW, width int) (string, int) {
+	if len(t.Tags) == 0 {
+		return "", 0
+	}
+	// "[<tag>]" のトークン群を組み立てる (未知 ID は単純にスキップ)。
+	tokens := make([]string, 0, len(t.Tags))
+	for _, id := range t.Tags {
+		if tg, ok := tags.ByID(id); ok {
+			tokens = append(tokens, "["+tg.Name+"]")
+		}
+	}
+	if len(tokens) == 0 {
+		return "", 0
+	}
+
+	leadW := 2 + labelW + 1 // "  " + label + " "
+	availW := width - leadW
+	if availW < 4 {
+		availW = 4
+	}
+
+	// 折り返しレイアウト: トークン間のセパレータは半角スペース 1。
+	var lines []string
+	var cur strings.Builder
+	curW := 0
+	for i, tok := range tokens {
+		tokW := ansi.StringWidth(tok)
+		sep := 0
+		if i > 0 && curW > 0 {
+			sep = 1
+		}
+		if curW+sep+tokW > availW && curW > 0 {
+			lines = append(lines, cur.String())
+			cur.Reset()
+			curW = 0
+			sep = 0
+		}
+		if sep > 0 {
+			cur.WriteString(" ")
+			curW++
+		}
+		cur.WriteString(tok)
+		curW += tokW
+	}
+	if cur.Len() > 0 {
+		lines = append(lines, cur.String())
+	}
+
+	paddedLabel := padDetailLabel("Tags", labelW)
+	labelRendered := styleLabel.Render(paddedLabel)
+	indent := strings.Repeat(" ", leadW)
+
+	tokenStyle := styleValue
+	if !focused {
+		tokenStyle = styleValueDim
+	}
+
+	out := make([]string, 0, len(lines))
+	for i, line := range lines {
+		styled := tokenStyle.Render(line)
+		if i == 0 {
+			out = append(out, "  "+labelRendered+" "+styled)
+		} else {
+			out = append(out, indent+styled)
+		}
+	}
+	return strings.Join(out, "\n"), len(out)
+}
+
+// tagsRowLineCount は renderTagsRow が出力する表示行数を計算だけする (描画はしない)。
+// dividerRow 計算で使う。
+func tagsRowLineCount(t *task.Task, tags task.TagList, labelW, width int) int {
+	if t == nil {
+		return 0
+	}
+	_, n := renderTagsRow(*t, tags, true, labelW, width)
+	return n
 }
 
 // detailLabelWidth は ID/Title/Status と全 field 名のうち、表示幅の最大値を返す。

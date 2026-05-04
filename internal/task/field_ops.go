@@ -41,13 +41,16 @@ func SetFieldValue(tasks []Task, defs FieldDefList, taskID, fieldID int, value s
 	return nil, fmt.Errorf("task id %d not found", taskID)
 }
 
-// ValidateAll は (statuses, defs) の存在前提で全タスク + 各タスクの fields を検証する。
-func ValidateAll(tasks []Task, statuses StatusList, defs FieldDefList) error {
+// ValidateAll は (statuses, defs, tags) の存在前提で全タスク + 各タスクの fields を検証する。
+func ValidateAll(tasks []Task, statuses StatusList, defs FieldDefList, tags TagList) error {
 	if err := defs.Validate(); err != nil {
 		return err
 	}
+	if err := tags.Validate(); err != nil {
+		return err
+	}
 	for i, t := range tasks {
-		if err := t.Validate(statuses); err != nil {
+		if err := t.Validate(statuses, tags); err != nil {
 			return fmt.Errorf("tasks[%d]: %w", i, err)
 		}
 		if err := t.Fields.Validate(defs); err != nil {

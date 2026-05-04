@@ -80,7 +80,7 @@ func TestValidateAll(t *testing.T) {
 			{ID: 1, FieldID: 10, Value: "x"},
 		}},
 	}
-	if err := ValidateAll(good, statuses, defs); err != nil {
+	if err := ValidateAll(good, statuses, defs, nil); err != nil {
 		t.Errorf("good should be valid, got %v", err)
 	}
 	bad := []Task{
@@ -88,7 +88,7 @@ func TestValidateAll(t *testing.T) {
 			{ID: 1, FieldID: 99, Value: "x"},
 		}},
 	}
-	if err := ValidateAll(bad, statuses, defs); err == nil {
+	if err := ValidateAll(bad, statuses, defs, nil); err == nil {
 		t.Errorf("bad should error")
 	}
 }

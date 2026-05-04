@@ -33,6 +33,7 @@ const (
 	ModeEditFieldValue              // 詳細画面で text 型 field の値編集 (textinput)
 	ModeEditFieldDateValue          // 詳細画面で date 型 field の値編集 (calendar)
 	ModeOperation                   // タスクリストで o を押した直後の operation 入力待ち状態
+	ModeTagPicker                   // タグ追加/解除モーダル (create input + 既存タグリスト)
 )
 
 func (m Mode) String() string {
@@ -97,6 +98,8 @@ func (m Mode) String() string {
 		return "editfielddatevalue"
 	case ModeOperation:
 		return "operation"
+	case ModeTagPicker:
+		return "tagpicker"
 	default:
 		return "unknown"
 	}

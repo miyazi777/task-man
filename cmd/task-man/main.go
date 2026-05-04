@@ -35,7 +35,7 @@ func run() error {
 	}
 
 	yamlDir := filepath.Dir(args.Path)
-	model := tui.NewModel(repo, lr.Tasks, lr.Statuses, lr.Fields, yamlDir, lr.Config)
+	model := tui.NewModel(repo, lr.Tasks, lr.Statuses, lr.Fields, lr.Tags, yamlDir, lr.Config)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		return err

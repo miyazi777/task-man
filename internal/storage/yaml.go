@@ -47,6 +47,16 @@ type yamlTaskFieldEntry struct {
 	Field yamlTaskField `yaml:"field"`
 }
 
+// yamlTag はトップレベル tags の 1 件。
+type yamlTag struct {
+	ID   int    `yaml:"id"`
+	Name string `yaml:"name"`
+}
+
+type yamlTagEntry struct {
+	Tag yamlTag `yaml:"tag"`
+}
+
 type yamlTask struct {
 	ID         int                  `yaml:"id"`
 	Title      string               `yaml:"title"`
@@ -55,6 +65,7 @@ type yamlTask struct {
 	Position   int                  `yaml:"position,omitempty"`
 	Collapsed  bool                 `yaml:"collapsed,omitempty"`
 	IsTrashBox bool                 `yaml:"is_trash_box,omitempty"`
+	Tags       []int                `yaml:"tags,omitempty"`
 	Fields     []yamlTaskFieldEntry `yaml:"fields,omitempty"`
 }
 
@@ -71,6 +82,7 @@ type yamlFile struct {
 	DataBaseDirectory string            `yaml:"data_base_directory,omitempty"`
 	Statuses          []yamlStatusEntry `yaml:"statuses"`
 	Fields            []yamlFieldEntry  `yaml:"fields,omitempty"`
+	Tags              []yamlTagEntry    `yaml:"tags,omitempty"`
 	Tasks             []yamlEntry       `yaml:"tasks"`
 }
 
@@ -105,7 +117,12 @@ func (r *YAMLRepository) Load() (LoadResult, error) {
 		return LoadResult{}, err
 	}
 
-	tasks, tasksChanged, err := loadTasks(f.Tasks, statuses, defs)
+	tags, tagsChanged := loadTags(f.Tags)
+	if err := tags.Validate(); err != nil {
+		return LoadResult{}, err
+	}
+
+	tasks, tasksChanged, err := loadTasks(f.Tasks, statuses, defs, tags)
 	if err != nil {
 		return LoadResult{}, err
 	}
@@ -119,10 +136,11 @@ func (r *YAMLRepository) Load() (LoadResult, error) {
 		Tasks:    tasks,
 		Statuses: statuses,
 		Fields:   defs,
+		Tags:     tags,
 		Config:   cfg,
 	}
 
-	if statusesChanged || defsChanged || tasksChanged {
+	if statusesChanged || defsChanged || tagsChanged || tasksChanged {
 		if err := r.Save(lr); err != nil {
 			return LoadResult{}, fmt.Errorf("write back defaults: %w", err)
 		}
@@ -181,7 +199,24 @@ func loadFieldDefs(entries []yamlFieldEntry) (task.FieldDefList, bool) {
 	return assigned, changed
 }
 
-func loadTasks(entries []yamlEntry, statuses task.StatusList, defs task.FieldDefList) ([]task.Task, bool, error) {
+// loadTags は yaml の tags をドメイン型に変換する。
+// id<=0 を採番し、第二戻り値は補完が起きたか。tags 欠落 / 空配列ともに空 TagList を返す。
+func loadTags(entries []yamlTagEntry) (task.TagList, bool) {
+	if len(entries) == 0 {
+		return task.TagList{}, false
+	}
+	tl := make(task.TagList, 0, len(entries))
+	for _, e := range entries {
+		tl = append(tl, task.Tag{
+			ID:   e.Tag.ID,
+			Name: e.Tag.Name,
+		})
+	}
+	assigned, changed := tl.AssignMissingIDs()
+	return assigned, changed
+}
+
+func loadTasks(entries []yamlEntry, statuses task.StatusList, defs task.FieldDefList, tags task.TagList) ([]task.Task, bool, error) {
 	seen := make(map[int]struct{}, len(entries))
 	tasks := make([]task.Task, 0, len(entries))
 	changed := false
@@ -216,6 +251,13 @@ func loadTasks(entries []yamlEntry, statuses task.StatusList, defs task.FieldDef
 			}
 		}
 
+		// tags は ID 配列をそのまま保持。Validate が tag 存在チェックを担当する。
+		var taskTags []int
+		if len(e.Task.Tags) > 0 {
+			taskTags = make([]int, len(e.Task.Tags))
+			copy(taskTags, e.Task.Tags)
+		}
+
 		t := task.Task{
 			ID:         e.Task.ID,
 			Title:      e.Task.Title,
@@ -224,9 +266,10 @@ func loadTasks(entries []yamlEntry, statuses task.StatusList, defs task.FieldDef
 			Position:   e.Task.Position,
 			Collapsed:  e.Task.Collapsed,
 			IsTrashBox: e.Task.IsTrashBox,
+			Tags:       taskTags,
 			Fields:     assignedTFL,
 		}
-		if err := t.Validate(statuses); err != nil {
+		if err := t.Validate(statuses, tags); err != nil {
 			return nil, false, fmt.Errorf("tasks[%d]: %w", i, err)
 		}
 		if err := t.Fields.Validate(defs); err != nil {
@@ -325,6 +368,17 @@ func (r *YAMLRepository) Save(lr LoadResult) error {
 		})
 	}
 
+	sortedTags := lr.Tags.Sorted()
+	tagEntries := make([]yamlTagEntry, 0, len(sortedTags))
+	for _, tg := range sortedTags {
+		tagEntries = append(tagEntries, yamlTagEntry{
+			Tag: yamlTag{
+				ID:   tg.ID,
+				Name: tg.Name,
+			},
+		})
+	}
+
 	taskEntries := make([]yamlEntry, 0, len(lr.Tasks))
 	for _, t := range lr.Tasks {
 		// 各 task の fields は安定した出力のため id 昇順で出力する。
@@ -344,6 +398,12 @@ func (r *YAMLRepository) Save(lr LoadResult) error {
 			})
 		}
 
+		var tagsCopy []int
+		if len(t.Tags) > 0 {
+			tagsCopy = make([]int, len(t.Tags))
+			copy(tagsCopy, t.Tags)
+		}
+
 		taskEntries = append(taskEntries, yamlEntry{
 			Task: yamlTask{
 				ID:         t.ID,
@@ -353,6 +413,7 @@ func (r *YAMLRepository) Save(lr LoadResult) error {
 				Position:   t.Position,
 				Collapsed:  t.Collapsed,
 				IsTrashBox: t.IsTrashBox,
+				Tags:       tagsCopy,
 				Fields:     fieldEntriesPerTask,
 			},
 		})
@@ -362,6 +423,7 @@ func (r *YAMLRepository) Save(lr LoadResult) error {
 		DataBaseDirectory: lr.Config.DataBaseDirectory,
 		Statuses:          statusEntries,
 		Fields:            fieldEntries,
+		Tags:              tagEntries,
 		Tasks:             taskEntries,
 	})
 	if err != nil {
