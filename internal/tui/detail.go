@@ -43,28 +43,14 @@ func buildDetailRows(fields task.FieldDefList) []detailRow {
 	return rows
 }
 
-// detailFilesDividerRow は detailRows と Tags 行の表示行数 (tagsLines) を受け取り、
-// Files: 直下の罫線が何行目に来るかを返す。
-// 物理レイアウト: ID(1) + Title(1) + Status(1) + Tags(L) + N field rows + 空行(1)
-// + Files: header(1) + 罫線(1) → 罫線位置 = 5 + L + N。
-// L (tags 行数) が 0 の場合は従来どおり 5 + N。
-// 左右のペイン縦区切り線に T 字接合を入れるために使う。
-func detailFilesDividerRow(rows []detailRow, tagsLines int) int {
-	n := 0
-	for _, r := range rows {
-		if r.kind == detailRowField {
-			n++
-		}
-	}
-	return 5 + n + tagsLines
-}
-
-// renderDetail は右ペインを描画する。
+// renderDetail は詳細ペイン (上半分) を描画する。Files ブロックは含めない。
 //   - rows: 詳細画面の論理行リスト (buildDetailRows の出力)
 //   - cursor: rows のインデックス。focused 時にその行を反転表示する
-//   - fileCursor: rows[cursor].kind == detailRowFiles のとき、ファイル一覧内の選択 index
 //   - tags: 全タグ集合 (t.Tags の id を解決するため)
-func renderDetail(t *task.Task, statuses task.StatusList, fields task.FieldDefList, tags task.TagList, files []string, rows []detailRow, focused bool, cursor, fileCursor, width, height int) string {
+//
+// 新レイアウトでは Files ブロックは右ペインの中段、Preview は下段に分割表示するため、
+// この関数では描画しない。Files カーソルの取り扱いは呼び出し側 (renderFilesBlock 直接呼び出し) に委ねる。
+func renderDetail(t *task.Task, statuses task.StatusList, fields task.FieldDefList, tags task.TagList, rows []detailRow, focused bool, cursor, width, height int) string {
 	if width <= 0 {
 		width = 40
 	}
@@ -84,7 +70,6 @@ func renderDetail(t *task.Task, statuses task.StatusList, fields task.FieldDefLi
 	idRow := "  " + styleLabel.Render(padDetailLabel("ID", labelW)) + " " + styleValueDim.Render(strconv.Itoa(t.ID))
 
 	bodyLines := []string{idRow}
-	var filesBlock string
 	for i, r := range rows {
 		hasCursor := focused && cursor == i
 		switch r.kind {
@@ -105,7 +90,6 @@ func renderDetail(t *task.Task, statuses task.StatusList, fields task.FieldDefLi
 				value = tf.Value
 			}
 			// url 型は折り返しを避けるため、表示幅に収まらない場合は末尾を ... に置換する。
-			// availW = ペイン幅 - leading "  " - ラベル幅 - separator " "
 			if def.Type == task.FieldTypeURL {
 				availW := width - 2 - labelW - 1
 				if availW > 0 && ansi.StringWidth(value) > availW {
@@ -114,13 +98,9 @@ func renderDetail(t *task.Task, statuses task.StatusList, fields task.FieldDefLi
 			}
 			bodyLines = append(bodyLines, renderDetailField(def.Name, value, focused, hasCursor, lipgloss.Style{}, false, labelW, width))
 		case detailRowFiles:
-			// Files は専用ブロック。カーソル位置・focus 状態をブロック側に渡す。
-			filesBlock = renderFilesBlock(files, focused, hasCursor, fileCursor, width)
+			// Files 行はこのペインでは描画しない (右ペイン中段で描画される)。
 		}
 	}
-
-	// Files ブロックは body 末尾に「空行 + ブロック」として配置する。
-	bodyLines = append(bodyLines, "", filesBlock)
 
 	body := strings.Join(bodyLines, "\n")
 	return lipgloss.NewStyle().Width(width).Height(height).Render(body)
@@ -246,16 +226,6 @@ func renderTagsRow(t task.Task, tags task.TagList, focused, hasCursor bool, labe
 	return strings.Join(out, "\n"), len(out)
 }
 
-// tagsRowLineCount は renderTagsRow が出力する表示行数を計算だけする (描画はしない)。
-// dividerRow 計算で使う。タグ 0 件でも常に >= 1 を返す (Tags 行はラベルだけでも表示するため)。
-func tagsRowLineCount(t *task.Task, tags task.TagList, labelW, width int) int {
-	if t == nil {
-		return 0
-	}
-	_, n := renderTagsRow(*t, tags, true, false, labelW, width)
-	return n
-}
-
 // detailLabelWidth は ID/Title/Status と全 field 名のうち、表示幅の最大値を返す。
 // 値の左端を揃えるためにラベル列の幅として使う。
 func detailLabelWidth(fields task.FieldDefList) int {
@@ -278,33 +248,38 @@ func padDetailLabel(label string, w int) string {
 	return label + strings.Repeat(" ", diff)
 }
 
-// renderFilesBlock は Files: セクションをヘッダ + 区切り線 + ファイル行で描画する。
+// renderFileNamesList はファイル名一覧のみを width × height の領域に描画する。
+// Files: ヘッダや罫線は含まない (新レイアウトで右ペインを上下分割するため、ヘッダ/罫線は呼び出し側で組み立てる)。
 //   - blockFocused: detailCursor が Files セクションを指しているか
 //   - fileCursor: Files 内の選択行
 //
-// ファイルが 0 件のときは "(no files)" を 1 行表示する。
-func renderFilesBlock(files []string, focused, blockFocused bool, fileCursor, width int) string {
-	header := "  " + styleLabel.Render("Files:")
-	// 区切り線はペイン全幅にして、左右のペイン縦区切り線 (├ / ┤) と
-	// つながる横一文字に見えるようにする。
-	dividerWidth := width
-	if dividerWidth < 1 {
-		dividerWidth = 1
+// ファイルが 0 件のときは "(no files)" を 1 行表示し、残りは空行で埋める。
+// ファイル数が height を超える場合は fileCursor が見える範囲を表示するスクロールを行う。
+func renderFileNamesList(files []string, focused, blockFocused bool, fileCursor, width, height int) string {
+	if height <= 0 {
+		return ""
 	}
-	divider := styleDivider.Render(strings.Repeat("─", dividerWidth))
-
-	var rows []string
-	rows = append(rows, header, divider)
-
 	if len(files) == 0 {
-		rows = append(rows, "    "+styleValueDim.Render("(no files)"))
-		return strings.Join(rows, "\n")
+		empty := "    " + styleValueDim.Render("(no files)")
+		return lipgloss.NewStyle().Width(width).Height(height).Render(empty)
 	}
 
-	for i, name := range files {
+	// fileCursor を表示範囲に含めるためのオフセット計算 (シンプルなウィンドウスクロール)。
+	startIdx := 0
+	if fileCursor >= height {
+		startIdx = fileCursor - height + 1
+	}
+	endIdx := startIdx + height
+	if endIdx > len(files) {
+		endIdx = len(files)
+	}
+
+	var lines []string
+	for i := startIdx; i < endIdx; i++ {
+		name := files[i]
 		isCursor := blockFocused && focused && i == fileCursor
 		if isCursor {
-			rows = append(rows, styleCursorRow.Width(width).Render("    "+name))
+			lines = append(lines, styleCursorRow.Width(width).Render("    "+name))
 			continue
 		}
 		var line string
@@ -313,7 +288,8 @@ func renderFilesBlock(files []string, focused, blockFocused bool, fileCursor, wi
 		} else {
 			line = "    " + styleValueDim.Render(name)
 		}
-		rows = append(rows, line)
+		lines = append(lines, line)
 	}
-	return strings.Join(rows, "\n")
+	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
 }
+

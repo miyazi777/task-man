@@ -2443,18 +2443,25 @@ func buildPaneDivider(bodyH int, junctionChar string, junctionRow int) string {
 	return styleDivider.Render(strings.Join(rows, "\n"))
 }
 
-// threePaneWidths は通常画面 (list / detail / preview) の各ペイン幅を返す。
-// 区切り線 2 本 (1 cell × 2) を差し引いた残りを 1/3 ずつ割り当てる。剰余は preview に寄せる。
-// 画面が狭すぎて preview に充分な幅が取れない場合は最低 1 cell を確保しつつ list/mid を圧縮する。
-func threePaneWidths(screenW int) (leftW, midW, previewW int) {
-	avail := screenW - 2 // 区切り線 2 本ぶん
-	if avail < 3 {
-		// 極端に狭いケースのフォールバック。各ペイン 1 cell ずつ。
-		return 1, 1, 1
+// twoPaneWidths は通常画面 (list 2/3 / detail+files+preview 1/3) の各ペイン幅を返す。
+// 区切り線 1 本 (1 cell) を差し引いた残りを 2:1 で割り当てる。
+// 画面が狭すぎる場合は両ペイン 1 cell ずつにフォールバック。
+func twoPaneWidths(screenW int) (leftW, rightW int) {
+	avail := screenW - 1 // 区切り線 1 本ぶん
+	if avail < 2 {
+		return 1, 1
 	}
-	leftW = avail / 3
-	midW = avail / 3
-	previewW = avail - leftW - midW
+	leftW = avail * 2 / 3
+	if leftW < 1 {
+		leftW = 1
+	}
+	rightW = avail - leftW
+	if rightW < 1 {
+		rightW = 1
+		if leftW > 1 {
+			leftW = avail - rightW
+		}
+	}
 	return
 }
 
@@ -2582,8 +2589,8 @@ func (m Model) View() string {
 			body = lipgloss.JoinHorizontal(lipgloss.Top, left, divider, right)
 		}
 	} else {
-		// 通常画面: タスクリスト 1/3 + 詳細 1/3 + プレビュー 1/3 (区切り線 2 本)。
-		leftW, midW, previewW := threePaneWidths(m.width)
+		// 通常画面: 左 2/3 タスクリスト | 右 1/3 (上から detail / files / preview を縦に積む)。
+		leftW, rightW := twoPaneWidths(m.width)
 
 		listH := bodyH
 		if m.viewTrash {
@@ -2623,33 +2630,66 @@ func (m Model) View() string {
 		if t, _, ok := m.currentTask(); ok {
 			current = &t
 		}
-		mid := renderDetail(current, m.statuses, m.fields, m.tags, m.files, m.detailRows, detailFocused, m.detailCursor, m.fileCursor, midW, bodyH)
+
+		// 右カラム高さ配分:
+		//   detail = bodyH の 1/2
+		//   残り = files area + preview area を 1/2 + 1/2 で分割
+		//   files area の中身: "Files:" header (1) + 罫線 (1) + 名前リスト (残り)
+		//   preview area の中身: 罫線 (1) + プレビュー (残り)
+		detailH := bodyH / 2
+		if detailH < 3 {
+			detailH = 3
+			if detailH > bodyH {
+				detailH = bodyH
+			}
+		}
+		bottomH := bodyH - detailH
+		if bottomH < 4 {
+			bottomH = 4
+		}
+		fileAreaH := bottomH / 2
+		previewAreaH := bottomH - fileAreaH
+		namesH := fileAreaH - 2 // header + top divider
+		if namesH < 1 {
+			namesH = 1
+		}
+		previewH := previewAreaH - 1 // bottom divider
+		if previewH < 1 {
+			previewH = 1
+		}
+
+		// 詳細ペイン (Files なし)。
+		detailBlock := renderDetail(current, m.statuses, m.fields, m.tags, m.detailRows, detailFocused, m.detailCursor, rightW, detailH)
+
+		// Files: header + 罫線 + 名前リスト。
+		filesHeader := lipgloss.NewStyle().Width(rightW).Render("  " + styleLabel.Render("Files:"))
+		hDivider := styleDivider.Render(strings.Repeat("─", rightW))
+		hasCursorOnFiles := false
+		if row, ok := m.currentDetailRow(); ok && row.kind == detailRowFiles {
+			hasCursorOnFiles = detailFocused
+		}
+		fileNamesBlock := renderFileNamesList(m.files, detailFocused, hasCursorOnFiles, m.fileCursor, rightW, namesH)
 
 		// プレビュー: 現在タスクの fileCursor が指すファイルを対象にする。
-		// 現在タスク無し / ファイル無し / カーソル範囲外 のいずれでも空ペイン。
 		var previewFile string
 		var previewTaskID int
 		if current != nil && len(m.files) > 0 && m.fileCursor >= 0 && m.fileCursor < len(m.files) {
 			previewFile = m.files[m.fileCursor]
 			previewTaskID = current.ID
 		}
-		right := renderPreview(m.yamlDir, m.cfg.DataBaseDirectory, previewTaskID, previewFile, previewW, bodyH)
+		previewBlock := renderPreview(m.yamlDir, m.cfg.DataBaseDirectory, previewTaskID, previewFile, rightW, previewH)
 
-		// 詳細ペインの Files: 下の罫線と視覚的につなげるため、左右のペイン縦区切り線に
-		// T 字接合 (├ / ┤) を入れる。タスクが選択されておらず Files: ブロックが描画
-		// されないときは通常の │ のままにする。
-		// 罫線の行位置は detailRows に含まれる field 数 + Tags 行の折り返し行数で変動するため
-		// 動的に算出する。
-		junctionRow := -1
-		if current != nil {
-			labelW := detailLabelWidth(m.fields)
-			tagsLines := tagsRowLineCount(current, m.tags, labelW, midW)
-			junctionRow = detailFilesDividerRow(m.detailRows, tagsLines)
-		}
-		leftDivider := buildPaneDivider(bodyH, "├", junctionRow)
-		rightDivider := buildPaneDivider(bodyH, "┤", junctionRow)
+		right := lipgloss.JoinVertical(lipgloss.Left,
+			detailBlock,
+			filesHeader,
+			hDivider,
+			fileNamesBlock,
+			hDivider,
+			previewBlock,
+		)
 
-		body = lipgloss.JoinHorizontal(lipgloss.Top, left, leftDivider, mid, rightDivider, right)
+		divider := buildPaneDivider(bodyH, "", -1)
+		body = lipgloss.JoinHorizontal(lipgloss.Top, left, divider, right)
 	}
 
 	onFilesRow := false
