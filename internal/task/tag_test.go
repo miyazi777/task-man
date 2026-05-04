@@ -39,25 +39,43 @@ func TestTagListByName(t *testing.T) {
 
 func TestTagListAddTag(t *testing.T) {
 	tl := TagList{{ID: 5, Name: "exists"}}
-	out, id, err := tl.AddTag("new")
+	out, id, err := tl.AddTag("new", "#abcdef")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	if id != 6 {
 		t.Errorf("newID=%d, want 6", id)
 	}
-	if len(out) != 2 || out[1].Name != "new" {
+	if len(out) != 2 || out[1].Name != "new" || out[1].Color != "#abcdef" {
 		t.Errorf("got %+v", out)
 	}
-	if _, _, err := tl.AddTag("exists"); !errors.Is(err, ErrTagDuplicateName) {
+	if _, _, err := tl.AddTag("exists", ""); !errors.Is(err, ErrTagDuplicateName) {
 		t.Errorf("expected ErrTagDuplicateName, got %v", err)
 	}
-	if _, _, err := tl.AddTag(""); !errors.Is(err, ErrTagEmptyName) {
+	if _, _, err := tl.AddTag("", ""); !errors.Is(err, ErrTagEmptyName) {
 		t.Errorf("expected ErrTagEmptyName, got %v", err)
 	}
 	long := strings.Repeat("あ", MaxTagNameRunes+1)
-	if _, _, err := tl.AddTag(long); !errors.Is(err, ErrTagNameTooLong) {
+	if _, _, err := tl.AddTag(long, ""); !errors.Is(err, ErrTagNameTooLong) {
 		t.Errorf("expected ErrTagNameTooLong, got %v", err)
+	}
+}
+
+func TestTagListSetColorByID(t *testing.T) {
+	tl := TagList{{ID: 1, Name: "a"}, {ID: 2, Name: "b"}}
+	out, err := tl.SetColorByID(2, "#ff00ff")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if out[1].Color != "#ff00ff" {
+		t.Errorf("[1].Color=%q, want #ff00ff", out[1].Color)
+	}
+	// source unchanged
+	if tl[1].Color != "" {
+		t.Error("source must remain unchanged")
+	}
+	if _, err := tl.SetColorByID(99, "#000000"); err == nil {
+		t.Error("expected error for missing id")
 	}
 }
 

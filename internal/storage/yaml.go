@@ -49,8 +49,9 @@ type yamlTaskFieldEntry struct {
 
 // yamlTag はトップレベル tags の 1 件。
 type yamlTag struct {
-	ID   int    `yaml:"id"`
-	Name string `yaml:"name"`
+	ID    int    `yaml:"id"`
+	Name  string `yaml:"name"`
+	Color string `yaml:"color,omitempty"`
 }
 
 type yamlTagEntry struct {
@@ -208,8 +209,9 @@ func loadTags(entries []yamlTagEntry) (task.TagList, bool) {
 	tl := make(task.TagList, 0, len(entries))
 	for _, e := range entries {
 		tl = append(tl, task.Tag{
-			ID:   e.Tag.ID,
-			Name: e.Tag.Name,
+			ID:    e.Tag.ID,
+			Name:  e.Tag.Name,
+			Color: e.Tag.Color,
 		})
 	}
 	assigned, changed := tl.AssignMissingIDs()
@@ -373,8 +375,9 @@ func (r *YAMLRepository) Save(lr LoadResult) error {
 	for _, tg := range sortedTags {
 		tagEntries = append(tagEntries, yamlTagEntry{
 			Tag: yamlTag{
-				ID:   tg.ID,
-				Name: tg.Name,
+				ID:    tg.ID,
+				Name:  tg.Name,
+				Color: tg.Color,
 			},
 		})
 	}

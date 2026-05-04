@@ -261,13 +261,14 @@ func renderColorSwatch(hex string) string {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(hex)).Render("██")
 }
 
-// overlayColorPicker は status の色変更用ピッカーをポップアップ表示する。
+// overlayColorPicker は色変更用ピッカーをポップアップ表示する。
+// labelText はモーダル上罫線に出すラベル (例: "Status Color:" / "Tag Color:")。
 // grid[row][col] が #rrggbb 形式の色 (行 = 色相、列 = 明度)。
 // (curRow, curCol) のセルだけ [██] で囲んで強調、それ以外は  ██  で揃えて配置する。
 //
 // ポップアップ幅は「グリッド幅 / ラベル幅 / ヒント幅」のうち最大値に合わせて
 // コンテンツに過不足ない大きさになるよう動的算出する。
-func overlayColorPicker(bg string, grid [][]string, curRow, curCol, screenW, screenH int) string {
+func overlayColorPicker(bg, labelText string, grid [][]string, curRow, curCol, screenW, screenH int) string {
 	cols := 0
 	if len(grid) > 0 {
 		cols = len(grid[0])
@@ -278,7 +279,6 @@ func overlayColorPicker(bg string, grid [][]string, curRow, curCol, screenW, scr
 		gridW = 8
 	}
 
-	labelText := "Status Color:"
 	labelW := ansi.StringWidth(labelText)
 
 	// カーソルの上下左右は明らかなのでモーダル内ヒントからは省略する。

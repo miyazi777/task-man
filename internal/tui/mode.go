@@ -34,6 +34,7 @@ const (
 	ModeEditFieldDateValue          // 詳細画面で date 型 field の値編集 (calendar)
 	ModeOperation                   // タスクリストで o を押した直後の operation 入力待ち状態
 	ModeTagPicker                   // タグ追加/解除モーダル (create input + 既存タグリスト)
+	ModeTagColorPicker              // タグの色変更ピッカー (ModeTagPicker から c キーで遷移)
 )
 
 func (m Mode) String() string {
@@ -100,6 +101,8 @@ func (m Mode) String() string {
 		return "operation"
 	case ModeTagPicker:
 		return "tagpicker"
+	case ModeTagColorPicker:
+		return "tagcolorpicker"
 	default:
 		return "unknown"
 	}

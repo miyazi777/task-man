@@ -76,3 +76,18 @@ func statusRowStyleFor(s task.Status) lipgloss.Style {
 	}
 	return lipgloss.NewStyle().Background(bg).Foreground(colorBase)
 }
+
+// tagChipStyleFor はタグの色を背景にした反転スタイル (黒抜き文字) を返す。
+// Color 未指定なら colorMuted にフォールバック。
+func tagChipStyleFor(tg task.Tag) lipgloss.Style {
+	bg := colorMuted
+	if tg.Color != "" {
+		bg = lipgloss.Color(tg.Color)
+	}
+	return lipgloss.NewStyle().Background(bg).Foreground(colorBase)
+}
+
+// renderTagChip は " <name> " 形式 (両端 1 cell パッド) のカラーチップを返す。
+func renderTagChip(tg task.Tag) string {
+	return tagChipStyleFor(tg).Render(" " + tg.Name + " ")
+}

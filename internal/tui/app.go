@@ -79,6 +79,9 @@ type Model struct {
 	tagPickerTaskID  int
 	tagPickerCursor  int
 
+	// ModeTagColorPicker 用の状態 (背後の ModeTagPicker は維持される)
+	tagColorPickerTagID int
+
 	width  int
 	height int
 
@@ -1098,6 +1101,22 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.String() {
+		case "c":
+			// 既存タグ行 (cursor>=1) のときだけ色変更ピッカーへ遷移。
+			// 入力行 (cursor=0) では typing として "c" を取り込ませるため透過。
+			if m.tagPickerCursor == 0 {
+				break
+			}
+			idx := m.tagPickerCursor - 1
+			if idx < 0 || idx >= listLen {
+				return m, nil
+			}
+			tg := filtered[idx]
+			m.tagColorPickerTagID = tg.ID
+			m.settingColorChoices = statusColorChoices()
+			m.settingColorRow, m.settingColorCol = nearestColorChoiceCell(m.settingColorChoices, tg.Color)
+			m.mode = ModeTagColorPicker
+			return m, nil
 		case "enter":
 			if m.tagPickerCursor == 0 {
 				// 入力行 enter: 既存と完全一致なら toggle、そうでなければ新規作成 + 付与。
@@ -1109,8 +1128,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m = m.toggleTaskTag(taskIdx, existing.ID)
 					return m, nil
 				}
-				// 新規作成
-				newTags, newID, err := m.tags.AddTag(name)
+				// 新規作成。色は 12 色パレットから round-robin で自動採番。
+				autoColor := nextTagColor(m.tags)
+				newTags, newID, err := m.tags.AddTag(name, autoColor)
 				if err != nil {
 					m.inputErr = err
 					return m, nil
@@ -1157,6 +1177,60 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.input, cmd = m.input.Update(msg)
 			m.inputErr = task.ValidateTagNameChars(m.input.Value())
 			return m, cmd
+		}
+		return m, nil
+
+	case ModeTagColorPicker:
+		grid := m.settingColorChoices
+		rows, cols := len(grid), 0
+		if rows > 0 {
+			cols = len(grid[0])
+		}
+		switch {
+		case key.Matches(msg, m.keys.Up):
+			if m.settingColorRow > 0 {
+				m.settingColorRow--
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			if m.settingColorRow < rows-1 {
+				m.settingColorRow++
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Close):
+			if m.settingColorCol > 0 {
+				m.settingColorCol--
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Open):
+			if m.settingColorCol < cols-1 {
+				m.settingColorCol++
+			}
+			return m, nil
+		}
+		switch msg.String() {
+		case "enter":
+			if rows == 0 || cols == 0 ||
+				m.settingColorRow >= rows || m.settingColorCol >= cols {
+				m.mode = ModeTagPicker
+				return m, nil
+			}
+			newColor := grid[m.settingColorRow][m.settingColorCol]
+			updated, err := m.tags.SetColorByID(m.tagColorPickerTagID, newColor)
+			if err != nil {
+				m.saveErr = err
+				m.mode = ModeTagPicker
+				return m, nil
+			}
+			m.tags = updated
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			m.mode = ModeTagPicker
+			return m, nil
+		case "esc":
+			m.mode = ModeTagPicker
+			return m, nil
 		}
 		return m, nil
 
@@ -2090,6 +2164,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // openFieldEditPopup は拡張項目 (text/url) の値編集ポップアップを開く。
 // type に応じて入力欄の charLimit と live バリデーションを切り替える。
 // editingFieldID は呼び出し側が事前にセットしておく前提。
+// nextTagColor は既存タグ数を元にパレットから次の色を round-robin で返す。
+// 12 色パレット (status と共用) の i = len(tags) % 12 番目。
+func nextTagColor(tags task.TagList) string {
+	palette := colorPickerBaseHexes
+	if len(palette) == 0 {
+		return ""
+	}
+	return palette[len(tags)%len(palette)]
+}
+
 // toggleTaskTag は taskIdx 番目のタスクの Tags に tagID を toggle する。
 // 付与済みなら外し、未付与なら追加 (上限到達時は saveErr に表示)。
 // 永続化エラーも saveErr へ。
@@ -2450,7 +2534,7 @@ func (m Model) View() string {
 		view = overlayInputPopup(view, "Rename:", m.input.View(), m.inputErr, m.width, m.height-1)
 	case ModeEditStatus:
 		view = overlayStatusPicker(view, m.statuses.Sorted(), m.statusPickerCursor, m.width, m.height-1)
-	case ModeTagPicker:
+	case ModeTagPicker, ModeTagColorPicker:
 		var assigned []int
 		for _, tt := range m.tasks {
 			if tt.ID == m.tagPickerTaskID {
@@ -2460,12 +2544,16 @@ func (m Model) View() string {
 		}
 		// 行全体の背景色を popup bg に統一するため、textinput.View() ではなく値とカーソル位置を渡して自前描画する。
 		view = overlayTagPicker(view, m.tags, assigned, m.tagPickerCursor, m.input.Value(), m.input.Position(), m.inputErr, m.width, m.height-1)
+		if m.mode == ModeTagColorPicker {
+			// タグピッカーの上に色ピッカーをさらに重ねる。
+			view = overlayColorPicker(view, "Tag Color:", m.settingColorChoices, m.settingColorRow, m.settingColorCol, m.width, m.height-1)
+		}
 	case ModeSettingStatusRename:
 		view = overlayInputPopup(view, "Rename status:", m.input.View(), m.inputErr, m.width, m.height-1)
 	case ModeSettingStatusAdd:
 		view = overlayInputPopup(view, "Add status:", m.input.View(), m.inputErr, m.width, m.height-1)
 	case ModeSettingStatusColor:
-		view = overlayColorPicker(view, m.settingColorChoices, m.settingColorRow, m.settingColorCol, m.width, m.height-1)
+		view = overlayColorPicker(view, "Status Color:", m.settingColorChoices, m.settingColorRow, m.settingColorCol, m.width, m.height-1)
 	case ModeSettingFieldAdd:
 		// name 行にフォーカスが無いときは textinput の prompt "> " を非表示にする。
 		// 横位置を維持するため空白 2 cell に置換 (View 用ローカルコピーのみ変更)。

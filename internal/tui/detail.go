@@ -150,6 +150,7 @@ func renderDetailField(label, value string, focused, hasCursor bool, valueStatus
 }
 
 // renderTagsRow は Tags 行を構築する。
+// タグはステータス風のカラー背景チップ " <name> " で描画し、間に半角スペース 1 を挟む。
 // タグ 0 件のときは空文字列 + 0 行を返し、呼び出し側で行ごと省略してもらう。
 // 1 行に並びきらないときは折り返す (継続行は label 幅と同じだけインデント)。
 // 第二戻り値は実際の表示行数。
@@ -157,34 +158,46 @@ func renderTagsRow(t task.Task, tags task.TagList, focused bool, labelW, width i
 	if len(t.Tags) == 0 {
 		return "", 0
 	}
-	// "[<tag>]" のトークン群を組み立てる (未知 ID は単純にスキップ)。
-	tokens := make([]string, 0, len(t.Tags))
+	// 解決済みのタグ集合を作る (未知 ID はスキップ)。
+	resolved := make([]task.Tag, 0, len(t.Tags))
 	for _, id := range t.Tags {
 		if tg, ok := tags.ByID(id); ok {
-			tokens = append(tokens, "["+tg.Name+"]")
+			resolved = append(resolved, tg)
 		}
 	}
-	if len(tokens) == 0 {
+	if len(resolved) == 0 {
 		return "", 0
 	}
 
 	leadW := 2 + labelW + 1 // "  " + label + " "
 	availW := width - leadW
-	if availW < 4 {
-		availW = 4
+	if availW < 6 {
+		availW = 6
 	}
 
-	// 折り返しレイアウト: トークン間のセパレータは半角スペース 1。
+	// 各チップは "<sp><name><sp>" で 表示幅 = name+2。トークン間のセパレータは半角スペース 1。
+	type chip struct {
+		w       int    // 表示幅
+		rendered string // ANSI 含む描画済み文字列
+	}
+	chips := make([]chip, len(resolved))
+	for i, tg := range resolved {
+		text := " " + tg.Name + " "
+		chips[i] = chip{
+			w:        ansi.StringWidth(text),
+			rendered: renderTagChip(tg),
+		}
+	}
+
 	var lines []string
 	var cur strings.Builder
 	curW := 0
-	for i, tok := range tokens {
-		tokW := ansi.StringWidth(tok)
+	for i, ch := range chips {
 		sep := 0
 		if i > 0 && curW > 0 {
 			sep = 1
 		}
-		if curW+sep+tokW > availW && curW > 0 {
+		if curW+sep+ch.w > availW && curW > 0 {
 			lines = append(lines, cur.String())
 			cur.Reset()
 			curW = 0
@@ -194,8 +207,8 @@ func renderTagsRow(t task.Task, tags task.TagList, focused bool, labelW, width i
 			cur.WriteString(" ")
 			curW++
 		}
-		cur.WriteString(tok)
-		curW += tokW
+		cur.WriteString(ch.rendered)
+		curW += ch.w
 	}
 	if cur.Len() > 0 {
 		lines = append(lines, cur.String())
@@ -205,20 +218,15 @@ func renderTagsRow(t task.Task, tags task.TagList, focused bool, labelW, width i
 	labelRendered := styleLabel.Render(paddedLabel)
 	indent := strings.Repeat(" ", leadW)
 
-	tokenStyle := styleValue
-	if !focused {
-		tokenStyle = styleValueDim
-	}
-
 	out := make([]string, 0, len(lines))
 	for i, line := range lines {
-		styled := tokenStyle.Render(line)
 		if i == 0 {
-			out = append(out, "  "+labelRendered+" "+styled)
+			out = append(out, "  "+labelRendered+" "+line)
 		} else {
-			out = append(out, indent+styled)
+			out = append(out, indent+line)
 		}
 	}
+	_ = focused // チップ自体は常に色付き表示 (ステータスと同じ扱い)
 	return strings.Join(out, "\n"), len(out)
 }
 

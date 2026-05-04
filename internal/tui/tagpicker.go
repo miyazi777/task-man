@@ -22,7 +22,7 @@ func overlayTagPicker(bg string, allTags task.TagList, assignedIDs []int, cursor
 
 	hints := []hintItem{
 		{"k/↑", "up"}, {"j/↓", "down"},
-		{"Enter", "add/toggle"}, {"Esc", "close"},
+		{"Enter", "add/toggle"}, {"c", "color"}, {"Esc", "close"},
 	}
 	hintRendered := renderPopupHints(hints)
 	hintW := ansi.StringWidth(ansi.Strip(hintRendered))
@@ -33,8 +33,8 @@ func overlayTagPicker(bg string, allTags task.TagList, assignedIDs []int, cursor
 		contentW = hintW
 	}
 	for _, tg := range sorted {
-		// "  ✓ <name>" の形式
-		w := ansi.StringWidth("  ✓ ") + ansi.StringWidth(tg.Name)
+		// "  ✓ " (4 cell) + " <name> " (name + 2 cell) のチップ形式
+		w := ansi.StringWidth("  ✓ ") + ansi.StringWidth(tg.Name) + 2
 		if w > contentW {
 			contentW = w
 		}
@@ -193,6 +193,7 @@ func tagPickerDivider(contentW int) string {
 }
 
 // tagPickerListRow は既存タグの 1 行。assigned=true で先頭に ✓ マーカー。
+// タグ名はステータスと同じくカラー背景チップで描画する (空 Color は colorMuted フォールバック)。
 func tagPickerListRow(tg task.Tag, focused, assigned bool, contentW int) string {
 	cur := "  "
 	if focused {
@@ -202,18 +203,16 @@ func tagPickerListRow(tg task.Tag, focused, assigned bool, contentW int) string 
 	if assigned {
 		mark = "✓ "
 	}
-	raw := cur + mark + tg.Name
-	if w := ansi.StringWidth(raw); w > contentW {
-		raw = ansi.Truncate(raw, contentW, "")
-	}
-	rendered := stylePopupFill.Foreground(colorText).Render(raw)
-	used := ansi.StringWidth(ansi.Strip(rendered))
+	prefix := stylePopupFill.Foreground(colorText).Render(cur + mark)
+	chip := renderTagChip(tg)
+	raw := prefix + chip
+	used := ansi.StringWidth(ansi.Strip(raw))
 	if used < contentW {
-		rendered += stylePopupFill.Render(strings.Repeat(" ", contentW-used))
+		raw += stylePopupFill.Render(strings.Repeat(" ", contentW-used))
 	}
 	return stylePopupBorder.Render("│") +
 		stylePopupFill.Render(" ") +
-		rendered +
+		raw +
 		stylePopupFill.Render(" ") +
 		stylePopupBorder.Render("│")
 }
