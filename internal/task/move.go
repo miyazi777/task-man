@@ -92,31 +92,10 @@ func renumberPositions(tasks []Task, idxs []int) {
 	}
 }
 
-// setSubtreeStatusID は id のタスクおよびその全子孫の status_id を newStatusID に書き換える。
-// 移動操作でステータスをまたぐ場合に使用する。
-func setSubtreeStatusID(tasks []Task, id, newStatusID int) {
-	children := map[int][]int{}
-	for i, t := range tasks {
-		children[t.ParentID] = append(children[t.ParentID], i)
-	}
-	var visit func(taskID int)
-	visit = func(taskID int) {
-		idx := taskIndexByID(tasks, taskID)
-		if idx == -1 {
-			return
-		}
-		tasks[idx].StatusID = newStatusID
-		for _, ci := range children[taskID] {
-			visit(tasks[ci].ID)
-		}
-	}
-	visit(id)
-}
-
 // MoveTaskUp は id を兄弟内で 1 つ上へ移動する。先頭にいて top-level の場合は視覚的に上のステータス
-// (= sequence が小さい方。rows.go は sequence 昇順で描画) の末尾へ移動する (子孫の status_id も追従)。
+// (= sequence が小さい方。rows.go は sequence 昇順で描画) の末尾へ移動する。
 // 先頭・top-level かつそのステータスが無い、または非 top-level で先頭の場合は no-op。
-// 子孫は parent_id 関係を保つので暗黙的に一緒に移動する。
+// 子孫は parent_id 関係を保つので親に追従して描画されるが、status_id は変更しない。
 func MoveTaskUp(tasks []Task, statuses StatusList, id int) []Task {
 	idx := taskIndexByID(tasks, id)
 	if idx == -1 {
@@ -142,7 +121,8 @@ func MoveTaskUp(tasks []Task, statuses StatusList, id int) []Task {
 		return tasks
 	}
 	oldStatusID := t.StatusID
-	setSubtreeStatusID(tasks, id, upperStatusID)
+	// ルートのみ status を更新。子孫の status_id は据え置き (描画時は親直下にネストされる)。
+	tasks[idx].StatusID = upperStatusID
 	// 元のステータスグループから idx が抜けたぶんを詰める。
 	oldPeers := peerIndexes(tasks, 0, oldStatusID)
 	renumberPositions(tasks, oldPeers)
@@ -161,7 +141,7 @@ func MoveTaskUp(tasks []Task, statuses StatusList, id int) []Task {
 }
 
 // MoveTaskDown は id を兄弟内で 1 つ下へ移動する。末尾にいて top-level の場合は視覚的に下のステータス
-// (= sequence が大きい方) の先頭へ移動する (子孫の status_id も追従)。
+// (= sequence が大きい方) の先頭へ移動する。子孫は親に追従して描画されるが status_id は変更しない。
 func MoveTaskDown(tasks []Task, statuses StatusList, id int) []Task {
 	idx := taskIndexByID(tasks, id)
 	if idx == -1 {
@@ -187,7 +167,8 @@ func MoveTaskDown(tasks []Task, statuses StatusList, id int) []Task {
 		return tasks
 	}
 	oldStatusID := t.StatusID
-	setSubtreeStatusID(tasks, id, lowerStatusID)
+	// ルートのみ status を更新。子孫の status_id は据え置き。
+	tasks[idx].StatusID = lowerStatusID
 	oldPeers := peerIndexes(tasks, 0, oldStatusID)
 	renumberPositions(tasks, oldPeers)
 	newPeers := peerIndexes(tasks, 0, lowerStatusID)

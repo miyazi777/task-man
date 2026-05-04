@@ -69,11 +69,14 @@ func buildRows(statuses task.StatusList, tasks []task.Task, statusCollapsed, tas
 
 	var rows []listRow
 
+	// emit は j 番タスクと、その全可視子孫を再帰的に行リストへ追加する。
+	// 子孫は status_id を問わず親直下にネスト表示する (status はルートのみが管理する設計)。
+	// statusID は所属グループ (描画上の親グループ) のステータス ID。
 	var emit func(j, depth, statusID int)
 	emit = func(j, depth, statusID int) {
 		hasKids := false
 		for _, ci := range childrenByParent[tasks[j].ID] {
-			if tasks[ci].StatusID == statusID {
+			if visible(tasks[ci]) {
 				hasKids = true
 				break
 			}
@@ -91,7 +94,7 @@ func buildRows(statuses task.StatusList, tasks []task.Task, statusCollapsed, tas
 			return
 		}
 		for _, ci := range childrenByParent[tasks[j].ID] {
-			if tasks[ci].StatusID != statusID {
+			if !visible(tasks[ci]) {
 				continue
 			}
 			emit(ci, depth+1, statusID)
@@ -110,13 +113,11 @@ func buildRows(statuses task.StatusList, tasks []task.Task, statusCollapsed, tas
 				if t.StatusID != s.ID {
 					continue
 				}
+				// 可視な親が居る場合は子として親に追従させ、ここでは top-level に積まない。
+				// 親が存在しない / 親が非可視 (例: ゴミ箱) の場合のみ orphan として top-level 表示。
 				if t.ParentID != 0 {
-					if pi, ok := idToIndex[t.ParentID]; ok {
-						parent := tasks[pi]
-						// 親が同じビューに居て、同じ status のときだけ「子」として扱う。
-						if visible(parent) && parent.StatusID == s.ID {
-							continue
-						}
+					if pi, ok := idToIndex[t.ParentID]; ok && visible(tasks[pi]) {
+						continue
 					}
 				}
 				topLevel = append(topLevel, j)

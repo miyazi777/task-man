@@ -135,6 +135,40 @@ func TestBuildRowsSubtaskNesting(t *testing.T) {
 	}
 }
 
+func TestBuildRowsSubtaskWithDifferentStatusStaysNested(t *testing.T) {
+	// ルートは status 2 (doing)、子は status 1 (todo)。新挙動では status を問わず
+	// 子は親直下にネスト表示する。子が独立した todo グループの top-level には現れない。
+	statuses := threeStatusesNoTrash()
+	tasks := []task.Task{
+		{ID: 1, Title: "parent", StatusID: 2},
+		{ID: 2, Title: "child", StatusID: 1, ParentID: 1},
+	}
+	rows := buildRows(statuses, tasks, nil, nil, false)
+
+	// 子の行は親グループ (status 2) の中にネスト (depth=1) で出現する。
+	var nestedFound bool
+	for _, r := range rows {
+		if r.kind != rowTask {
+			continue
+		}
+		if tasks[r.taskIndex].ID == 2 {
+			if r.statusID != 2 || r.depth != 1 {
+				t.Errorf("child row got statusID=%d depth=%d, want 2/1", r.statusID, r.depth)
+			}
+			nestedFound = true
+		}
+	}
+	if !nestedFound {
+		t.Error("child row not found in any status group")
+	}
+	// status 1 (todo) のタスク行は 0 件 (子は親直下にネストされたので独立しない)。
+	for _, r := range rows {
+		if r.kind == rowTask && r.statusID == 1 {
+			t.Errorf("unexpected task in status 1 group: idx=%d", r.taskIndex)
+		}
+	}
+}
+
 func TestBuildRowsMultiLevelNesting(t *testing.T) {
 	statuses := threeStatusesNoTrash()
 	tasks := []task.Task{

@@ -54,6 +54,7 @@ func TestMoveTaskUp_SwapsWithPreviousSibling(t *testing.T) {
 func TestMoveTaskUp_AtTopOfTopLevel_MovesToLowerSequenceStatus(t *testing.T) {
 	// 表示は sequence 昇順 (todo が上、done が下)。視覚的「上」 = sequence が小さい方。
 	// status 2 (doing) の先頭にある B を up → status 1 (todo) の末尾へ。
+	// ルートのみ status 移動。子孫の status_id は据え置き (描画は親直下にネスト)。
 	tasks := []Task{
 		{ID: 1, Title: "A", StatusID: 1, Position: 1},
 		{ID: 2, Title: "B", StatusID: 2, Position: 1},
@@ -61,8 +62,11 @@ func TestMoveTaskUp_AtTopOfTopLevel_MovesToLowerSequenceStatus(t *testing.T) {
 		{ID: 4, Title: "C", StatusID: 2, Position: 2},
 	}
 	out := MoveTaskUp(tasks, threeStatuses(), 2)
-	if got := statusMap(out); got[2] != 1 || got[3] != 1 {
-		t.Fatalf("statusMap = %v want B and B-child in status 1", got)
+	if got := statusMap(out); got[2] != 1 {
+		t.Fatalf("B status = %d want 1", got[2])
+	}
+	if got := statusMap(out); got[3] != 2 {
+		t.Fatalf("B-child status = %d want 2 (unchanged)", got[3])
 	}
 	if got := posMap(out); got[1] != 1 || got[2] != 2 || got[4] != 1 {
 		t.Fatalf("posMap = %v want A=1 B=2 C=1", got)

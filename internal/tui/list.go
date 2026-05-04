@@ -25,7 +25,15 @@ func renderList(tasks []task.Task, statuses task.StatusList, rows []listRow, col
 			lines = append(lines, renderStatusHeader(statuses, r.statusID, collapsed[r.statusID], i == cursor, focused, inMoveMode, width))
 		case rowTask:
 			t := tasks[r.taskIndex]
-			lines = append(lines, renderTaskRow(t, statuses, r.depth, r.hasChildren, r.collapsed, i == cursor, focused, inMoveMode, width))
+			// 子タスクが所属グループと異なる status を持つ場合、視覚的に区別が付くよう
+			// タイトル末尾にステータスラベルを付与する。同じ status のときは省略してクリーンに。
+			statusBadge := ""
+			if t.StatusID != r.statusID {
+				if s, ok := statuses.ByID(t.StatusID); ok {
+					statusBadge = s.Label
+				}
+			}
+			lines = append(lines, renderTaskRow(t, statuses, r.depth, r.hasChildren, r.collapsed, i == cursor, focused, inMoveMode, statusBadge, width))
 		}
 	}
 
@@ -59,7 +67,9 @@ func renderStatusHeader(statuses task.StatusList, statusID int, isCollapsed, isC
 // を入れて status ヘッダ・サブタスクと階層感を出す。depth=0 は通常のタスク、depth>=1 はサブタスク。
 // hasChildren=true のタスクは collapsed の有無に応じて "+ "/"- " のマーカーを付ける。
 // 子を持たないタスクでもタイトル位置を揃えるため空白 2 cell を予約する。
-func renderTaskRow(t task.Task, statuses task.StatusList, depth int, hasChildren, collapsed, isCursor, listFocused, inMoveMode bool, width int) string {
+// statusBadge が非空のときはタイトル末尾に " <label>" を付与する (子タスクの status が
+// 親グループと異なる場合の視覚マーカー)。
+func renderTaskRow(t task.Task, statuses task.StatusList, depth int, hasChildren, collapsed, isCursor, listFocused, inMoveMode bool, statusBadge string, width int) string {
 	const baseLeftPad, perDepth, markerW, rightPad = 2, 2, 2, 1
 	leftPad := baseLeftPad + depth*perDepth
 
@@ -72,14 +82,30 @@ func renderTaskRow(t task.Task, statuses task.StatusList, depth int, hasChildren
 		}
 	}
 
-	titleW := width - leftPad - markerW - rightPad
+	badgeW := 0
+	if statusBadge != "" {
+		badgeW = lipgloss.Width(statusBadge)
+	}
+
+	// バッジはタイトルから少なくとも 1 cell 離して右寄せにする。
+	// gapMin = 1 を確保しつつ、残りを空白で埋めて右端に貼り付ける。
+	const gapMin = 1
+	titleW := width - leftPad - markerW - badgeW - gapMin - rightPad
 	if titleW < 4 {
 		titleW = 4
 	}
 	title := truncate(t.Title, titleW)
 
+	gap := width - leftPad - markerW - lipgloss.Width(title) - badgeW - rightPad
+	if gap < gapMin {
+		gap = gapMin
+	}
+	if statusBadge == "" {
+		gap = 0
+	}
+
 	if isCursor && listFocused {
-		raw := strings.Repeat(" ", leftPad) + marker + title
+		raw := strings.Repeat(" ", leftPad) + marker + title + strings.Repeat(" ", gap) + statusBadge
 		return cursorStyleFor(inMoveMode).Width(width).Render(raw)
 	}
 
@@ -89,7 +115,21 @@ func renderTaskRow(t task.Task, statuses task.StatusList, depth int, hasChildren
 	} else {
 		titleRendered = styleListItemDim.Inline(true).Render(title)
 	}
-	return strings.Repeat(" ", leftPad) + marker + titleRendered
+
+	var badgeRendered string
+	if statusBadge != "" {
+		// バッジはその子タスクの実際の status の色で表示する (色一致で見分けやすく)。
+		badgeStyle := lipgloss.NewStyle().Foreground(colorMuted)
+		if s, ok := statuses.ByID(t.StatusID); ok && s.Color != "" {
+			badgeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(s.Color))
+		}
+		if !listFocused {
+			badgeStyle = lipgloss.NewStyle().Foreground(colorDim)
+		}
+		badgeRendered = strings.Repeat(" ", gap) + badgeStyle.Render(statusBadge)
+	}
+
+	return strings.Repeat(" ", leftPad) + marker + titleRendered + badgeRendered
 }
 
 // cursorStyleFor は ModeMove の有無で標準/警告色のどちらの反転スタイルを返すか切り替える。

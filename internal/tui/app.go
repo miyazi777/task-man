@@ -2212,6 +2212,15 @@ func (m Model) View() string {
 			}
 			left = PlaceOverlay(x, 0, banner, left)
 		}
+		if m.mode == ModeOperation {
+			banner := styleOperationBanner.Render("-- OPERATION MODE --")
+			bannerW := lipgloss.Width(banner)
+			x := leftW - bannerW
+			if x < 0 {
+				x = 0
+			}
+			left = PlaceOverlay(x, 0, banner, left)
+		}
 		if m.viewTrash {
 			// 左ペインの最上部に「-- TRASH BOX --」ヘッダ行 (黒抜き赤背景) を 1 行追加。
 			header := styleTrashHeader.Width(leftW).Render("-- TRASH BOX --")
