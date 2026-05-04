@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"gopkg.in/yaml.v3"
 
@@ -23,14 +24,38 @@ type yamlStatusEntry struct {
 	Status yamlStatus `yaml:"status"`
 }
 
+// yamlField はトップレベル fields のスキーマ定義 1 件。
+type yamlField struct {
+	ID       int    `yaml:"id"`
+	Type     string `yaml:"type,omitempty"`
+	Name     string `yaml:"name"`
+	Position int    `yaml:"position,omitempty"`
+}
+
+type yamlFieldEntry struct {
+	Field yamlField `yaml:"field"`
+}
+
+// yamlTaskField は task の下に持たれる field の値。field_id で top-level fields を参照する。
+type yamlTaskField struct {
+	ID      int    `yaml:"id"`
+	FieldID int    `yaml:"field_id"`
+	Value   string `yaml:"value,omitempty"`
+}
+
+type yamlTaskFieldEntry struct {
+	Field yamlTaskField `yaml:"field"`
+}
+
 type yamlTask struct {
-	ID         int    `yaml:"id"`
-	Title      string `yaml:"title"`
-	StatusID   int    `yaml:"status_id"`
-	ParentID   int    `yaml:"parent_id,omitempty"`
-	Position   int    `yaml:"position,omitempty"`
-	Collapsed  bool   `yaml:"collapsed,omitempty"`
-	IsTrashBox bool   `yaml:"is_trash_box,omitempty"`
+	ID         int                  `yaml:"id"`
+	Title      string               `yaml:"title"`
+	StatusID   int                  `yaml:"status_id"`
+	ParentID   int                  `yaml:"parent_id,omitempty"`
+	Position   int                  `yaml:"position,omitempty"`
+	Collapsed  bool                 `yaml:"collapsed,omitempty"`
+	IsTrashBox bool                 `yaml:"is_trash_box,omitempty"`
+	Fields     []yamlTaskFieldEntry `yaml:"fields,omitempty"`
 }
 
 type yamlEntry struct {
@@ -45,6 +70,7 @@ type yamlFile struct {
 	Applications      yamlApplications  `yaml:"applications,omitempty"`
 	DataBaseDirectory string            `yaml:"data_base_directory,omitempty"`
 	Statuses          []yamlStatusEntry `yaml:"statuses"`
+	Fields            []yamlFieldEntry  `yaml:"fields,omitempty"`
 	Tasks             []yamlEntry       `yaml:"tasks"`
 }
 
@@ -56,27 +82,32 @@ func NewYAMLRepository(path string) *YAMLRepository {
 	return &YAMLRepository{Path: path}
 }
 
-func (r *YAMLRepository) Load() ([]task.Task, task.StatusList, AppConfig, error) {
+func (r *YAMLRepository) Load() (LoadResult, error) {
 	data, err := os.ReadFile(r.Path)
 	if err != nil {
-		return nil, nil, AppConfig{}, fmt.Errorf("read %s: %w", r.Path, err)
+		return LoadResult{}, fmt.Errorf("read %s: %w", r.Path, err)
 	}
 
 	var f yamlFile
 	if len(data) > 0 {
 		if err := yaml.Unmarshal(data, &f); err != nil {
-			return nil, nil, AppConfig{}, fmt.Errorf("parse %s: %w", r.Path, err)
+			return LoadResult{}, fmt.Errorf("parse %s: %w", r.Path, err)
 		}
 	}
 
 	statuses, statusesChanged := loadStatuses(f.Statuses)
 	if err := statuses.Validate(); err != nil {
-		return nil, nil, AppConfig{}, err
+		return LoadResult{}, err
 	}
 
-	tasks, tasksChanged, err := loadTasks(f.Tasks, statuses)
+	defs, defsChanged := loadFieldDefs(f.Fields)
+	if err := defs.Validate(); err != nil {
+		return LoadResult{}, err
+	}
+
+	tasks, tasksChanged, err := loadTasks(f.Tasks, statuses, defs)
 	if err != nil {
-		return nil, nil, AppConfig{}, err
+		return LoadResult{}, err
 	}
 
 	cfg := AppConfig{
@@ -84,13 +115,20 @@ func (r *YAMLRepository) Load() ([]task.Task, task.StatusList, AppConfig, error)
 		Editor:            f.Applications.Editor,
 	}
 
-	if statusesChanged || tasksChanged {
-		if err := r.Save(tasks, statuses, cfg); err != nil {
-			return nil, nil, AppConfig{}, fmt.Errorf("write back defaults: %w", err)
+	lr := LoadResult{
+		Tasks:    tasks,
+		Statuses: statuses,
+		Fields:   defs,
+		Config:   cfg,
+	}
+
+	if statusesChanged || defsChanged || tasksChanged {
+		if err := r.Save(lr); err != nil {
+			return LoadResult{}, fmt.Errorf("write back defaults: %w", err)
 		}
 	}
 
-	return tasks, statuses, cfg, nil
+	return lr, nil
 }
 
 // loadStatuses は yaml の statuses をドメイン型に変換し、欠落・空・id 未採番に対する
@@ -113,9 +151,40 @@ func loadStatuses(entries []yamlStatusEntry) (task.StatusList, bool) {
 	return assigned, changed
 }
 
-func loadTasks(entries []yamlEntry, statuses task.StatusList) ([]task.Task, bool, error) {
+// loadFieldDefs は yaml の fields をドメイン型に変換し、id<=0 / position<=0 / type 空への補完を行う。
+// 第二戻り値は補完が起きたか。fields 欠落 / 空配列ともに空 FieldDefList を返す (タスクが参照してなければ valid)。
+func loadFieldDefs(entries []yamlFieldEntry) (task.FieldDefList, bool) {
+	if len(entries) == 0 {
+		return task.FieldDefList{}, false
+	}
+	fl := make(task.FieldDefList, 0, len(entries))
+	for _, e := range entries {
+		ft := task.FieldType(e.Field.Type)
+		if ft == "" {
+			ft = task.FieldTypeText
+		}
+		fl = append(fl, task.FieldDef{
+			ID:       e.Field.ID,
+			Name:     e.Field.Name,
+			Type:     ft,
+			Position: e.Field.Position,
+		})
+	}
+	assigned, changed := fl.AssignMissingIDsAndPositions()
+	// type 空文字をデフォルト補完したかどうかも changed に含める
+	for i := range entries {
+		if entries[i].Field.Type == "" {
+			changed = true
+			break
+		}
+	}
+	return assigned, changed
+}
+
+func loadTasks(entries []yamlEntry, statuses task.StatusList, defs task.FieldDefList) ([]task.Task, bool, error) {
 	seen := make(map[int]struct{}, len(entries))
 	tasks := make([]task.Task, 0, len(entries))
+	changed := false
 	for i, e := range entries {
 		if e.Task.ID <= 0 {
 			return nil, false, fmt.Errorf("tasks[%d]: invalid id %d", i, e.Task.ID)
@@ -125,6 +194,28 @@ func loadTasks(entries []yamlEntry, statuses task.StatusList) ([]task.Task, bool
 		}
 		seen[e.Task.ID] = struct{}{}
 
+		// task 内 fields をドメイン型へ。entry が無ければ nil のままにして
+		// 「fields キー無し / 空配列」のラウンドトリップを安定させる。id<=0 は採番。
+		var tfl task.TaskFieldList
+		if len(e.Task.Fields) > 0 {
+			tfl = make(task.TaskFieldList, 0, len(e.Task.Fields))
+			for _, fe := range e.Task.Fields {
+				tfl = append(tfl, task.TaskField{
+					ID:      fe.Field.ID,
+					FieldID: fe.Field.FieldID,
+					Value:   fe.Field.Value,
+				})
+			}
+		}
+		var assignedTFL task.TaskFieldList
+		if tfl != nil {
+			out, tflChanged := tfl.AssignMissingIDs()
+			assignedTFL = out
+			if tflChanged {
+				changed = true
+			}
+		}
+
 		t := task.Task{
 			ID:         e.Task.ID,
 			Title:      e.Task.Title,
@@ -133,8 +224,12 @@ func loadTasks(entries []yamlEntry, statuses task.StatusList) ([]task.Task, bool
 			Position:   e.Task.Position,
 			Collapsed:  e.Task.Collapsed,
 			IsTrashBox: e.Task.IsTrashBox,
+			Fields:     assignedTFL,
 		}
 		if err := t.Validate(statuses); err != nil {
+			return nil, false, fmt.Errorf("tasks[%d]: %w", i, err)
+		}
+		if err := t.Fields.Validate(defs); err != nil {
 			return nil, false, fmt.Errorf("tasks[%d]: %w", i, err)
 		}
 		tasks = append(tasks, t)
@@ -142,7 +237,9 @@ func loadTasks(entries []yamlEntry, statuses task.StatusList) ([]task.Task, bool
 	if err := validateParents(tasks); err != nil {
 		return nil, false, err
 	}
-	changed := assignMissingPositions(tasks)
+	if assignMissingPositions(tasks) {
+		changed = true
+	}
 	return tasks, changed, nil
 }
 
@@ -200,8 +297,8 @@ func validateParents(tasks []task.Task) error {
 	return nil
 }
 
-func (r *YAMLRepository) Save(tasks []task.Task, statuses task.StatusList, cfg AppConfig) error {
-	sortedStatuses := statuses.Sorted()
+func (r *YAMLRepository) Save(lr LoadResult) error {
+	sortedStatuses := lr.Statuses.Sorted()
 	statusEntries := make([]yamlStatusEntry, 0, len(sortedStatuses))
 	for _, s := range sortedStatuses {
 		statusEntries = append(statusEntries, yamlStatusEntry{
@@ -215,8 +312,38 @@ func (r *YAMLRepository) Save(tasks []task.Task, statuses task.StatusList, cfg A
 		})
 	}
 
-	taskEntries := make([]yamlEntry, 0, len(tasks))
-	for _, t := range tasks {
+	sortedFields := lr.Fields.Sorted()
+	fieldEntries := make([]yamlFieldEntry, 0, len(sortedFields))
+	for _, f := range sortedFields {
+		fieldEntries = append(fieldEntries, yamlFieldEntry{
+			Field: yamlField{
+				ID:       f.ID,
+				Type:     string(f.Type),
+				Name:     f.Name,
+				Position: f.Position,
+			},
+		})
+	}
+
+	taskEntries := make([]yamlEntry, 0, len(lr.Tasks))
+	for _, t := range lr.Tasks {
+		// 各 task の fields は安定した出力のため id 昇順で出力する。
+		tfields := make(task.TaskFieldList, len(t.Fields))
+		copy(tfields, t.Fields)
+		sort.SliceStable(tfields, func(i, j int) bool {
+			return tfields[i].ID < tfields[j].ID
+		})
+		fieldEntriesPerTask := make([]yamlTaskFieldEntry, 0, len(tfields))
+		for _, tf := range tfields {
+			fieldEntriesPerTask = append(fieldEntriesPerTask, yamlTaskFieldEntry{
+				Field: yamlTaskField{
+					ID:      tf.ID,
+					FieldID: tf.FieldID,
+					Value:   tf.Value,
+				},
+			})
+		}
+
 		taskEntries = append(taskEntries, yamlEntry{
 			Task: yamlTask{
 				ID:         t.ID,
@@ -226,13 +353,15 @@ func (r *YAMLRepository) Save(tasks []task.Task, statuses task.StatusList, cfg A
 				Position:   t.Position,
 				Collapsed:  t.Collapsed,
 				IsTrashBox: t.IsTrashBox,
+				Fields:     fieldEntriesPerTask,
 			},
 		})
 	}
 	data, err := yaml.Marshal(yamlFile{
-		Applications:      yamlApplications{Editor: cfg.Editor},
-		DataBaseDirectory: cfg.DataBaseDirectory,
+		Applications:      yamlApplications{Editor: lr.Config.Editor},
+		DataBaseDirectory: lr.Config.DataBaseDirectory,
 		Statuses:          statusEntries,
+		Fields:            fieldEntries,
 		Tasks:             taskEntries,
 	})
 	if err != nil {

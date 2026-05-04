@@ -2,7 +2,16 @@ package storage
 
 import "github.com/miyazi777/task-man/internal/task"
 
+// LoadResult はリポジトリから読み込まれた永続化データの集合。
+// 設定 / ステータス / 拡張項目スキーマ / タスク を一つにまとめて返す。
+type LoadResult struct {
+	Tasks    []task.Task
+	Statuses task.StatusList
+	Fields   task.FieldDefList
+	Config   AppConfig
+}
+
 type Repository interface {
-	Load() ([]task.Task, task.StatusList, AppConfig, error)
-	Save(tasks []task.Task, statuses task.StatusList, cfg AppConfig) error
+	Load() (LoadResult, error)
+	Save(lr LoadResult) error
 }

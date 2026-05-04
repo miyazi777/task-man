@@ -11,21 +11,32 @@ import (
 	"github.com/miyazi777/task-man/internal/task"
 )
 
-// 設定画面のメニュー項目 (左ペイン)。今は status のみ。
+// 設定画面のメニュー項目 (左ペイン)。
 const (
 	settingMenuStatus = 0
+	settingMenuField  = 1
 )
 
-var settingMenuLabels = []string{"status"}
+var settingMenuLabels = []string{"status", "field"}
 
-// renderSetting は設定画面を描画する。
+// renderSettingStatus は設定画面の status 系モード用に左メニュー + 右 status ペインを描画する。
 // menuFocused=true のとき左メニュー側にカーソル反転、=false なら右ペインの statusCursor 行に反転。
 // inMoveMode=true のとき右ペインのカーソル色を黄 (移動中) に切り替える。
-// statusCursor は m.statuses.Sorted() のインデックス。
-func renderSetting(statuses task.StatusList, menuCursor, statusCursor int, menuFocused, inMoveMode bool, leftW, rightW, height int) (string, string) {
+func renderSettingStatus(statuses task.StatusList, menuCursor, statusCursor int, menuFocused, inMoveMode bool, leftW, rightW, height int) (string, string) {
 	left := renderSettingMenu(menuCursor, menuFocused, leftW, height)
 	right := renderSettingStatusPane(statuses, statusCursor, !menuFocused, inMoveMode, rightW, height)
 	return left, right
+}
+
+// renderSettingField は設定画面の field 系モード用に左メニュー + 中央 field 一覧 + 右 attributes ペインを描画する。
+// fieldFocus が ModeSetting のとき menuFocused=true、ModeSettingField のとき midFocused=true、
+// ModeSettingFieldAttribute のとき rightFocused=true となる。
+// inMoveMode=true のとき中央ペインのカーソル色を黄 (移動中) に切り替える。
+func renderSettingField(fields task.FieldDefList, menuCursor, fieldCursor, attrCursor int, menuFocused, midFocused, rightFocused, inMoveMode bool, leftW, midW, rightW, height int) (string, string, string) {
+	left := renderSettingMenu(menuCursor, menuFocused, leftW, height)
+	mid := renderSettingFieldPane(fields, fieldCursor, midFocused, inMoveMode, midW, height)
+	right := renderSettingFieldAttributePane(fields, fieldCursor, attrCursor, rightFocused, rightW, height)
+	return left, mid, right
 }
 
 func renderSettingMenu(menuCursor int, focused bool, width, height int) string {
@@ -68,6 +79,173 @@ func renderStatusSettingRow(s task.Status, highlight, inMoveMode bool, width int
 	prefix := " "
 	labelPart := statusRowStyleFor(s).Render(" " + s.Label + " ")
 	return lipgloss.NewStyle().Width(width).Render(prefix + labelPart)
+}
+
+// renderSettingFieldPane は設定画面 field モード時の中央ペインを描画する。
+// fields は position 昇順で並べる。fieldCursor は Sorted 後のインデックス。
+func renderSettingFieldPane(fields task.FieldDefList, fieldCursor int, focused, inMoveMode bool, width, height int) string {
+	header := lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("-- field setting --")
+	sorted := fields.Sorted()
+
+	lines := []string{header}
+	if len(sorted) == 0 {
+		lines = append(lines, lipgloss.NewStyle().Foreground(colorMuted).Italic(true).Render("  (no fields)"))
+	}
+	for i, f := range sorted {
+		highlight := i == fieldCursor && focused
+		lines = append(lines, renderFieldSettingRow(f, highlight, inMoveMode, width))
+	}
+	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
+}
+
+// renderFieldSettingRow は field 一行を描画する。highlight=true で行全体を反転、
+// inMoveMode=true なら黄 (移動中) に切り替える。
+func renderFieldSettingRow(f task.FieldDef, highlight, inMoveMode bool, width int) string {
+	if highlight {
+		raw := "  " + f.Name
+		return cursorStyleFor(inMoveMode).Width(width).Render(raw)
+	}
+	return lipgloss.NewStyle().Width(width).Foreground(colorText).Render("  " + f.Name)
+}
+
+// renderSettingFieldAttributePane は設定画面 field モード時の右ペインを描画する。
+// 行は固定で 0=name, 1=type の 2 行。focused=true のとき attrCursor 行を反転表示。
+func renderSettingFieldAttributePane(fields task.FieldDefList, fieldCursor, attrCursor int, focused bool, width, height int) string {
+	header := lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("-- attributes --")
+	sorted := fields.Sorted()
+
+	lines := []string{header}
+	if fieldCursor < 0 || fieldCursor >= len(sorted) {
+		// 対応する field が無いときは空ペイン (header のみ)
+		return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
+	}
+	f := sorted[fieldCursor]
+
+	rows := [][2]string{
+		{"name", f.Name},
+		{"type", string(f.Type)},
+	}
+	// type 行は read-only である旨を英文で右詰め表示する。
+	const typeReadonlyNote = "(read-only)"
+	for i, kv := range rows {
+		leftPart := "  " + kv[0] + ": " + kv[1]
+		isType := kv[0] == "type"
+		isCursor := focused && i == attrCursor
+
+		if isType {
+			leftW := ansi.StringWidth(leftPart)
+			noteW := ansi.StringWidth(typeReadonlyNote)
+			padLen := width - leftW - noteW
+			if padLen < 1 {
+				padLen = 1
+			}
+			if isCursor {
+				// カーソル行: 行全体を反転背景にして注釈もまとめて反転させる。
+				raw := leftPart + strings.Repeat(" ", padLen) + typeReadonlyNote
+				lines = append(lines, styleCursorRow.Width(width).Render(raw))
+			} else {
+				leftStyled := lipgloss.NewStyle().Foreground(colorText).Render(leftPart)
+				noteStyled := lipgloss.NewStyle().Foreground(colorMuted).Italic(true).Render(typeReadonlyNote)
+				line := leftStyled + strings.Repeat(" ", padLen) + noteStyled
+				lines = append(lines, lipgloss.NewStyle().Width(width).Render(line))
+			}
+			continue
+		}
+
+		if isCursor {
+			lines = append(lines, styleCursorRow.Width(width).Render(leftPart))
+		} else {
+			lines = append(lines, lipgloss.NewStyle().Width(width).Foreground(colorText).Render(leftPart))
+		}
+	}
+	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
+}
+
+// overlayFieldAddPopup は field 追加用の 2 行モーダルを描画する。
+// focus=0: name 行 (textinput) にフォーカス。focus=1: type 行 (selector) にフォーカス。
+// nameInputView は textinput.Model.View() の結果。nameErr は入力検証エラー (nil なら表示しない)。
+// curType は現在選択中の FieldType。types は選択肢全体 (左右で循環する)。
+func overlayFieldAddPopup(bg, nameInputView string, nameErr error, focus int, curType task.FieldType, types []task.FieldType, screenW, screenH int) string {
+	popupOuterW := popupWidth(screenW)
+	contentW := popupOuterW - 4
+	if contentW < 12 {
+		contentW = 12
+	}
+	innerW := popupOuterW - 2
+
+	topRow := buildBorderRow("╭", "╮", stylePopupLabel.Render("Add field:"), innerW)
+	bottomRow := buildBorderRow("╰", "╯", renderPopupHints([]hintItem{
+		{"Tab", "focus"}, {"←/→", "type"}, {"Enter", "save"}, {"Esc", "cancel"},
+	}), innerW)
+
+	// ----- name 行 -----
+	nameLabel := stylePopupFill.Foreground(colorAccent).Render("name: ")
+	if focus != 0 {
+		nameLabel = stylePopupFill.Foreground(colorMuted).Render("name: ")
+	}
+	if w := ansi.StringWidth(nameInputView); w > contentW-ansi.StringWidth(ansi.Strip(nameLabel)) {
+		nameInputView = ansi.Truncate(nameInputView, contentW-ansi.StringWidth(ansi.Strip(nameLabel)), "")
+	}
+	namePart := nameLabel + nameInputView
+	used := ansi.StringWidth(ansi.Strip(namePart))
+	if used < contentW {
+		namePart += stylePopupFill.Render(strings.Repeat(" ", contentW-used))
+	}
+	nameRow := stylePopupBorder.Render("│") +
+		stylePopupFill.Render(" ") +
+		namePart +
+		stylePopupFill.Render(" ") +
+		stylePopupBorder.Render("│")
+
+	// ----- type 行 -----
+	typeLabel := stylePopupFill.Foreground(colorAccent).Render("type: ")
+	if focus != 1 {
+		typeLabel = stylePopupFill.Foreground(colorMuted).Render("type: ")
+	}
+	var typeValue string
+	if focus == 1 {
+		typeValue = stylePopupFill.Foreground(colorText).Bold(true).Render("< " + string(curType) + " >")
+	} else {
+		typeValue = stylePopupFill.Foreground(colorText).Render("  " + string(curType) + "  ")
+	}
+	typePart := typeLabel + typeValue
+	used = ansi.StringWidth(ansi.Strip(typePart))
+	if used < contentW {
+		typePart += stylePopupFill.Render(strings.Repeat(" ", contentW-used))
+	}
+	typeRow := stylePopupBorder.Render("│") +
+		stylePopupFill.Render(" ") +
+		typePart +
+		stylePopupFill.Render(" ") +
+		stylePopupBorder.Render("│")
+
+	// ----- 空行 (見やすさのためのセパレータ) -----
+	emptyContent := stylePopupFill.Render(strings.Repeat(" ", contentW))
+	emptyRow := stylePopupBorder.Render("│") +
+		stylePopupFill.Render(" ") +
+		emptyContent +
+		stylePopupFill.Render(" ") +
+		stylePopupBorder.Render("│")
+
+	rows := []string{topRow, nameRow, emptyRow, typeRow}
+	if nameErr != nil {
+		errMsg := stylePopupError.Render("! " + nameErr.Error())
+		if w := ansi.StringWidth(errMsg); w > contentW {
+			errMsg = ansi.Truncate(errMsg, contentW, "")
+		}
+		errPadded := stylePopupFill.Width(contentW).Render(errMsg)
+		errRow := stylePopupBorder.Render("│") +
+			stylePopupFill.Render(" ") +
+			errPadded +
+			stylePopupFill.Render(" ") +
+			stylePopupBorder.Render("│")
+		rows = append(rows, errRow)
+	}
+	rows = append(rows, bottomRow)
+
+	popup := lipgloss.JoinVertical(lipgloss.Left, rows...)
+	_ = types // 将来 types を受けて長さチェックなどに使う想定
+	return centerOverlay(popup, bg, screenW, screenH)
 }
 
 // renderColorSwatch は ██ 2 cell の色見本を生成する (ピッカー用、背景は素のまま)。

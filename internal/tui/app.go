@@ -15,12 +15,6 @@ import (
 	"github.com/miyazi777/task-man/internal/task"
 )
 
-// 詳細画面でカーソルを当てる対象フィールド。
-const (
-	detailFieldTitle  = 0
-	detailFieldStatus = 1
-	detailFieldFiles  = 2
-)
 
 // editorFinishedMsg は外部エディタが終了したときに自身に通知する内部メッセージ。
 type editorFinishedMsg struct {
@@ -31,6 +25,7 @@ type Model struct {
 	repo          storage.Repository
 	tasks         []task.Task
 	statuses      task.StatusList
+	fields        task.FieldDefList // 拡張項目スキーマ (top-level)
 	yamlDir       string            // tasks.yaml の置かれたディレクトリ
 	cfg           storage.AppConfig // data_base_directory + editor
 	rows          []listRow         // 表示用フラット行リスト (ステータスでグループ化)
@@ -47,13 +42,14 @@ type Model struct {
 	input    textinput.Model
 	inputErr error // 入力ライブ検証用 (禁止文字・長さ超過)
 
-	detailCursor       int      // 0=Title, 1=Status, 2=Files
-	statusPickerCursor int      // sorted statuses のインデックス
-	files              []string // 現タスクのディレクトリ内ファイル一覧
-	fileCursor         int      // files のインデックス
+	detailRows         []detailRow // 詳細画面の論理行リスト (Title/Status/field×N/Files)
+	detailCursor       int         // detailRows のインデックス
+	statusPickerCursor int         // sorted statuses のインデックス
+	files              []string    // 現タスクのディレクトリ内ファイル一覧
+	fileCursor         int         // files のインデックス
 
-	// 設定画面 (ModeSetting / ModeSettingStatus*) 用の状態
-	settingMenuCursor   int              // 左メニュー (今は status のみ) のインデックス
+	// 設定画面 (ModeSetting / ModeSettingStatus* / ModeSettingField*) 用の状態
+	settingMenuCursor   int              // 左メニュー (status / field) のインデックス
 	settingStatusCursor int              // 右ペイン: m.statuses.Sorted() のインデックス
 	settingColorChoices [][]string       // 色ピッカー候補グリッド (#rrggbb)。grid[row][col]
 	settingColorRow     int              // 色ピッカー上の行カーソル (色相)
@@ -61,13 +57,26 @@ type Model struct {
 	settingMovingStatus int              // ModeSettingStatusMove 中の対象 status ID (0 なら未選択)
 	settingMoveSnapshot task.StatusList  // ModeSettingStatusMove 開始時のスナップショット (esc 用)
 
+	// ModeSettingField* 用の状態
+	settingFieldCursor       int               // 中央ペイン: m.fields.Sorted() のインデックス
+	settingFieldAttrCursor   int               // 右ペイン: 0=name, 1=type
+	settingFieldMoving       int               // ModeSettingFieldMove 中の対象 field ID
+	settingFieldMoveSnapshot task.FieldDefList // ModeSettingFieldMove 開始時のスナップショット (esc 用)
+
+	// ModeSettingFieldAdd 入力モーダル用の状態
+	addFieldFocus int            // 0=name 行 (textinput), 1=type 行 (selector)
+	addFieldType  task.FieldType // 現在選択中の type
+
+	// ModeEditFieldValue 用の状態
+	editingFieldID int // 編集中の FieldDef.ID
+
 	width  int
 	height int
 
 	saveErr error
 }
 
-func NewModel(repo storage.Repository, initial []task.Task, statuses task.StatusList, yamlDir string, cfg storage.AppConfig) Model {
+func NewModel(repo storage.Repository, initial []task.Task, statuses task.StatusList, fields task.FieldDefList, yamlDir string, cfg storage.AppConfig) Model {
 	collapsed := make(map[int]bool)
 	for _, s := range statuses {
 		if s.Collapsed {
@@ -84,6 +93,7 @@ func NewModel(repo storage.Repository, initial []task.Task, statuses task.Status
 		repo:          repo,
 		tasks:         initial,
 		statuses:      statuses,
+		fields:        fields,
 		yamlDir:       yamlDir,
 		cfg:           cfg,
 		collapsed:     collapsed,
@@ -92,10 +102,32 @@ func NewModel(repo storage.Repository, initial []task.Task, statuses task.Status
 		keys:          newKeyMap(),
 	}
 	m = m.withRowsRebuilt()
+	m = m.withDetailRowsRebuilt()
 	if first := firstNavigable(m.rows); first >= 0 {
 		m.cursor = first
 	}
 	return m.withFilesRefreshed()
+}
+
+// withDetailRowsRebuilt は m.fields から詳細画面の論理行リストを再構築する。
+// detailCursor が範囲外になった場合は末尾に寄せる。
+func (m Model) withDetailRowsRebuilt() Model {
+	m.detailRows = buildDetailRows(m.fields)
+	if m.detailCursor < 0 {
+		m.detailCursor = 0
+	}
+	if m.detailCursor >= len(m.detailRows) {
+		m.detailCursor = len(m.detailRows) - 1
+	}
+	return m
+}
+
+// currentDetailRow はカーソルが指す詳細行を返す。範囲外なら ok=false。
+func (m Model) currentDetailRow() (detailRow, bool) {
+	if m.detailCursor < 0 || m.detailCursor >= len(m.detailRows) {
+		return detailRow{}, false
+	}
+	return m.detailRows[m.detailCursor], true
 }
 
 // persist は m.collapsed / m.taskCollapsed を m.statuses / m.tasks に同期した上で yaml へ書き出す。
@@ -107,7 +139,12 @@ func (m *Model) persist() error {
 	for i := range m.tasks {
 		m.tasks[i].Collapsed = m.taskCollapsed[m.tasks[i].ID]
 	}
-	return m.repo.Save(m.tasks, m.statuses, m.cfg)
+	return m.repo.Save(storage.LoadResult{
+		Tasks:    m.tasks,
+		Statuses: m.statuses,
+		Fields:   m.fields,
+		Config:   m.cfg,
+	})
 }
 
 // withRowsRebuilt はステータスとタスクの構成・折りたたみ状態から rows を再構築し、
@@ -294,7 +331,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// textinput の cursor blink などを反映するため、入力中のモードでは Update を委譲する。
 	if m.mode == ModeNewTask || m.mode == ModeNewSubtask || m.mode == ModeEditTitle ||
 		m.mode == ModeAddFile || m.mode == ModeRenameFile ||
-		m.mode == ModeSettingStatusRename || m.mode == ModeSettingStatusAdd {
+		m.mode == ModeSettingStatusRename || m.mode == ModeSettingStatusAdd ||
+		m.mode == ModeSettingFieldRename || m.mode == ModeEditFieldValue ||
+		(m.mode == ModeSettingFieldAdd && m.addFieldFocus == 0) {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		return m, cmd
@@ -457,11 +496,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.mode = ModeDetail
 			m = m.withFilesRefreshed()
-			// 削除位置に合わせてカーソルを調整
+			// 削除位置に合わせてカーソルを調整。0 件になった場合は Files 行から
+			// 1 つ前の論理行 (= 末尾の field 行 or Status) に戻す。
 			if m.fileCursor >= len(m.files) {
 				if len(m.files) == 0 {
 					m.fileCursor = 0
-					m.detailCursor = detailFieldStatus
+					if m.detailCursor > 0 {
+						m.detailCursor--
+					}
 				} else {
 					m.fileCursor = len(m.files) - 1
 				}
@@ -709,35 +751,53 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = ModeList
 			return m, nil
 		case key.Matches(msg, m.keys.Up):
-			if m.detailCursor == detailFieldFiles {
+			row, ok := m.currentDetailRow()
+			if !ok {
+				return m, nil
+			}
+			if row.kind == detailRowFiles {
 				if m.fileCursor > 0 {
 					m.fileCursor--
-				} else {
-					m.detailCursor = detailFieldStatus
+				} else if m.detailCursor > 0 {
+					m.detailCursor--
 				}
 			} else if m.detailCursor > 0 {
 				m.detailCursor--
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.Down):
-			switch m.detailCursor {
-			case detailFieldStatus:
-				if len(m.files) > 0 {
-					m.detailCursor = detailFieldFiles
-					m.fileCursor = 0
-				}
-			case detailFieldFiles:
+			row, ok := m.currentDetailRow()
+			if !ok {
+				return m, nil
+			}
+			if row.kind == detailRowFiles {
 				if m.fileCursor < len(m.files)-1 {
 					m.fileCursor++
 				}
-			default:
-				m.detailCursor++
+				return m, nil
+			}
+			nextIdx := m.detailCursor + 1
+			if nextIdx >= len(m.detailRows) {
+				return m, nil
+			}
+			nextRow := m.detailRows[nextIdx]
+			if nextRow.kind == detailRowFiles && len(m.files) == 0 {
+				// Files 行はファイル 0 件のときカーソルを置かない (既存 UX)。
+				return m, nil
+			}
+			m.detailCursor = nextIdx
+			if nextRow.kind == detailRowFiles {
+				m.fileCursor = 0
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.Confirm):
 			t, _, _ := m.currentTask()
-			switch m.detailCursor {
-			case detailFieldTitle:
+			row, ok := m.currentDetailRow()
+			if !ok {
+				return m, nil
+			}
+			switch row.kind {
+			case detailRowTitle:
 				inputW := popupWidth(m.width) - 7
 				if inputW < 1 {
 					inputW = 1
@@ -748,11 +808,30 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.inputErr = task.ValidateTitleChars(m.input.Value())
 				m.mode = ModeEditTitle
 				return m, textinput.Blink
-			case detailFieldStatus:
+			case detailRowStatus:
 				m.statusPickerCursor = sortedStatusIndex(m.statuses, t.StatusID)
 				m.mode = ModeEditStatus
 				return m, nil
-			case detailFieldFiles:
+			case detailRowField:
+				// 値編集ポップアップを開く。ラベルは <field name>:。
+				def, ok := m.fields.ByID(row.fieldID)
+				if !ok {
+					return m, nil
+				}
+				inputW := popupWidth(m.width) - 7
+				if inputW < 1 {
+					inputW = 1
+				}
+				m.input = newFieldValueInput(inputW)
+				if tf, ok := t.Fields.ByFieldID(def.ID); ok {
+					m.input.SetValue(tf.Value)
+					m.input.CursorEnd()
+				}
+				m.inputErr = task.ValidateFieldTextValueChars(m.input.Value())
+				m.editingFieldID = def.ID
+				m.mode = ModeEditFieldValue
+				return m, textinput.Blink
+			case detailRowFiles:
 				if len(m.files) == 0 {
 					return m, nil
 				}
@@ -760,7 +839,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.AddFile):
-			if m.detailCursor != detailFieldFiles {
+			row, ok := m.currentDetailRow()
+			if !ok || row.kind != detailRowFiles {
 				return m, nil
 			}
 			inputW := popupWidth(m.width) - 7
@@ -772,7 +852,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = ModeAddFile
 			return m, textinput.Blink
 		case key.Matches(msg, m.keys.RenameFile):
-			if m.detailCursor != detailFieldFiles || len(m.files) == 0 {
+			row, ok := m.currentDetailRow()
+			if !ok || row.kind != detailRowFiles || len(m.files) == 0 {
 				return m, nil
 			}
 			inputW := popupWidth(m.width) - 7
@@ -786,7 +867,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = ModeRenameFile
 			return m, textinput.Blink
 		case key.Matches(msg, m.keys.DeleteFile):
-			if m.detailCursor != detailFieldFiles || len(m.files) == 0 {
+			row, ok := m.currentDetailRow()
+			if !ok || row.kind != detailRowFiles || len(m.files) == 0 {
 				return m, nil
 			}
 			m.prevMode = m.mode
@@ -905,10 +987,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case key.Matches(msg, m.keys.Enter):
 			// enter: 詳細ペインへフォーカス移動。
-			if m.settingMenuCursor == settingMenuStatus {
+			switch m.settingMenuCursor {
+			case settingMenuStatus:
 				m.mode = ModeSettingStatus
 				if m.settingStatusCursor >= len(m.statuses) {
 					m.settingStatusCursor = 0
+				}
+			case settingMenuField:
+				m.mode = ModeSettingField
+				if m.settingFieldCursor >= len(m.fields) {
+					m.settingFieldCursor = 0
 				}
 			}
 			return m, nil
@@ -1234,6 +1322,368 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case ModeSettingField:
+		sorted := m.fields.Sorted()
+		switch {
+		case key.Matches(msg, m.keys.Quit):
+			m.prevMode = m.mode
+			m.mode = ModeQuitConfirm
+			return m, nil
+		case key.Matches(msg, m.keys.Back):
+			// esc: 左メニューへフォーカスを戻す。
+			m.mode = ModeSetting
+			return m, nil
+		case key.Matches(msg, m.keys.Up):
+			if m.settingFieldCursor > 0 {
+				m.settingFieldCursor--
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			if m.settingFieldCursor < len(sorted)-1 {
+				m.settingFieldCursor++
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Enter):
+			// enter: 右ペイン (attributes) へ
+			if len(sorted) == 0 {
+				return m, nil
+			}
+			m.settingFieldAttrCursor = 0
+			m.mode = ModeSettingFieldAttribute
+			return m, nil
+		case key.Matches(msg, m.keys.NewTask):
+			// a: 新規 field 追加モーダル
+			inputW := popupWidth(m.width) - 7
+			if inputW < 1 {
+				inputW = 1
+			}
+			m.input = newTitleInput(inputW)
+			m.inputErr = nil
+			m.addFieldFocus = 0
+			m.addFieldType = task.FieldTypeText
+			m.mode = ModeSettingFieldAdd
+			return m, textinput.Blink
+		case key.Matches(msg, m.keys.RenameFile):
+			// r: name 変更
+			if len(sorted) == 0 {
+				return m, nil
+			}
+			cur := sorted[m.settingFieldCursor]
+			inputW := popupWidth(m.width) - 7
+			if inputW < 1 {
+				inputW = 1
+			}
+			m.input = newTitleInput(inputW)
+			m.input.SetValue(cur.Name)
+			m.input.CursorEnd()
+			m.inputErr = task.ValidateFieldNameChars(m.input.Value())
+			m.mode = ModeSettingFieldRename
+			return m, textinput.Blink
+		case key.Matches(msg, m.keys.Move):
+			// m: 位置変更モード
+			if len(sorted) == 0 {
+				return m, nil
+			}
+			cur := sorted[m.settingFieldCursor]
+			snapshot := make(task.FieldDefList, len(m.fields))
+			copy(snapshot, m.fields)
+			m.settingFieldMoveSnapshot = snapshot
+			m.settingFieldMoving = cur.ID
+			m.mode = ModeSettingFieldMove
+			return m, nil
+		case key.Matches(msg, m.keys.DeleteTask):
+			// d: 削除確認モーダルへ
+			if len(sorted) == 0 {
+				return m, nil
+			}
+			m.prevMode = m.mode
+			m.mode = ModeSettingFieldDeleteConfirm
+			return m, nil
+		}
+		return m, nil
+
+	case ModeSettingFieldAttribute:
+		switch {
+		case key.Matches(msg, m.keys.Quit):
+			m.prevMode = m.mode
+			m.mode = ModeQuitConfirm
+			return m, nil
+		case key.Matches(msg, m.keys.Back):
+			// esc: 中央ペインへ
+			m.mode = ModeSettingField
+			return m, nil
+		case key.Matches(msg, m.keys.Up):
+			if m.settingFieldAttrCursor > 0 {
+				m.settingFieldAttrCursor--
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			if m.settingFieldAttrCursor < 1 {
+				m.settingFieldAttrCursor++
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Enter):
+			// enter: name 行のみ rename へ。type 行は read-only。
+			if m.settingFieldAttrCursor != 0 {
+				return m, nil
+			}
+			sorted := m.fields.Sorted()
+			if m.settingFieldCursor >= len(sorted) {
+				return m, nil
+			}
+			cur := sorted[m.settingFieldCursor]
+			inputW := popupWidth(m.width) - 7
+			if inputW < 1 {
+				inputW = 1
+			}
+			m.input = newTitleInput(inputW)
+			m.input.SetValue(cur.Name)
+			m.input.CursorEnd()
+			m.inputErr = task.ValidateFieldNameChars(m.input.Value())
+			m.mode = ModeSettingFieldRename
+			return m, textinput.Blink
+		}
+		return m, nil
+
+	case ModeSettingFieldAdd:
+		// 2 行モーダル: focus=0 → name (textinput), focus=1 → type (selector)
+		switch msg.String() {
+		case "enter":
+			name := strings.TrimSpace(m.input.Value())
+			if name == "" || m.inputErr != nil {
+				return m, nil
+			}
+			updated, newID, err := m.fields.AddDef(name, m.addFieldType)
+			if err != nil {
+				m.saveErr = err
+				return m, nil
+			}
+			m.fields = updated
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			m = m.withDetailRowsRebuilt()
+			// 新規 field にカーソルを合わせる
+			sorted := m.fields.Sorted()
+			for i, f := range sorted {
+				if f.ID == newID {
+					m.settingFieldCursor = i
+					break
+				}
+			}
+			m.mode = ModeSettingField
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			return m, nil
+		case "esc":
+			m.mode = ModeSettingField
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			return m, nil
+		case "tab":
+			m.addFieldFocus = (m.addFieldFocus + 1) % 2
+			return m, nil
+		}
+		// focus=0 (name) のときの上下キー: type 行へ移動。それ以外は textinput に委譲。
+		// focus=1 (type) のときの上下キー: name 行へ。h/l で type を循環。
+		if m.addFieldFocus == 0 {
+			switch {
+			case key.Matches(msg, m.keys.Down):
+				m.addFieldFocus = 1
+				return m, nil
+			case key.Matches(msg, m.keys.Up):
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.input, cmd = m.input.Update(msg)
+			m.inputErr = task.ValidateFieldNameChars(m.input.Value())
+			return m, cmd
+		}
+		// focus=1 (type)
+		switch {
+		case key.Matches(msg, m.keys.Up):
+			m.addFieldFocus = 0
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			return m, nil
+		case key.Matches(msg, m.keys.Close):
+			// h/← で前の type へ
+			m.addFieldType = prevFieldType(m.addFieldType)
+			return m, nil
+		case key.Matches(msg, m.keys.Open):
+			// l/→ で次の type へ
+			m.addFieldType = nextFieldType(m.addFieldType)
+			return m, nil
+		}
+		return m, nil
+
+	case ModeSettingFieldRename:
+		switch msg.String() {
+		case "enter":
+			name := strings.TrimSpace(m.input.Value())
+			if name == "" || m.inputErr != nil {
+				return m, nil
+			}
+			sorted := m.fields.Sorted()
+			if m.settingFieldCursor >= len(sorted) {
+				m.mode = ModeSettingField
+				return m, nil
+			}
+			id := sorted[m.settingFieldCursor].ID
+			updated, err := m.fields.RenameByID(id, name)
+			if err != nil {
+				m.saveErr = err
+				return m, nil
+			}
+			m.fields = updated
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			m = m.withDetailRowsRebuilt()
+			m.mode = ModeSettingField
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			return m, nil
+		case "esc":
+			m.mode = ModeSettingField
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		m.inputErr = task.ValidateFieldNameChars(m.input.Value())
+		return m, cmd
+
+	case ModeSettingFieldMove:
+		switch {
+		case key.Matches(msg, m.keys.Back):
+			// esc: スナップショットから復元
+			if m.settingFieldMoveSnapshot != nil {
+				m.fields = m.settingFieldMoveSnapshot
+			}
+			movedID := m.settingFieldMoving
+			m.settingFieldMoveSnapshot = nil
+			m.settingFieldMoving = 0
+			m.mode = ModeSettingField
+			m = m.withDetailRowsRebuilt()
+			sorted := m.fields.Sorted()
+			for i, f := range sorted {
+				if f.ID == movedID {
+					m.settingFieldCursor = i
+					break
+				}
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Enter):
+			// enter: 確定 → 永続化
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			m.settingFieldMoveSnapshot = nil
+			m.settingFieldMoving = 0
+			m.mode = ModeSettingField
+			m = m.withDetailRowsRebuilt()
+			return m, nil
+		case key.Matches(msg, m.keys.Up):
+			m.fields = m.fields.MoveUp(m.settingFieldMoving)
+			sorted := m.fields.Sorted()
+			for i, f := range sorted {
+				if f.ID == m.settingFieldMoving {
+					m.settingFieldCursor = i
+					break
+				}
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			m.fields = m.fields.MoveDown(m.settingFieldMoving)
+			sorted := m.fields.Sorted()
+			for i, f := range sorted {
+				if f.ID == m.settingFieldMoving {
+					m.settingFieldCursor = i
+					break
+				}
+			}
+			return m, nil
+		}
+		return m, nil
+
+	case ModeSettingFieldDeleteConfirm:
+		switch {
+		case key.Matches(msg, m.keys.ConfirmY):
+			sorted := m.fields.Sorted()
+			if m.settingFieldCursor >= len(sorted) {
+				m.mode = ModeSettingField
+				return m, nil
+			}
+			cur := sorted[m.settingFieldCursor]
+			updated, err := m.fields.DeleteByID(cur.ID)
+			if err != nil {
+				m.saveErr = err
+				m.mode = ModeSettingField
+				return m, nil
+			}
+			m.fields = updated
+			// 全タスクから孤児 TaskField を除去
+			m.tasks = task.PurgeRemovedFieldValues(m.tasks, m.fields)
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			m = m.withDetailRowsRebuilt()
+			sortedAfter := m.fields.Sorted()
+			if m.settingFieldCursor >= len(sortedAfter) {
+				m.settingFieldCursor = len(sortedAfter) - 1
+			}
+			if m.settingFieldCursor < 0 {
+				m.settingFieldCursor = 0
+			}
+			m.mode = ModeSettingField
+			return m, nil
+		case key.Matches(msg, m.keys.ConfirmN):
+			m.mode = ModeSettingField
+			return m, nil
+		}
+		return m, nil
+
+	case ModeEditFieldValue:
+		switch msg.String() {
+		case "enter":
+			value := m.input.Value()
+			if m.inputErr != nil {
+				return m, nil
+			}
+			_, taskIdx, ok := m.currentTask()
+			if !ok {
+				m.mode = ModeDetail
+				return m, nil
+			}
+			fieldID := m.editingFieldID
+			t := m.tasks[taskIdx]
+			t.Fields = t.Fields.SetValue(fieldID, value)
+			if err := t.Fields.Validate(m.fields); err != nil {
+				m.saveErr = err
+				return m, nil
+			}
+			m.tasks[taskIdx] = t
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+				return m, nil
+			}
+			m.mode = ModeDetail
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			return m, nil
+		case "esc":
+			m.mode = ModeDetail
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		m.inputErr = task.ValidateFieldTextValueChars(m.input.Value())
+		return m, cmd
+
 	case ModeList:
 		switch {
 		case key.Matches(msg, m.keys.Quit):
@@ -1256,7 +1706,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// タスク行: 詳細遷移。status 行では何もしない (開閉は space に集約)。
 			if _, _, ok := m.currentTask(); ok {
 				m.mode = ModeDetail
-				m.detailCursor = detailFieldTitle
+				m.detailCursor = 0 // detailRows[0] = Title
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.Back):
@@ -1423,12 +1873,31 @@ func threePaneWidths(screenW int) (leftW, midW, previewW int) {
 	return
 }
 
-// isSettingMode は現在のモードが設定画面 (左/右ペイン or 設定画面内のサブモード) かを返す。
+// isSettingMode は現在のモードが設定画面 (左/中/右ペイン or 設定画面内のサブモード) かを返す。
 // View 切替の判定に使う。
 func isSettingMode(m Mode) bool {
 	switch m {
-	case ModeSetting, ModeSettingStatus, ModeSettingStatusRename, ModeSettingStatusAdd, ModeSettingStatusColor, ModeSettingStatusMove, ModeSettingStatusDeleteConfirm:
+	case ModeSetting,
+		ModeSettingStatus, ModeSettingStatusRename, ModeSettingStatusAdd,
+		ModeSettingStatusColor, ModeSettingStatusMove, ModeSettingStatusDeleteConfirm,
+		ModeSettingField, ModeSettingFieldAttribute,
+		ModeSettingFieldAdd, ModeSettingFieldRename,
+		ModeSettingFieldMove, ModeSettingFieldDeleteConfirm:
 		return true
+	}
+	return false
+}
+
+// isSettingFieldFocus は設定画面で「field」側を見ている状態かを返す (3 ペインレイアウト用)。
+// ModeSetting (メニュー) 中は cursor が field を指しているかで判断する。
+func (m Model) isSettingFieldFocus() bool {
+	switch m.mode {
+	case ModeSettingField, ModeSettingFieldAttribute,
+		ModeSettingFieldAdd, ModeSettingFieldRename,
+		ModeSettingFieldMove, ModeSettingFieldDeleteConfirm:
+		return true
+	case ModeSetting:
+		return m.settingMenuCursor == settingMenuField
 	}
 	return false
 }
@@ -1467,28 +1936,66 @@ func (m Model) View() string {
 
 	var body string
 	if isSettingMode(m.mode) {
-		// 設定画面: 左メニュー + 右詳細の 2 ペイン (1/3 + 残り)。
-		leftW := m.width / 3
-		if leftW < 24 {
-			leftW = 24
-		}
-		if leftW > m.width-20 {
-			leftW = m.width - 20
-		}
-		rightW := m.width - leftW - 1
 		menuFocused := m.mode == ModeSetting
-		inSettingMove := m.mode == ModeSettingStatusMove
-		left, right := renderSetting(m.statuses, m.settingMenuCursor, m.settingStatusCursor, menuFocused, inSettingMove, leftW, rightW, bodyH)
-		if inSettingMove {
-			banner := styleMoveBanner.Render("-- MOVE MODE --")
-			bannerW := lipgloss.Width(banner)
-			x := rightW - bannerW
-			if x < 0 {
-				x = 0
+		if m.isSettingFieldFocus() {
+			// field 系: 3 ペイン (menu 12cell + 中央 + 右 attributes)。
+			leftW := 12
+			if leftW > m.width-2 {
+				leftW = m.width - 2
+				if leftW < 1 {
+					leftW = 1
+				}
 			}
-			right = PlaceOverlay(x, 0, banner, right)
+			remain := m.width - leftW - 2 // 区切り線 2 本
+			if remain < 2 {
+				remain = 2
+			}
+			midW := remain / 2
+			rightW := remain - midW
+			midFocused := m.mode == ModeSettingField || m.mode == ModeSettingFieldAdd ||
+				m.mode == ModeSettingFieldRename || m.mode == ModeSettingFieldMove ||
+				m.mode == ModeSettingFieldDeleteConfirm
+			rightFocused := m.mode == ModeSettingFieldAttribute
+			inFieldMove := m.mode == ModeSettingFieldMove
+			left, mid, right := renderSettingField(m.fields, m.settingMenuCursor, m.settingFieldCursor, m.settingFieldAttrCursor,
+				menuFocused, midFocused, rightFocused, inFieldMove, leftW, midW, rightW, bodyH)
+			if inFieldMove {
+				banner := styleMoveBanner.Render("-- MOVE MODE --")
+				bannerW := lipgloss.Width(banner)
+				x := midW - bannerW
+				if x < 0 {
+					x = 0
+				}
+				mid = PlaceOverlay(x, 0, banner, mid)
+			}
+			body = lipgloss.JoinHorizontal(lipgloss.Top, left, divider, mid, divider, right)
+		} else {
+			// status 系: 左メニュー + 右詳細の 2 ペイン。
+			// 左メニュー幅は field 系と揃えて 12 cell 固定にする。
+			leftW := 12
+			if leftW > m.width-2 {
+				leftW = m.width - 2
+				if leftW < 1 {
+					leftW = 1
+				}
+			}
+			rightW := m.width - leftW - 1
+			if rightW < 1 {
+				rightW = 1
+			}
+			inSettingMove := m.mode == ModeSettingStatusMove
+			left, right := renderSettingStatus(m.statuses, m.settingMenuCursor, m.settingStatusCursor, menuFocused, inSettingMove, leftW, rightW, bodyH)
+			if inSettingMove {
+				banner := styleMoveBanner.Render("-- MOVE MODE --")
+				bannerW := lipgloss.Width(banner)
+				x := rightW - bannerW
+				if x < 0 {
+					x = 0
+				}
+				right = PlaceOverlay(x, 0, banner, right)
+			}
+			body = lipgloss.JoinHorizontal(lipgloss.Top, left, divider, right)
 		}
-		body = lipgloss.JoinHorizontal(lipgloss.Top, left, divider, right)
 	} else {
 		// 通常画面: タスクリスト 1/3 + 詳細 1/3 + プレビュー 1/3 (区切り線 2 本)。
 		leftW, midW, previewW := threePaneWidths(m.width)
@@ -1522,7 +2029,7 @@ func (m Model) View() string {
 		if t, _, ok := m.currentTask(); ok {
 			current = &t
 		}
-		mid := renderDetail(current, m.statuses, m.files, detailFocused, m.detailCursor, m.fileCursor, midW, bodyH)
+		mid := renderDetail(current, m.statuses, m.fields, m.files, m.detailRows, detailFocused, m.detailCursor, m.fileCursor, midW, bodyH)
 
 		// プレビュー: 現在タスクの fileCursor が指すファイルを対象にする。
 		// 現在タスク無し / ファイル無し / カーソル範囲外 のいずれでも空ペイン。
@@ -1537,9 +2044,11 @@ func (m Model) View() string {
 		// 詳細ペインの Files: 下の罫線と視覚的につなげるため、左右のペイン縦区切り線に
 		// T 字接合 (├ / ┤) を入れる。タスクが選択されておらず Files: ブロックが描画
 		// されないときは通常の │ のままにする。
+		// 罫線の行位置は detailRows に含まれる field 数によって変動するため
+		// detailFilesDividerRow(rows) で動的に算出する。
 		junctionRow := -1
 		if current != nil {
-			junctionRow = detailFilesDividerRow
+			junctionRow = detailFilesDividerRow(m.detailRows)
 		}
 		leftDivider := buildPaneDivider(bodyH, "├", junctionRow)
 		rightDivider := buildPaneDivider(bodyH, "┤", junctionRow)
@@ -1547,7 +2056,11 @@ func (m Model) View() string {
 		body = lipgloss.JoinHorizontal(lipgloss.Top, left, leftDivider, mid, rightDivider, right)
 	}
 
-	footer := renderFooter(m.mode, m.prevMode, m.detailCursor, m.viewTrash, m.width)
+	onFilesRow := false
+	if row, ok := m.currentDetailRow(); ok && row.kind == detailRowFiles {
+		onFilesRow = true
+	}
+	footer := renderFooter(m.mode, m.prevMode, onFilesRow, m.viewTrash, m.width)
 
 	view := lipgloss.JoinVertical(lipgloss.Left, body, footer)
 
@@ -1568,6 +2081,24 @@ func (m Model) View() string {
 		view = overlayInputPopup(view, "Add status:", m.input.View(), m.inputErr, m.width, m.height-1)
 	case ModeSettingStatusColor:
 		view = overlayColorPicker(view, m.settingColorChoices, m.settingColorRow, m.settingColorCol, m.width, m.height-1)
+	case ModeSettingFieldAdd:
+		view = overlayFieldAddPopup(view, m.input.View(), m.inputErr, m.addFieldFocus, m.addFieldType, task.AllFieldTypes, m.width, m.height-1)
+	case ModeSettingFieldRename:
+		view = overlayInputPopup(view, "Rename field:", m.input.View(), m.inputErr, m.width, m.height-1)
+	case ModeEditFieldValue:
+		label := "Value:"
+		if def, ok := m.fields.ByID(m.editingFieldID); ok {
+			label = def.Name + ":"
+		}
+		view = overlayInputPopup(view, label, m.input.View(), m.inputErr, m.width, m.height-1)
+	case ModeSettingFieldDeleteConfirm:
+		msg := "delete field?"
+		if sorted := m.fields.Sorted(); m.settingFieldCursor < len(sorted) {
+			msg = "delete field \"" + sorted[m.settingFieldCursor].Name + "\" ?"
+		}
+		view = overlayConfirmPopup(view, "Delete?", msg,
+			[]hintItem{{"y", "delete"}, {"n/esc", "cancel"}},
+			m.width, m.height-1)
 	case ModeSettingStatusDeleteConfirm:
 		msg := "delete status?"
 		if sorted := m.statuses.Sorted(); m.settingStatusCursor < len(sorted) {

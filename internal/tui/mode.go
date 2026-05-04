@@ -14,16 +14,23 @@ const (
 	ModeDeleteFileConfirm
 	ModeQuitConfirm
 	ModeMove
-	ModeTrashConfirm           // タスクをゴミ箱へ移動するときの確認
-	ModeDeleteTaskConfirm      // ゴミ箱内タスクの完全削除確認
-	ModePrefix                 // ; を押した直後の prefix 入力待ち状態
-	ModeSetting                // 設定画面 (左メニュー側にフォーカス)
-	ModeSettingStatus          // 設定画面 status サブ (右ペイン側にフォーカス)
-	ModeSettingStatusRename    // status のラベル変更入力
-	ModeSettingStatusAdd       // status の新規追加入力
+	ModeTrashConfirm                // タスクをゴミ箱へ移動するときの確認
+	ModeDeleteTaskConfirm           // ゴミ箱内タスクの完全削除確認
+	ModePrefix                      // ; を押した直後の prefix 入力待ち状態
+	ModeSetting                     // 設定画面 (左メニュー側にフォーカス)
+	ModeSettingStatus               // 設定画面 status サブ (右ペイン側にフォーカス)
+	ModeSettingStatusRename         // status のラベル変更入力
+	ModeSettingStatusAdd            // status の新規追加入力
 	ModeSettingStatusColor          // status の色選択ピッカー
 	ModeSettingStatusMove           // status の位置変更モード
-	ModeSettingStatusDeleteConfirm  // status 削除確認 (y/n オーバーレイ)
+	ModeSettingStatusDeleteConfirm  // status 削除確認
+	ModeSettingField                // 設定画面 field サブ (中央ペインにフォーカス)
+	ModeSettingFieldAttribute       // field の属性 (右ペインにフォーカス)
+	ModeSettingFieldAdd             // field の新規追加 (name + type 2 行モーダル)
+	ModeSettingFieldRename          // field の name 変更入力
+	ModeSettingFieldMove            // field の position 変更モード
+	ModeSettingFieldDeleteConfirm   // field 削除確認
+	ModeEditFieldValue              // 詳細画面で field の値編集
 )
 
 func (m Mode) String() string {
@@ -70,6 +77,20 @@ func (m Mode) String() string {
 		return "settingstatusmove"
 	case ModeSettingStatusDeleteConfirm:
 		return "settingstatusdeleteconfirm"
+	case ModeSettingField:
+		return "settingfield"
+	case ModeSettingFieldAttribute:
+		return "settingfieldattribute"
+	case ModeSettingFieldAdd:
+		return "settingfieldadd"
+	case ModeSettingFieldRename:
+		return "settingfieldrename"
+	case ModeSettingFieldMove:
+		return "settingfieldmove"
+	case ModeSettingFieldDeleteConfirm:
+		return "settingfielddeleteconfirm"
+	case ModeEditFieldValue:
+		return "editfieldvalue"
 	default:
 		return "unknown"
 	}

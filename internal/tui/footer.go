@@ -12,12 +12,12 @@ type hintItem struct {
 }
 
 // renderFooter は画面下部のヒント帯を描画する。
-// detailCursor は ModeDetail のときに参照され、Files セクションでは a/r/d を案内する。
+// onFilesRow は ModeDetail のときカーソルが Files 行を指しているかを示す (a/r/d ヒント切替用)。
 // 確認モード (Quit/Delete) のときは prevMode のヒントを引き継ぎ、ポップアップにフォーカスを譲る。
 // viewTrash は ModeList のときにヒントを通常用 / ゴミ箱用で切り替えるためのフラグ。
-func renderFooter(mode, prevMode Mode, detailCursor int, viewTrash bool, width int) string {
+func renderFooter(mode, prevMode Mode, onFilesRow bool, viewTrash bool, width int) string {
 	if mode == ModeQuitConfirm || mode == ModeDeleteFileConfirm || mode == ModeTrashConfirm || mode == ModeDeleteTaskConfirm || mode == ModeSettingStatusDeleteConfirm {
-		return renderFooter(prevMode, ModeList, detailCursor, viewTrash, width)
+		return renderFooter(prevMode, ModeList, onFilesRow, viewTrash, width)
 	}
 
 	var content string
@@ -44,7 +44,7 @@ func renderFooter(mode, prevMode Mode, detailCursor int, viewTrash bool, width i
 			{"q", "quit"},
 		})
 	case ModeDetail:
-		if detailCursor == detailFieldFiles {
+		if onFilesRow {
 			content = renderHints([]hintItem{
 				{"k/↑", "up"}, {"j/↓", "down"}, {"enter", "open"},
 				{"a", "add"}, {"r", "rename"}, {"d", "delete"},
@@ -85,6 +85,36 @@ func renderFooter(mode, prevMode Mode, detailCursor int, viewTrash bool, width i
 		content = renderHints([]hintItem{
 			{"k/↑", "up"}, {"j/↓", "down"},
 			{"enter", "detail"}, {"esc", "back"},
+		})
+	case ModeSettingField:
+		content = renderHints([]hintItem{
+			{"k/↑", "up"}, {"j/↓", "down"},
+			{"r", "rename"}, {"a", "add"},
+			{"m", "move"}, {"d", "delete"},
+			{"enter", "detail"}, {"esc", "back"},
+		})
+	case ModeSettingFieldAttribute:
+		content = renderHints([]hintItem{
+			{"k/↑", "up"}, {"j/↓", "down"},
+			{"enter", "edit"}, {"esc", "back"},
+		})
+	case ModeSettingFieldAdd:
+		content = renderHints([]hintItem{
+			{"Tab", "focus"}, {"←/→", "type"},
+			{"Enter", "save"}, {"Esc", "discard"},
+		})
+	case ModeSettingFieldRename:
+		content = renderHints([]hintItem{
+			{"Enter", "save"}, {"Esc", "discard"},
+		})
+	case ModeSettingFieldMove:
+		content = renderHints([]hintItem{
+			{"k/↑", "up"}, {"j/↓", "down"},
+			{"Enter", "confirm"}, {"Esc", "cancel"},
+		})
+	case ModeEditFieldValue:
+		content = renderHints([]hintItem{
+			{"Enter", "save"}, {"Esc", "discard"},
 		})
 	case ModeSettingStatus:
 		content = renderHints([]hintItem{

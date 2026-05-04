@@ -16,6 +16,45 @@ func newFileNameInput(width int) textinput.Model {
 	return newPopupInput(width, storage.MaxFileNameRunes)
 }
 
+// newFieldValueInput は拡張項目 (text 型) の値入力用 textinput を返す。
+func newFieldValueInput(width int) textinput.Model {
+	return newPopupInput(width, task.MaxFieldTextValueRunes)
+}
+
+// prevFieldType / nextFieldType は ModeSettingFieldAdd の type セレクター用。
+// 現状は text のみだが将来追加に備えて循環できる構造にしておく。
+func prevFieldType(cur task.FieldType) task.FieldType {
+	all := task.AllFieldTypes
+	if len(all) == 0 {
+		return cur
+	}
+	idx := 0
+	for i, ft := range all {
+		if ft == cur {
+			idx = i
+			break
+		}
+	}
+	idx = (idx - 1 + len(all)) % len(all)
+	return all[idx]
+}
+
+func nextFieldType(cur task.FieldType) task.FieldType {
+	all := task.AllFieldTypes
+	if len(all) == 0 {
+		return cur
+	}
+	idx := 0
+	for i, ft := range all {
+		if ft == cur {
+			idx = i
+			break
+		}
+	}
+	idx = (idx + 1) % len(all)
+	return all[idx]
+}
+
 func newPopupInput(width, charLimit int) textinput.Model {
 	ti := textinput.New()
 	ti.CharLimit = charLimit
