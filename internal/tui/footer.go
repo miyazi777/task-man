@@ -41,6 +41,7 @@ func renderFooter(mode, prevMode Mode, onFilesRow bool, onURLRow bool, viewTrash
 			{"m", "move"},
 			{"a", "new/subtask"},
 			{"d", "delete"},
+			{"o", "operation"},
 			{";", "prefix"},
 			{"q", "quit"},
 		})
@@ -88,6 +89,10 @@ func renderFooter(mode, prevMode Mode, onFilesRow bool, onURLRow bool, viewTrash
 	case ModePrefix:
 		content = renderHints([]hintItem{
 			{"t", "trash"}, {"s", "setting"}, {"esc", "back"},
+		})
+	case ModeOperation:
+		content = renderHints([]hintItem{
+			{"t", "title"}, {"s", "status"}, {"esc", "back"},
 		})
 	case ModeSetting:
 		content = renderHints([]hintItem{

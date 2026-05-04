@@ -654,6 +654,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case ModeEditTitle:
+		// 編集後の戻り先は m.prevMode に応じて切り替える (ModeDetail / ModeList のいずれか)。
+		// 期待外の値が入っている場合は安全のため ModeDetail にフォールバック。
+		ret := editReturnMode(m.prevMode)
 		switch msg.String() {
 		case "enter":
 			title := strings.TrimSpace(m.input.Value())
@@ -665,7 +668,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			_, taskIdx, ok := m.currentTask()
 			if !ok {
-				m.mode = ModeDetail
+				m.mode = ret
 				return m, nil
 			}
 			updated := m.tasks[taskIdx]
@@ -679,13 +682,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.saveErr = err
 				return m, nil
 			}
-			m.mode = ModeDetail
+			m.mode = ret
 			m.input = textinput.Model{}
 			m.inputErr = nil
 			m = m.withFilesRefreshed()
 			return m, nil
 		case "esc":
-			m.mode = ModeDetail
+			m.mode = ret
 			m.input = textinput.Model{}
 			m.inputErr = nil
 			return m, nil
@@ -697,6 +700,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case ModeEditStatus:
 		sorted := m.statuses.Sorted()
+		ret := editReturnMode(m.prevMode)
 		switch {
 		case key.Matches(msg, m.keys.Up):
 			if m.statusPickerCursor > 0 {
@@ -712,12 +716,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "enter":
 			if len(sorted) == 0 {
-				m.mode = ModeDetail
+				m.mode = ret
 				return m, nil
 			}
 			_, taskIdx, ok := m.currentTask()
 			if !ok {
-				m.mode = ModeDetail
+				m.mode = ret
 				return m, nil
 			}
 			m.tasks[taskIdx].StatusID = sorted[m.statusPickerCursor].ID
@@ -731,10 +735,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if newRow := findRowForTask(m.rows, taskIdx); newRow >= 0 {
 				m.cursor = newRow
 			}
-			m.mode = ModeDetail
+			m.mode = ret
 			return m, nil
 		case "esc":
-			m.mode = ModeDetail
+			m.mode = ret
 			return m, nil
 		}
 		return m, nil
@@ -808,10 +812,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.input.SetValue(t.Title)
 				m.input.CursorEnd()
 				m.inputErr = task.ValidateTitleChars(m.input.Value())
+				m.prevMode = ModeDetail
 				m.mode = ModeEditTitle
 				return m, textinput.Blink
 			case detailRowStatus:
 				m.statusPickerCursor = sortedStatusIndex(m.statuses, t.StatusID)
+				m.prevMode = ModeDetail
 				m.mode = ModeEditStatus
 				return m, nil
 			case detailRowField:
@@ -996,6 +1002,40 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = ModeSetting
 			m.settingMenuCursor = settingMenuStatus
 			m.settingStatusCursor = 0
+			return m, nil
+		}
+		return m, nil
+
+	case ModeOperation:
+		// タスクリスト上で o を押した直後の operation 入力待ち状態。
+		// t = title 編集 / s = status 編集 / esc = キャンセル。
+		t, _, ok := m.currentTask()
+		if !ok {
+			m.mode = ModeList
+			return m, nil
+		}
+		switch {
+		case key.Matches(msg, m.keys.Back):
+			m.mode = ModeList
+			return m, nil
+		}
+		switch msg.String() {
+		case "t":
+			inputW := popupWidth(m.width) - 7
+			if inputW < 1 {
+				inputW = 1
+			}
+			m.input = newTitleInput(inputW)
+			m.input.SetValue(t.Title)
+			m.input.CursorEnd()
+			m.inputErr = task.ValidateTitleChars(m.input.Value())
+			m.prevMode = ModeList
+			m.mode = ModeEditTitle
+			return m, textinput.Blink
+		case "s":
+			m.statusPickerCursor = sortedStatusIndex(m.statuses, t.StatusID)
+			m.prevMode = ModeList
+			m.mode = ModeEditStatus
 			return m, nil
 		}
 		return m, nil
@@ -1850,6 +1890,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.prevMode = m.mode
 			m.mode = ModePrefix
 			return m, nil
+		case msg.String() == "o":
+			// o: operation モードへ遷移 (タスク行のとき)。t: title / s: status を選べる。
+			if _, _, ok := m.currentTask(); !ok {
+				return m, nil
+			}
+			if m.viewTrash {
+				return m, nil
+			}
+			m.mode = ModeOperation
+			return m, nil
 		case key.Matches(msg, m.keys.DeleteTask):
 			// d: タスク行のとき、通常リスト → ゴミ箱へ移動、ゴミ箱ビュー → 完全削除。
 			// 確認ポップアップを挟む。
@@ -1938,6 +1988,18 @@ func (m Model) openFieldEditPopup(def task.FieldDef, existing string) (Model, te
 	m.inputErr = validateFieldValueLiveByType(def.Type, m.input.Value())
 	m.mode = ModeEditFieldValue
 	return m, textinput.Blink
+}
+
+// editReturnMode は ModeEditTitle / ModeEditStatus 終了時に戻るべきモードを返す。
+// 呼び出し側が prevMode に設定した「編集を呼び出した側のモード」を尊重しつつ、
+// 期待外の値が入っていた場合は安全のため ModeDetail にフォールバックする。
+func editReturnMode(prev Mode) Mode {
+	switch prev {
+	case ModeList, ModeDetail:
+		return prev
+	default:
+		return ModeDetail
+	}
 }
 
 // validateFieldValueLiveByType はライブ入力検証を type で切り替える。
@@ -2060,7 +2122,7 @@ func (m Model) View() string {
 	bodyH := m.height - 1
 	divider := buildPaneDivider(bodyH, "", -1)
 
-	listFocused := m.mode == ModeList || m.mode == ModeQuitConfirm || m.mode == ModeMove || m.mode == ModePrefix
+	listFocused := m.mode == ModeList || m.mode == ModeQuitConfirm || m.mode == ModeMove || m.mode == ModePrefix || m.mode == ModeOperation
 	detailFocused := m.mode == ModeDetail || m.mode == ModeEditTitle || m.mode == ModeEditStatus
 
 	inMoveMode := m.mode == ModeMove
