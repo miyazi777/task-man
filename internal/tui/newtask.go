@@ -55,6 +55,24 @@ func nextFieldType(cur task.FieldType) task.FieldType {
 	return all[idx]
 }
 
+// isFirstFieldType / isLastFieldType は AllFieldTypes 上で先頭/末尾かを返す。
+// ModeSettingFieldAdd の縦並び type セレクターで端到達判定に使う。
+func isFirstFieldType(cur task.FieldType) bool {
+	all := task.AllFieldTypes
+	if len(all) == 0 {
+		return true
+	}
+	return all[0] == cur
+}
+
+func isLastFieldType(cur task.FieldType) bool {
+	all := task.AllFieldTypes
+	if len(all) == 0 {
+		return true
+	}
+	return all[len(all)-1] == cur
+}
+
 func newPopupInput(width, charLimit int) textinput.Model {
 	ti := textinput.New()
 	ti.CharLimit = charLimit

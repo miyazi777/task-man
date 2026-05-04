@@ -1513,20 +1513,21 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.inputErr = task.ValidateFieldNameChars(m.input.Value())
 			return m, cmd
 		}
-		// focus=1 (type)
+		// focus=1 (type 縦並び)
 		switch {
 		case key.Matches(msg, m.keys.Up):
-			m.addFieldFocus = 0
+			// k/↑ : 先頭選択肢で押されたら name にフォーカスを戻す。それ以外は前の type へ。
+			if isFirstFieldType(m.addFieldType) {
+				m.addFieldFocus = 0
+			} else {
+				m.addFieldType = prevFieldType(m.addFieldType)
+			}
 			return m, nil
 		case key.Matches(msg, m.keys.Down):
-			return m, nil
-		case key.Matches(msg, m.keys.Close):
-			// h/← で前の type へ
-			m.addFieldType = prevFieldType(m.addFieldType)
-			return m, nil
-		case key.Matches(msg, m.keys.Open):
-			// l/→ で次の type へ
-			m.addFieldType = nextFieldType(m.addFieldType)
+			// j/↓ : 末尾選択肢ではこれ以上動かない。それ以外は次の type へ。
+			if !isLastFieldType(m.addFieldType) {
+				m.addFieldType = nextFieldType(m.addFieldType)
+			}
 			return m, nil
 		}
 		return m, nil
@@ -2149,6 +2150,13 @@ func (m Model) View() string {
 	case ModeSettingStatusColor:
 		view = overlayColorPicker(view, m.settingColorChoices, m.settingColorRow, m.settingColorCol, m.width, m.height-1)
 	case ModeSettingFieldAdd:
+		// name 行にフォーカスが無いときは textinput の prompt "> " を非表示にする。
+		// 横位置を維持するため空白 2 cell に置換 (View 用ローカルコピーのみ変更)。
+		if m.addFieldFocus != 0 {
+			m.input.Prompt = "  "
+		} else {
+			m.input.Prompt = "> "
+		}
 		view = overlayFieldAddPopup(view, m.input.View(), m.inputErr, m.addFieldFocus, m.addFieldType, task.AllFieldTypes, m.width, m.height-1)
 	case ModeSettingFieldRename:
 		view = overlayInputPopup(view, "Rename field:", m.input.View(), m.inputErr, m.width, m.height-1)

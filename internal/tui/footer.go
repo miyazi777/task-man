@@ -100,7 +100,7 @@ func renderFooter(mode, prevMode Mode, onFilesRow bool, viewTrash bool, width in
 		})
 	case ModeSettingFieldAdd:
 		content = renderHints([]hintItem{
-			{"Tab", "focus"}, {"←/→", "type"},
+			{"Tab", "focus"},
 			{"Enter", "save"}, {"Esc", "discard"},
 		})
 	case ModeSettingFieldRename:

@@ -175,8 +175,22 @@ func overlayFieldAddPopup(bg, nameInputView string, nameErr error, focus int, cu
 
 	topRow := buildBorderRow("╭", "╮", stylePopupLabel.Render("Add field:"), innerW)
 	bottomRow := buildBorderRow("╰", "╯", renderPopupHints([]hintItem{
-		{"Tab", "focus"}, {"←/→", "type"}, {"Enter", "save"}, {"Esc", "cancel"},
+		{"Tab", "focus"}, {"Enter", "save"}, {"Esc", "cancel"},
 	}), innerW)
+
+	// 行を contentW 幅で組み立てる小ヘルパー。
+	wrap := func(content string) string {
+		used := ansi.StringWidth(ansi.Strip(content))
+		if used < contentW {
+			content += stylePopupFill.Render(strings.Repeat(" ", contentW-used))
+		}
+		return stylePopupBorder.Render("│") +
+			stylePopupFill.Render(" ") +
+			content +
+			stylePopupFill.Render(" ") +
+			stylePopupBorder.Render("│")
+	}
+	emptyRow := wrap(stylePopupFill.Render(strings.Repeat(" ", contentW)))
 
 	// ----- name 行 -----
 	nameLabel := stylePopupFill.Foreground(colorAccent).Render("name: ")
@@ -186,65 +200,56 @@ func overlayFieldAddPopup(bg, nameInputView string, nameErr error, focus int, cu
 	if w := ansi.StringWidth(nameInputView); w > contentW-ansi.StringWidth(ansi.Strip(nameLabel)) {
 		nameInputView = ansi.Truncate(nameInputView, contentW-ansi.StringWidth(ansi.Strip(nameLabel)), "")
 	}
-	namePart := nameLabel + nameInputView
-	used := ansi.StringWidth(ansi.Strip(namePart))
-	if used < contentW {
-		namePart += stylePopupFill.Render(strings.Repeat(" ", contentW-used))
-	}
-	nameRow := stylePopupBorder.Render("│") +
-		stylePopupFill.Render(" ") +
-		namePart +
-		stylePopupFill.Render(" ") +
-		stylePopupBorder.Render("│")
+	nameRow := wrap(nameLabel + nameInputView)
 
-	// ----- type 行 -----
+	// ----- type ラベル + 縦並び選択肢 (1 行目に type: ラベルを同居) -----
 	typeLabel := stylePopupFill.Foreground(colorAccent).Render("type: ")
 	if focus != 1 {
 		typeLabel = stylePopupFill.Foreground(colorMuted).Render("type: ")
 	}
-	var typeValue string
-	if focus == 1 {
-		typeValue = stylePopupFill.Foreground(colorText).Bold(true).Render("< " + string(curType) + " >")
-	} else {
-		typeValue = stylePopupFill.Foreground(colorText).Render("  " + string(curType) + "  ")
-	}
-	typePart := typeLabel + typeValue
-	used = ansi.StringWidth(ansi.Strip(typePart))
-	if used < contentW {
-		typePart += stylePopupFill.Render(strings.Repeat(" ", contentW-used))
-	}
-	typeRow := stylePopupBorder.Render("│") +
-		stylePopupFill.Render(" ") +
-		typePart +
-		stylePopupFill.Render(" ") +
-		stylePopupBorder.Render("│")
+	// 2 行目以降のインデント。1 行目の "type: " (6 cell) と揃える。
+	typeIndent := stylePopupFill.Render("      ")
 
-	// ----- 空行 (見やすさのためのセパレータ) -----
-	emptyContent := stylePopupFill.Render(strings.Repeat(" ", contentW))
-	emptyRow := stylePopupBorder.Render("│") +
-		stylePopupFill.Render(" ") +
-		emptyContent +
-		stylePopupFill.Render(" ") +
-		stylePopupBorder.Render("│")
+	var typeOptionRows []string
+	for i, ft := range types {
+		isCurrent := ft == curType
+		var marker string
+		if focus == 1 && isCurrent {
+			marker = stylePopupFill.Foreground(colorAccent).Bold(true).Render("> ")
+		} else {
+			marker = stylePopupFill.Render("  ")
+		}
+		var label string
+		switch {
+		case focus == 1 && isCurrent:
+			label = stylePopupFill.Foreground(colorText).Bold(true).Render(string(ft))
+		case isCurrent:
+			label = stylePopupFill.Foreground(colorText).Render(string(ft))
+		default:
+			label = stylePopupFill.Foreground(colorMuted).Render(string(ft))
+		}
+		var prefix string
+		if i == 0 {
+			prefix = typeLabel // "type: "
+		} else {
+			prefix = typeIndent // "      "
+		}
+		typeOptionRows = append(typeOptionRows, wrap(prefix+marker+label))
+	}
 
-	rows := []string{topRow, nameRow, emptyRow, typeRow}
+	rows := []string{topRow, nameRow, emptyRow}
+	rows = append(rows, typeOptionRows...)
 	if nameErr != nil {
 		errMsg := stylePopupError.Render("! " + nameErr.Error())
 		if w := ansi.StringWidth(errMsg); w > contentW {
 			errMsg = ansi.Truncate(errMsg, contentW, "")
 		}
 		errPadded := stylePopupFill.Width(contentW).Render(errMsg)
-		errRow := stylePopupBorder.Render("│") +
-			stylePopupFill.Render(" ") +
-			errPadded +
-			stylePopupFill.Render(" ") +
-			stylePopupBorder.Render("│")
-		rows = append(rows, errRow)
+		rows = append(rows, wrap(errPadded))
 	}
 	rows = append(rows, bottomRow)
 
 	popup := lipgloss.JoinVertical(lipgloss.Left, rows...)
-	_ = types // 将来 types を受けて長さチェックなどに使う想定
 	return centerOverlay(popup, bg, screenW, screenH)
 }
 

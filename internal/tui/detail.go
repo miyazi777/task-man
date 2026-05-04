@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/miyazi777/task-man/internal/task"
 )
@@ -71,8 +72,10 @@ func renderDetail(t *task.Task, statuses task.StatusList, fields task.FieldDefLi
 		statusText = status.Label
 	}
 
+	labelW := detailLabelWidth(fields)
+
 	// ID は読み取り専用なのでカーソル対象外。
-	idRow := "  " + styleLabel.Render("ID") + "     " + styleValueDim.Render(strconv.Itoa(t.ID))
+	idRow := "  " + styleLabel.Render(padDetailLabel("ID", labelW)) + " " + styleValueDim.Render(strconv.Itoa(t.ID))
 
 	bodyLines := []string{idRow}
 	var filesBlock string
@@ -80,9 +83,9 @@ func renderDetail(t *task.Task, statuses task.StatusList, fields task.FieldDefLi
 		hasCursor := focused && cursor == i
 		switch r.kind {
 		case detailRowTitle:
-			bodyLines = append(bodyLines, renderDetailField("Title", t.Title, focused, hasCursor, statusStyleFor(status), false, width))
+			bodyLines = append(bodyLines, renderDetailField("Title", t.Title, focused, hasCursor, statusStyleFor(status), false, labelW, width))
 		case detailRowStatus:
-			bodyLines = append(bodyLines, renderDetailField("Status", statusText, focused, hasCursor, statusStyleFor(status), true, width))
+			bodyLines = append(bodyLines, renderDetailField("Status", statusText, focused, hasCursor, statusStyleFor(status), true, labelW, width))
 		case detailRowField:
 			def, ok := fields.ByID(r.fieldID)
 			if !ok {
@@ -92,7 +95,7 @@ func renderDetail(t *task.Task, statuses task.StatusList, fields task.FieldDefLi
 			if tf, ok := t.Fields.ByFieldID(def.ID); ok {
 				value = tf.Value
 			}
-			bodyLines = append(bodyLines, renderDetailField(def.Name, value, focused, hasCursor, lipgloss.Style{}, false, width))
+			bodyLines = append(bodyLines, renderDetailField(def.Name, value, focused, hasCursor, lipgloss.Style{}, false, labelW, width))
 		case detailRowFiles:
 			// Files は専用ブロック。カーソル位置・focus 状態をブロック側に渡す。
 			filesBlock = renderFilesBlock(files, focused, hasCursor, fileCursor, width)
@@ -109,24 +112,48 @@ func renderDetail(t *task.Task, statuses task.StatusList, fields task.FieldDefLi
 // renderDetailField は label と value の 1 行を描画する。
 // hasCursor=true なら行幅いっぱいを反転背景にする (yazi 風)。
 // useValueStatusStyle は Status 行の値だけに適用する色 (それ以外は無視)。
-func renderDetailField(label, value string, focused, hasCursor bool, valueStatusStyle lipgloss.Style, useValueStatusStyle bool, width int) string {
+// labelW は値の左端を揃えるためのラベル幅 (ID/Title/Status/拡張項目名のうち最大表示幅)。
+func renderDetailField(label, value string, focused, hasCursor bool, valueStatusStyle lipgloss.Style, useValueStatusStyle bool, labelW, width int) string {
+	padded := padDetailLabel(label, labelW)
 	if hasCursor {
-		raw := "  " + label + "  " + value
+		raw := "  " + padded + " " + value
 		return styleCursorRow.Width(width).Render(raw)
 	}
 	var labelRendered, valueRendered string
 	if focused {
-		labelRendered = styleLabel.Render(label)
+		labelRendered = styleLabel.Render(padded)
 		if useValueStatusStyle {
 			valueRendered = valueStatusStyle.Render(value)
 		} else {
 			valueRendered = styleValue.Render(value)
 		}
 	} else {
-		labelRendered = styleLabel.Render(label)
+		labelRendered = styleLabel.Render(padded)
 		valueRendered = styleValueDim.Render(value)
 	}
-	return "  " + labelRendered + "  " + valueRendered
+	return "  " + labelRendered + " " + valueRendered
+}
+
+// detailLabelWidth は ID/Title/Status と全 field 名のうち、表示幅の最大値を返す。
+// 値の左端を揃えるためにラベル列の幅として使う。
+func detailLabelWidth(fields task.FieldDefList) int {
+	w := 6 // "Status" (6 cells) が ID/Title/Status の最大
+	for _, f := range fields.Sorted() {
+		if v := ansi.StringWidth(f.Name); v > w {
+			w = v
+		}
+	}
+	return w
+}
+
+// padDetailLabel は label を w cell 幅まで右側を空白でパディングする。
+// 既に w 以上ならそのまま返す。
+func padDetailLabel(label string, w int) string {
+	diff := w - ansi.StringWidth(label)
+	if diff <= 0 {
+		return label
+	}
+	return label + strings.Repeat(" ", diff)
 }
 
 // renderFilesBlock は Files: セクションをヘッダ + 区切り線 + ファイル行で描画する。
