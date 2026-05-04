@@ -10,10 +10,11 @@ import (
 )
 
 // overlayTagPicker は対象タスク (assignedIDs) と全タグ集合 (allTags) を元にタグピッカーを描画する。
-// cursor=0 は上部の "create tag" 入力行、cursor=i (i>=1) は allTags.Sorted() の i-1 番目を指す。
-// inputValue / inputCursorPos は textinput の値・カーソル位置。inputErr が non-nil ならエラー行を入れる。
+// 入力欄は検索 (絞り込み) と新規作成の兼用。inputValue が非空のときは Sorted を Contains で絞り込む。
+// cursor=0 は上部の入力行、cursor=i (i>=1) は filtered の i-1 番目を指す。
+// inputErr が non-nil ならエラー行を入れる。
 func overlayTagPicker(bg string, allTags task.TagList, assignedIDs []int, cursor int, inputValue string, inputCursorPos int, inputErr error, screenW, screenH int) string {
-	sorted := allTags.Sorted()
+	sorted := filterTags(allTags.Sorted(), inputValue)
 
 	// 描画上は label / hint / 各タグ行 / create input の幅から popup 幅を決める。
 	labelText := "Tags:"
@@ -38,8 +39,9 @@ func overlayTagPicker(bg string, allTags task.TagList, assignedIDs []int, cursor
 			contentW = w
 		}
 	}
-	// create input は "> create tag" の placeholder 幅も考慮 (最低でも 24 cell くらい確保)
-	const minInputW = 24
+	// create input は "> Search tag or Create tag" の placeholder 幅も考慮。
+	// 先頭マーカー 2 cell + placeholder 24 cell = 26 cell を最低確保。
+	const minInputW = 28
 	if contentW < minInputW {
 		contentW = minInputW
 	}
@@ -89,10 +91,25 @@ func overlayTagPicker(bg string, allTags task.TagList, assignedIDs []int, cursor
 	return centerOverlay(popup, bg, screenW, screenH)
 }
 
+// filterTags は q を含む名前のタグのみを返す。q が空なら全件返す。
+// 比較は単純な部分一致 (Contains)。
+func filterTags(tags task.TagList, q string) task.TagList {
+	if q == "" {
+		return tags
+	}
+	out := make(task.TagList, 0, len(tags))
+	for _, tg := range tags {
+		if strings.Contains(tg.Name, q) {
+			out = append(out, tg)
+		}
+	}
+	return out
+}
+
 // tagPickerInputRow は create input 行を自前描画する。
 // 行全体を popup 背景色で統一するために textinput.View() は使わず、
 // 値・カーソル位置から直接組み立てる。focused=true で先頭に "> " マーカー。
-// 値が空なら "create tag" の placeholder を dim 色で表示し、focused 時は先頭文字をカーソルブロック表示。
+// 値が空なら "Search tag or Create tag" の placeholder を dim 色で表示し、focused 時は先頭文字をカーソルブロック表示。
 func tagPickerInputRow(focused bool, value string, cursorPos, contentW int) string {
 	rowFg := lipgloss.NewStyle().Background(colorPopupBg).Foreground(colorText)
 	rowDim := lipgloss.NewStyle().Background(colorPopupBg).Foreground(colorDim)
@@ -105,7 +122,7 @@ func tagPickerInputRow(focused bool, value string, cursorPos, contentW int) stri
 
 	var body string
 	if value == "" {
-		placeholder := "create tag"
+		placeholder := "Search tag or Create tag"
 		runes := []rune(placeholder)
 		if focused && len(runes) > 0 {
 			body = cursorBlock.Render(string(runes[0])) + rowDim.Render(string(runes[1:]))

@@ -1068,8 +1068,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.inputErr = nil
 			return m, nil
 		}
-		sortedTags := m.tags.Sorted()
-		listLen := len(sortedTags)
+		// 入力欄の値で既存タグを絞り込む (検索)。空のときは全件。
+		filtered := filterTags(m.tags.Sorted(), m.input.Value())
+		listLen := len(filtered)
+
+		// タイプ操作で list 件数が縮んだ場合、list 行カーソルが範囲外にならないように clamp。
+		if m.tagPickerCursor > listLen {
+			m.tagPickerCursor = listLen
+		}
 
 		switch {
 		case key.Matches(msg, m.keys.Back):
@@ -1094,21 +1100,24 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "enter":
 			if m.tagPickerCursor == 0 {
-				// create input: 新規タグ作成 + 即時付与。
+				// 入力行 enter: 既存と完全一致なら toggle、そうでなければ新規作成 + 付与。
 				name := strings.TrimSpace(m.input.Value())
 				if name == "" || m.inputErr != nil {
 					return m, nil
 				}
+				if existing, ok := m.tags.ByName(name); ok {
+					m = m.toggleTaskTag(taskIdx, existing.ID)
+					return m, nil
+				}
+				// 新規作成
 				newTags, newID, err := m.tags.AddTag(name)
 				if err != nil {
 					m.inputErr = err
 					return m, nil
 				}
 				m.tags = newTags
-				// 同タスクに即座に付与 (上限到達時のみ skip + エラー表示)。
 				if len(m.tasks[taskIdx].Tags) >= task.MaxTagsPerTask {
-					m.inputErr = task.ErrTaskTooManyTags
-					// tag は追加済みなので保存はする
+					m.saveErr = task.ErrTaskTooManyTags
 					if err := m.persist(); err != nil {
 						m.saveErr = err
 					}
@@ -1119,7 +1128,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.saveErr = err
 					return m, nil
 				}
-				// 入力をクリア、カーソルを新規タグに移動 (Sorted の末尾位置)。
+				// 入力クリア、フィルタも解除。カーソルは新規タグ位置 (Sorted 内の i+1)。
 				m.input.SetValue("")
 				m.inputErr = nil
 				newSorted := m.tags.Sorted()
@@ -1131,33 +1140,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
-			// 既存タグ: cursor=1..listLen に対応する Sorted インデックス。
+			// 既存タグ: cursor=1..listLen → filtered の i-1 番目。
 			idx := m.tagPickerCursor - 1
 			if idx < 0 || idx >= listLen {
 				return m, nil
 			}
-			tagID := sortedTags[idx].ID
-			// toggle: 既に付与済みなら外す、未付与なら追加 (上限チェック)。
-			tags := m.tasks[taskIdx].Tags
-			pos := -1
-			for i, id := range tags {
-				if id == tagID {
-					pos = i
-					break
-				}
-			}
-			if pos >= 0 {
-				m.tasks[taskIdx].Tags = append(tags[:pos], tags[pos+1:]...)
-			} else {
-				if len(tags) >= task.MaxTagsPerTask {
-					m.saveErr = task.ErrTaskTooManyTags
-					return m, nil
-				}
-				m.tasks[taskIdx].Tags = append(tags, tagID)
-			}
-			if err := m.persist(); err != nil {
-				m.saveErr = err
-			}
+			tagID := filtered[idx].ID
+			m = m.toggleTaskTag(taskIdx, tagID)
 			return m, nil
 		}
 
@@ -2101,6 +2090,33 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // openFieldEditPopup は拡張項目 (text/url) の値編集ポップアップを開く。
 // type に応じて入力欄の charLimit と live バリデーションを切り替える。
 // editingFieldID は呼び出し側が事前にセットしておく前提。
+// toggleTaskTag は taskIdx 番目のタスクの Tags に tagID を toggle する。
+// 付与済みなら外し、未付与なら追加 (上限到達時は saveErr に表示)。
+// 永続化エラーも saveErr へ。
+func (m Model) toggleTaskTag(taskIdx, tagID int) Model {
+	tags := m.tasks[taskIdx].Tags
+	pos := -1
+	for i, id := range tags {
+		if id == tagID {
+			pos = i
+			break
+		}
+	}
+	if pos >= 0 {
+		m.tasks[taskIdx].Tags = append(tags[:pos], tags[pos+1:]...)
+	} else {
+		if len(tags) >= task.MaxTagsPerTask {
+			m.saveErr = task.ErrTaskTooManyTags
+			return m
+		}
+		m.tasks[taskIdx].Tags = append(tags, tagID)
+	}
+	if err := m.persist(); err != nil {
+		m.saveErr = err
+	}
+	return m
+}
+
 // openTagPicker は taskID を対象にタグピッカーモーダルを開く。
 // 入力欄を初期化し、cursor を 0 (create input) に置く。
 func (m Model) openTagPicker(taskID int) (Model, tea.Cmd) {
