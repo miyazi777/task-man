@@ -1315,6 +1315,53 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.inputErr = task.ValidateTagNameChars(m.input.Value())
 		return m, cmd
 
+	case ModeTagPickerDeleteConfirm:
+		switch {
+		case key.Matches(msg, m.keys.ConfirmY):
+			// カーソル位置のタグを削除し、全タスクの Tags 配列からも除去する。
+			filtered := filterTags(m.tags.Sorted(), m.input.Value())
+			idx := m.tagPickerCursor - 1
+			if idx < 0 || idx >= len(filtered) {
+				m.mode = ModeTagPicker
+				return m, nil
+			}
+			targetID := filtered[idx].ID
+			newTags, err := m.tags.DeleteByID(targetID)
+			if err != nil {
+				m.saveErr = err
+				m.mode = ModeTagPicker
+				return m, nil
+			}
+			m.tags = newTags
+			// 全タスクの Tags 配列から targetID を除去 (新しい slice で置換)。
+			for i := range m.tasks {
+				if len(m.tasks[i].Tags) == 0 {
+					continue
+				}
+				kept := make([]int, 0, len(m.tasks[i].Tags))
+				for _, id := range m.tasks[i].Tags {
+					if id != targetID {
+						kept = append(kept, id)
+					}
+				}
+				m.tasks[i].Tags = kept
+			}
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			// カーソルを範囲内に収める。
+			newFiltered := filterTags(m.tags.Sorted(), m.input.Value())
+			if m.tagPickerCursor > len(newFiltered) {
+				m.tagPickerCursor = len(newFiltered)
+			}
+			m.mode = ModeTagPicker
+			return m, nil
+		case key.Matches(msg, m.keys.ConfirmN):
+			m.mode = ModeTagPicker
+			return m, nil
+		}
+		return m, nil
+
 	case ModeSetting:
 		switch {
 		case key.Matches(msg, m.keys.Quit):
@@ -2632,7 +2679,7 @@ func (m Model) View() string {
 		view = overlayInputPopup(view, "Rename:", m.input.View(), m.inputErr, m.width, m.height-1)
 	case ModeEditStatus:
 		view = overlayStatusPicker(view, m.statuses.Sorted(), m.statusPickerCursor, m.width, m.height-1)
-	case ModeTagPicker, ModeTagColorPicker, ModeTagPickerRename:
+	case ModeTagPicker, ModeTagColorPicker, ModeTagPickerRename, ModeTagPickerDeleteConfirm:
 		var assigned []int
 		for _, tt := range m.tasks {
 			if tt.ID == m.tagPickerTaskID {
@@ -2656,12 +2703,24 @@ func (m Model) View() string {
 		}
 		// 行全体の背景色を popup bg に統一するため、textinput.View() ではなく値とカーソル位置を渡して自前描画する。
 		view = overlayTagPicker(view, m.tags, assigned, m.tagPickerCursor, pickerInputValue, pickerCursorPos, pickerInputErr, m.width, m.height-1)
-		if m.mode == ModeTagColorPicker {
+		switch m.mode {
+		case ModeTagColorPicker:
 			// タグピッカーの上に色ピッカーをさらに重ねる。
 			view = overlayColorPicker(view, "Tag Color:", m.settingColorChoices, m.settingColorRow, m.settingColorCol, m.width, m.height-1)
-		} else if m.mode == ModeTagPickerRename {
+		case ModeTagPickerRename:
 			// タグピッカーの上に rename 入力モーダルを重ねる。
 			view = overlayInputPopup(view, "Rename tag:", m.input.View(), m.inputErr, m.width, m.height-1)
+		case ModeTagPickerDeleteConfirm:
+			// 削除確認モーダルを重ねる。対象タグ名を表示。
+			confMsg := "delete tag?"
+			filtered := filterTags(m.tags.Sorted(), m.input.Value())
+			idx := m.tagPickerCursor - 1
+			if idx >= 0 && idx < len(filtered) {
+				confMsg = "delete tag \"" + filtered[idx].Name + "\" ? (also removes from all tasks)"
+			}
+			view = overlayConfirmPopup(view, "Delete?", confMsg,
+				[]hintItem{{"y", "delete"}, {"n/esc", "cancel"}},
+				m.width, m.height-1)
 		}
 	case ModeSettingStatusRename:
 		view = overlayInputPopup(view, "Rename status:", m.input.View(), m.inputErr, m.width, m.height-1)

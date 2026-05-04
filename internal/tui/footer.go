@@ -17,7 +17,7 @@ type hintItem struct {
 // 確認モード (Quit/Delete) のときは prevMode のヒントを引き継ぎ、ポップアップにフォーカスを譲る。
 // viewTrash は ModeList のときにヒントを通常用 / ゴミ箱用で切り替えるためのフラグ。
 func renderFooter(mode, prevMode Mode, onFilesRow bool, onURLRow bool, viewTrash bool, width int) string {
-	if mode == ModeQuitConfirm || mode == ModeDeleteFileConfirm || mode == ModeTrashConfirm || mode == ModeDeleteTaskConfirm || mode == ModeSettingStatusDeleteConfirm {
+	if mode == ModeQuitConfirm || mode == ModeDeleteFileConfirm || mode == ModeTrashConfirm || mode == ModeDeleteTaskConfirm || mode == ModeSettingStatusDeleteConfirm || mode == ModeTagPickerDeleteConfirm {
 		return renderFooter(prevMode, ModeList, onFilesRow, onURLRow, viewTrash, width)
 	}
 
@@ -97,7 +97,7 @@ func renderFooter(mode, prevMode Mode, onFilesRow bool, onURLRow bool, viewTrash
 	case ModeTagPicker:
 		content = renderHints([]hintItem{
 			{"k/↑", "up"}, {"j/↓", "down"},
-			{"Enter", "add/toggle"}, {"c", "color"}, {"r", "rename"}, {"Esc", "close"},
+			{"Enter", "add/toggle"}, {"c", "color"}, {"r", "rename"}, {"d", "delete"}, {"Esc", "close"},
 		})
 	case ModeTagColorPicker:
 		content = renderHints([]hintItem{

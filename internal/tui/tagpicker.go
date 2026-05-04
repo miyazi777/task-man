@@ -22,7 +22,7 @@ func overlayTagPicker(bg string, allTags task.TagList, assignedIDs []int, cursor
 
 	hints := []hintItem{
 		{"k/↑", "up"}, {"j/↓", "down"},
-		{"Enter", "add/toggle"}, {"c", "color"}, {"r", "rename"}, {"Esc", "close"},
+		{"Enter", "add/toggle"}, {"c", "color"}, {"r", "rename"}, {"d", "delete"}, {"Esc", "close"},
 	}
 	hintRendered := renderPopupHints(hints)
 	hintW := ansi.StringWidth(ansi.Strip(hintRendered))
