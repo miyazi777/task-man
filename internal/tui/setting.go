@@ -276,8 +276,8 @@ func overlayColorPicker(bg string, grid [][]string, curRow, curCol, screenW, scr
 	labelText := "Status Color:"
 	labelW := ansi.StringWidth(labelText)
 
+	// カーソルの上下左右は明らかなのでモーダル内ヒントからは省略する。
 	hints := []hintItem{
-		{"k/↑", "up"}, {"j/↓", "down"}, {"h/←", "left"}, {"l/→", "right"},
 		{"Enter", "save"}, {"Esc", "cancel"},
 	}
 	hintRendered := renderPopupHints(hints)
