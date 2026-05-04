@@ -9,6 +9,11 @@ import (
 	"github.com/miyazi777/task-man/internal/task"
 )
 
+// detailFilesDividerRow は renderDetail の出力 (タスク存在時) における Files: 区切り線の行番号 (0-origin)。
+// 並び: 0=ID, 1=Title, 2=Status, 3=空行, 4=Files:, 5=区切り線, 6+=ファイル行。
+// 左右のペイン縦区切り線にこの行で T 字接合を入れて視覚的につなげるために使う。
+const detailFilesDividerRow = 5
+
 // renderDetail は右ペインを描画する。
 // focused=true で詳細モード時のフィールド (Title/Status/Files) が反転カーソルで強調される。
 // fieldCursor は 0=Title, 1=Status, 2=Files。fileCursor は Files 内のインデックス。
@@ -66,7 +71,13 @@ func renderDetailField(label, value string, focused, hasCursor bool, valueStatus
 // ファイルが 0 件のときは "(no files)" を 1 行表示する。
 func renderFilesBlock(files []string, focused, blockFocused bool, fileCursor, width int) string {
 	header := "  " + styleLabel.Render("Files:")
-	divider := "  " + styleDivider.Render(strings.Repeat("─", 14))
+	// 区切り線はペイン全幅にして、左右のペイン縦区切り線 (├ / ┤) と
+	// つながる横一文字に見えるようにする。
+	dividerWidth := width
+	if dividerWidth < 1 {
+		dividerWidth = 1
+	}
+	divider := styleDivider.Render(strings.Repeat("─", dividerWidth))
 
 	var rows []string
 	rows = append(rows, header, divider)

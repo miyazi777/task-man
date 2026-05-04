@@ -3,6 +3,7 @@ package storage
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -200,6 +201,28 @@ func DeleteTaskData(yamlDir, dataBaseDir string, taskID int) error {
 		return fmt.Errorf("remove dir %s: %w", taskDir, err)
 	}
 	return nil
+}
+
+// ReadTaskFile はタスクディレクトリ内の指定ファイルを先頭 maxBytes バイトまで読み込む。
+// プレビュー用。ファイルが存在しない場合は os.ErrNotExist でラップしたエラーを返す。
+func ReadTaskFile(yamlDir, dataBaseDir string, taskID int, fileName string, maxBytes int) (string, error) {
+	if fileName == "" {
+		return "", ErrFileNameEmpty
+	}
+	if maxBytes <= 0 {
+		return "", nil
+	}
+	full := filepath.Join(TaskDir(yamlDir, dataBaseDir, taskID), fileName)
+	f, err := os.Open(full)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, int64(maxBytes)))
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 // DeleteFile はタスクディレクトリ内のファイルを削除する。

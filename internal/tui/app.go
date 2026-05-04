@@ -1389,6 +1389,40 @@ func (m Model) openCurrentFile() (Model, tea.Cmd) {
 	})
 }
 
+// buildPaneDivider は高さ bodyH のペイン縦区切り線を組み立てる。
+// junctionRow が [0, bodyH) にあり junctionChar が空でない場合、その行のみ
+// "│" を junctionChar に差し替える (T 字接合用)。それ以外は "│" のみ。
+func buildPaneDivider(bodyH int, junctionChar string, junctionRow int) string {
+	if bodyH <= 0 {
+		return ""
+	}
+	rows := make([]string, bodyH)
+	useJunction := junctionChar != "" && junctionRow >= 0 && junctionRow < bodyH
+	for i := 0; i < bodyH; i++ {
+		if useJunction && i == junctionRow {
+			rows[i] = junctionChar
+		} else {
+			rows[i] = "│"
+		}
+	}
+	return styleDivider.Render(strings.Join(rows, "\n"))
+}
+
+// threePaneWidths は通常画面 (list / detail / preview) の各ペイン幅を返す。
+// 区切り線 2 本 (1 cell × 2) を差し引いた残りを 1/3 ずつ割り当てる。剰余は preview に寄せる。
+// 画面が狭すぎて preview に充分な幅が取れない場合は最低 1 cell を確保しつつ list/mid を圧縮する。
+func threePaneWidths(screenW int) (leftW, midW, previewW int) {
+	avail := screenW - 2 // 区切り線 2 本ぶん
+	if avail < 3 {
+		// 極端に狭いケースのフォールバック。各ペイン 1 cell ずつ。
+		return 1, 1, 1
+	}
+	leftW = avail / 3
+	midW = avail / 3
+	previewW = avail - leftW - midW
+	return
+}
+
 // isSettingMode は現在のモードが設定画面 (左/右ペイン or 設定画面内のサブモード) かを返す。
 // View 切替の判定に使う。
 func isSettingMode(m Mode) bool {
@@ -1423,34 +1457,28 @@ func (m Model) View() string {
 		return ""
 	}
 
-	leftW := m.width / 3
-	if leftW < 24 {
-		leftW = 24
-	}
-	if leftW > m.width-20 {
-		leftW = m.width - 20
-	}
-	rightW := m.width - leftW - 1
 	bodyH := m.height - 1
+	divider := buildPaneDivider(bodyH, "", -1)
 
 	listFocused := m.mode == ModeList || m.mode == ModeQuitConfirm || m.mode == ModeMove || m.mode == ModePrefix
 	detailFocused := m.mode == ModeDetail || m.mode == ModeEditTitle || m.mode == ModeEditStatus
 
 	inMoveMode := m.mode == ModeMove
-	listH := bodyH
-	if m.viewTrash {
-		// ゴミ箱ビューでは最上部 1 行をヘッダで占有するので、リスト本体の高さを 1 減らす。
-		listH = bodyH - 1
-		if listH < 1 {
-			listH = 1
-		}
-	}
 
-	var left, right string
+	var body string
 	if isSettingMode(m.mode) {
+		// 設定画面: 左メニュー + 右詳細の 2 ペイン (1/3 + 残り)。
+		leftW := m.width / 3
+		if leftW < 24 {
+			leftW = 24
+		}
+		if leftW > m.width-20 {
+			leftW = m.width - 20
+		}
+		rightW := m.width - leftW - 1
 		menuFocused := m.mode == ModeSetting
 		inSettingMove := m.mode == ModeSettingStatusMove
-		left, right = renderSetting(m.statuses, m.settingMenuCursor, m.settingStatusCursor, menuFocused, inSettingMove, leftW, rightW, bodyH)
+		left, right := renderSetting(m.statuses, m.settingMenuCursor, m.settingStatusCursor, menuFocused, inSettingMove, leftW, rightW, bodyH)
 		if inSettingMove {
 			banner := styleMoveBanner.Render("-- MOVE MODE --")
 			bannerW := lipgloss.Width(banner)
@@ -1460,8 +1488,21 @@ func (m Model) View() string {
 			}
 			right = PlaceOverlay(x, 0, banner, right)
 		}
+		body = lipgloss.JoinHorizontal(lipgloss.Top, left, divider, right)
 	} else {
-		left = renderList(m.tasks, m.statuses, m.rows, m.collapsed, m.cursor, listFocused, inMoveMode, leftW, listH)
+		// 通常画面: タスクリスト 1/3 + 詳細 1/3 + プレビュー 1/3 (区切り線 2 本)。
+		leftW, midW, previewW := threePaneWidths(m.width)
+
+		listH := bodyH
+		if m.viewTrash {
+			// ゴミ箱ビューでは最上部 1 行をヘッダで占有するので、リスト本体の高さを 1 減らす。
+			listH = bodyH - 1
+			if listH < 1 {
+				listH = 1
+			}
+		}
+
+		left := renderList(m.tasks, m.statuses, m.rows, m.collapsed, m.cursor, listFocused, inMoveMode, leftW, listH)
 		if inMoveMode {
 			banner := styleMoveBanner.Render("-- MOVE MODE --")
 			bannerW := lipgloss.Width(banner)
@@ -1481,13 +1522,30 @@ func (m Model) View() string {
 		if t, _, ok := m.currentTask(); ok {
 			current = &t
 		}
-		right = renderDetail(current, m.statuses, m.files, detailFocused, m.detailCursor, m.fileCursor, rightW, bodyH)
+		mid := renderDetail(current, m.statuses, m.files, detailFocused, m.detailCursor, m.fileCursor, midW, bodyH)
+
+		// プレビュー: 現在タスクの fileCursor が指すファイルを対象にする。
+		// 現在タスク無し / ファイル無し / カーソル範囲外 のいずれでも空ペイン。
+		var previewFile string
+		var previewTaskID int
+		if current != nil && len(m.files) > 0 && m.fileCursor >= 0 && m.fileCursor < len(m.files) {
+			previewFile = m.files[m.fileCursor]
+			previewTaskID = current.ID
+		}
+		right := renderPreview(m.yamlDir, m.cfg.DataBaseDirectory, previewTaskID, previewFile, previewW, bodyH)
+
+		// 詳細ペインの Files: 下の罫線と視覚的につなげるため、左右のペイン縦区切り線に
+		// T 字接合 (├ / ┤) を入れる。タスクが選択されておらず Files: ブロックが描画
+		// されないときは通常の │ のままにする。
+		junctionRow := -1
+		if current != nil {
+			junctionRow = detailFilesDividerRow
+		}
+		leftDivider := buildPaneDivider(bodyH, "├", junctionRow)
+		rightDivider := buildPaneDivider(bodyH, "┤", junctionRow)
+
+		body = lipgloss.JoinHorizontal(lipgloss.Top, left, leftDivider, mid, rightDivider, right)
 	}
-
-	divider := strings.Repeat("│\n", bodyH)
-	divider = styleDivider.Render(strings.TrimRight(divider, "\n"))
-
-	body := lipgloss.JoinHorizontal(lipgloss.Top, left, divider, right)
 
 	footer := renderFooter(m.mode, m.prevMode, m.detailCursor, m.viewTrash, m.width)
 
