@@ -95,6 +95,14 @@ func renderDetail(t *task.Task, statuses task.StatusList, fields task.FieldDefLi
 			if tf, ok := t.Fields.ByFieldID(def.ID); ok {
 				value = tf.Value
 			}
+			// url 型は折り返しを避けるため、表示幅に収まらない場合は末尾を ... に置換する。
+			// availW = ペイン幅 - leading "  " - ラベル幅 - separator " "
+			if def.Type == task.FieldTypeURL {
+				availW := width - 2 - labelW - 1
+				if availW > 0 && ansi.StringWidth(value) > availW {
+					value = ansi.Truncate(value, availW, "...")
+				}
+			}
 			bodyLines = append(bodyLines, renderDetailField(def.Name, value, focused, hasCursor, lipgloss.Style{}, false, labelW, width))
 		case detailRowFiles:
 			// Files は専用ブロック。カーソル位置・focus 状態をブロック側に渡す。
