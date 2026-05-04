@@ -320,13 +320,19 @@ func overlayColorPicker(bg string, grid [][]string, curRow, curCol, screenW, scr
 			}
 			line += leftMk + swatch + rightMk
 		}
+		// グリッドを contentW 内で中央寄せにする (左右にパディング)。
 		used := ansi.StringWidth(ansi.Strip(line))
+		leftPad := 0
+		rightPad := 0
 		if used < contentW {
-			line += stylePopupFill.Render(strings.Repeat(" ", contentW-used))
+			leftPad = (contentW - used) / 2
+			rightPad = contentW - used - leftPad
 		}
 		row := stylePopupBorder.Render("│") +
 			stylePopupFill.Render(" ") +
+			stylePopupFill.Render(strings.Repeat(" ", leftPad)) +
 			line +
+			stylePopupFill.Render(strings.Repeat(" ", rightPad)) +
 			stylePopupFill.Render(" ") +
 			stylePopupBorder.Render("│")
 		rows = append(rows, row)
@@ -337,12 +343,12 @@ func overlayColorPicker(bg string, grid [][]string, curRow, curCol, screenW, scr
 	return centerOverlay(popup, bg, screenW, screenH)
 }
 
-// 色ピッカーのグリッド寸法。
-//   行 = 明度 3 段階 (行ごとに V から 0.25 を差し引く)
-//   列 = 固定パレットの 12 色 (Google 風カラーパレットの上段 8 + 下段 4 を左から順に並べたもの)
+// 色ピッカーのグリッド寸法 (縦長レイアウト)。
+//   行 = 固定パレットの 12 色 (Google 風カラーパレットの上段 8 + 下段 4 を上から並べる)
+//   列 = 明度 3 段階 (列ごとに V から 0.25 を差し引く)
 const (
-	colorPickerRows  = 3
-	colorPickerCols  = 12
+	colorPickerRows  = 12
+	colorPickerCols  = 3
 	colorPickerVStep = 0.25
 )
 
@@ -364,16 +370,16 @@ var colorPickerBaseHexes = []string{
 	"#9ca3af", // grey
 }
 
-// statusColorChoices は明度 3 段階 × 固定 12 色パレットの色グリッド (#rrggbb) を返す。
-// grid[row][col] でアクセス。row=0 が各色のベース、row 増加で明度が 0.25 ずつ低下。
-// col はパレット順 (purple, indigo, blue, ...)。
+// statusColorChoices は固定 12 色パレット × 明度 3 段階の色グリッド (#rrggbb) を返す。
+// grid[row][col] でアクセス。row はパレット順 (purple, indigo, blue, ...)、
+// col=0 が各色のベース、col 増加で明度が 0.25 ずつ低下。
 func statusColorChoices() [][]string {
 	grid := make([][]string, colorPickerRows)
-	for r := 0; r < colorPickerRows; r++ {
+	for r, hex := range colorPickerBaseHexes {
 		grid[r] = make([]string, colorPickerCols)
-		for c, hex := range colorPickerBaseHexes {
-			h, s, v := hexToHSV(hex)
-			colV := v - colorPickerVStep*float64(r)
+		h, s, v := hexToHSV(hex)
+		for c := 0; c < colorPickerCols; c++ {
+			colV := v - colorPickerVStep*float64(c)
 			if colV < 0 {
 				colV = 0
 			}
