@@ -61,6 +61,40 @@ func TestTagListAddTag(t *testing.T) {
 	}
 }
 
+func TestTagListRenameByID(t *testing.T) {
+	tl := TagList{{ID: 1, Name: "old"}, {ID: 2, Name: "other"}}
+	out, err := tl.RenameByID(1, "new")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if out[0].Name != "new" {
+		t.Errorf("[0].Name=%q, want new", out[0].Name)
+	}
+	if tl[0].Name != "old" {
+		t.Error("source must remain unchanged")
+	}
+	// 自分自身との一致は OK (no-op 同等)
+	if _, err := tl.RenameByID(1, "old"); err != nil {
+		t.Errorf("rename to same name should not error: %v", err)
+	}
+	// 他のタグと重複はエラー
+	if _, err := tl.RenameByID(1, "other"); !errors.Is(err, ErrTagDuplicateName) {
+		t.Errorf("expected ErrTagDuplicateName, got %v", err)
+	}
+	// 存在しない id
+	if _, err := tl.RenameByID(99, "x"); err == nil {
+		t.Error("expected error for missing id")
+	}
+	// 空 / 長すぎ
+	if _, err := tl.RenameByID(1, ""); !errors.Is(err, ErrTagEmptyName) {
+		t.Errorf("expected ErrTagEmptyName, got %v", err)
+	}
+	long := strings.Repeat("あ", MaxTagNameRunes+1)
+	if _, err := tl.RenameByID(1, long); !errors.Is(err, ErrTagNameTooLong) {
+		t.Errorf("expected ErrTagNameTooLong, got %v", err)
+	}
+}
+
 func TestTagListSetColorByID(t *testing.T) {
 	tl := TagList{{ID: 1, Name: "a"}, {ID: 2, Name: "b"}}
 	out, err := tl.SetColorByID(2, "#ff00ff")

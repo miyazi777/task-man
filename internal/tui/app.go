@@ -82,6 +82,11 @@ type Model struct {
 	// ModeTagColorPicker 用の状態 (背後の ModeTagPicker は維持される)
 	tagColorPickerTagID int
 
+	// ModeTagPickerRename 用の状態。リネーム中は m.input を流用し、
+	// 背後の検索フィルタ値を復元できるよう退避する。
+	tagPickerRenameTagID int
+	tagPickerSearchSaved string
+
 	width  int
 	height int
 
@@ -348,7 +353,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mode == ModeSettingStatusRename || m.mode == ModeSettingStatusAdd ||
 		m.mode == ModeSettingFieldRename || m.mode == ModeEditFieldValue ||
 		(m.mode == ModeSettingFieldAdd && m.addFieldFocus == 0) ||
-		(m.mode == ModeTagPicker && m.tagPickerCursor == 0) {
+		(m.mode == ModeTagPicker && m.tagPickerCursor == 0) ||
+		m.mode == ModeTagPickerRename {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		return m, cmd
@@ -1117,6 +1123,30 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.settingColorRow, m.settingColorCol = nearestColorChoiceCell(m.settingColorChoices, tg.Color)
 			m.mode = ModeTagColorPicker
 			return m, nil
+		case "r":
+			// 既存タグ行 (cursor>=1) のときだけ rename ポップアップへ遷移。
+			// 入力行 (cursor=0) では typing として "r" を取り込ませるため透過。
+			if m.tagPickerCursor == 0 {
+				break
+			}
+			idx := m.tagPickerCursor - 1
+			if idx < 0 || idx >= listLen {
+				return m, nil
+			}
+			tg := filtered[idx]
+			// 検索フィルタ値を退避し、入力欄を rename 用に切り替える。
+			m.tagPickerSearchSaved = m.input.Value()
+			inputW := popupWidth(m.width) - 7
+			if inputW < 1 {
+				inputW = 1
+			}
+			m.input = newPopupInput(inputW, task.MaxTagNameRunes)
+			m.input.SetValue(tg.Name)
+			m.input.CursorEnd()
+			m.inputErr = task.ValidateTagNameChars(m.input.Value())
+			m.tagPickerRenameTagID = tg.ID
+			m.mode = ModeTagPickerRename
+			return m, textinput.Blink
 		case "enter":
 			if m.tagPickerCursor == 0 {
 				// 入力行 enter: 既存と完全一致なら toggle、そうでなければ新規作成 + 付与。
@@ -1233,6 +1263,38 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, nil
+
+	case ModeTagPickerRename:
+		switch msg.String() {
+		case "enter":
+			name := strings.TrimSpace(m.input.Value())
+			if name == "" || m.inputErr != nil {
+				return m, nil
+			}
+			updated, err := m.tags.RenameByID(m.tagPickerRenameTagID, name)
+			if err != nil {
+				m.inputErr = err
+				return m, nil
+			}
+			m.tags = updated
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+				return m, nil
+			}
+			// 検索入力欄を復元して ModeTagPicker へ戻る。
+			m = m.restoreTagPickerSearch()
+			m.mode = ModeTagPicker
+			return m, nil
+		case "esc":
+			// キャンセル: 検索入力を復元してそのまま戻る。
+			m = m.restoreTagPickerSearch()
+			m.mode = ModeTagPicker
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		m.inputErr = task.ValidateTagNameChars(m.input.Value())
+		return m, cmd
 
 	case ModeSetting:
 		switch {
@@ -2164,6 +2226,23 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // openFieldEditPopup は拡張項目 (text/url) の値編集ポップアップを開く。
 // type に応じて入力欄の charLimit と live バリデーションを切り替える。
 // editingFieldID は呼び出し側が事前にセットしておく前提。
+// restoreTagPickerSearch は ModeTagPickerRename で退避した検索フィルタ文字列を
+// ModeTagPicker の入力欄に書き戻し、rename 用の状態をクリアする。
+func (m Model) restoreTagPickerSearch() Model {
+	inputW := popupWidth(m.width) - 7
+	if inputW < 1 {
+		inputW = 1
+	}
+	m.input = newPopupInput(inputW, task.MaxTagNameRunes)
+	m.input.Placeholder = "Search tag or Create tag"
+	m.input.SetValue(m.tagPickerSearchSaved)
+	m.input.CursorEnd()
+	m.tagPickerSearchSaved = ""
+	m.tagPickerRenameTagID = 0
+	m.inputErr = task.ValidateTagNameChars(m.input.Value())
+	return m
+}
+
 // nextTagColor は既存タグ数を元にパレットから次の色を round-robin で返す。
 // 12 色パレット (status と共用) の i = len(tags) % 12 番目。
 func nextTagColor(tags task.TagList) string {
@@ -2209,7 +2288,7 @@ func (m Model) openTagPicker(taskID int) (Model, tea.Cmd) {
 		inputW = 1
 	}
 	m.input = newPopupInput(inputW, task.MaxTagNameRunes)
-	m.input.Placeholder = "create tag"
+	m.input.Placeholder = "Search tag or Create tag"
 	m.inputErr = nil
 	m.tagPickerTaskID = taskID
 	m.tagPickerCursor = 0
@@ -2449,7 +2528,7 @@ func (m Model) View() string {
 			}
 		}
 
-		left := renderList(m.tasks, m.statuses, m.rows, m.collapsed, m.cursor, listFocused, inMoveMode, leftW, listH)
+		left := renderList(m.tasks, m.statuses, m.tags, m.rows, m.collapsed, m.cursor, listFocused, inMoveMode, leftW, listH)
 		if inMoveMode {
 			banner := styleMoveBanner.Render("-- MOVE MODE --")
 			bannerW := lipgloss.Width(banner)
@@ -2534,7 +2613,7 @@ func (m Model) View() string {
 		view = overlayInputPopup(view, "Rename:", m.input.View(), m.inputErr, m.width, m.height-1)
 	case ModeEditStatus:
 		view = overlayStatusPicker(view, m.statuses.Sorted(), m.statusPickerCursor, m.width, m.height-1)
-	case ModeTagPicker, ModeTagColorPicker:
+	case ModeTagPicker, ModeTagColorPicker, ModeTagPickerRename:
 		var assigned []int
 		for _, tt := range m.tasks {
 			if tt.ID == m.tagPickerTaskID {
@@ -2542,11 +2621,28 @@ func (m Model) View() string {
 				break
 			}
 		}
+		// 背後の tagpicker を描画する。Rename 中は m.input がリネーム用に占有されているので、
+		// 退避済みの検索フィルタ値を描画値として使う。
+		var pickerInputValue string
+		var pickerCursorPos int
+		var pickerInputErr error
+		if m.mode == ModeTagPickerRename {
+			pickerInputValue = m.tagPickerSearchSaved
+			pickerCursorPos = len([]rune(pickerInputValue))
+			pickerInputErr = nil
+		} else {
+			pickerInputValue = m.input.Value()
+			pickerCursorPos = m.input.Position()
+			pickerInputErr = m.inputErr
+		}
 		// 行全体の背景色を popup bg に統一するため、textinput.View() ではなく値とカーソル位置を渡して自前描画する。
-		view = overlayTagPicker(view, m.tags, assigned, m.tagPickerCursor, m.input.Value(), m.input.Position(), m.inputErr, m.width, m.height-1)
+		view = overlayTagPicker(view, m.tags, assigned, m.tagPickerCursor, pickerInputValue, pickerCursorPos, pickerInputErr, m.width, m.height-1)
 		if m.mode == ModeTagColorPicker {
 			// タグピッカーの上に色ピッカーをさらに重ねる。
 			view = overlayColorPicker(view, "Tag Color:", m.settingColorChoices, m.settingColorRow, m.settingColorCol, m.width, m.height-1)
+		} else if m.mode == ModeTagPickerRename {
+			// タグピッカーの上に rename 入力モーダルを重ねる。
+			view = overlayInputPopup(view, "Rename tag:", m.input.View(), m.inputErr, m.width, m.height-1)
 		}
 	case ModeSettingStatusRename:
 		view = overlayInputPopup(view, "Rename status:", m.input.View(), m.inputErr, m.width, m.height-1)

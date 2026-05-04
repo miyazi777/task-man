@@ -164,6 +164,32 @@ func (tl TagList) AddTag(name, color string) (TagList, int, error) {
 	return out, newID, nil
 }
 
+// RenameByID は id を持つ Tag の Name を newName に置き換えた新しいリストを返す。
+// name が空・長すぎ・他のタグと重複する場合はエラー (自分自身との一致は OK = no-op 同等)。
+func (tl TagList) RenameByID(id int, newName string) (TagList, error) {
+	if newName == "" {
+		return nil, ErrTagEmptyName
+	}
+	if err := ValidateTagNameChars(newName); err != nil {
+		return nil, err
+	}
+	// 重複チェック (自分自身は除外)。
+	for _, t := range tl {
+		if t.ID != id && t.Name == newName {
+			return nil, fmt.Errorf("%w: %q", ErrTagDuplicateName, newName)
+		}
+	}
+	out := make(TagList, len(tl))
+	copy(out, tl)
+	for i := range out {
+		if out[i].ID == id {
+			out[i].Name = newName
+			return out, nil
+		}
+	}
+	return nil, fmt.Errorf("tag id %d not found", id)
+}
+
 // SetColorByID は id を持つ Tag の Color を新しい値に置き換えた新しいリストを返す。
 // 該当 id が無いときはエラー。
 func (tl TagList) SetColorByID(id int, color string) (TagList, error) {
