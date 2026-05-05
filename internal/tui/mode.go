@@ -18,6 +18,7 @@ const (
 	ModeDeleteTaskConfirm           // ゴミ箱内タスクの完全削除確認
 	ModePrefix                      // ; を押した直後の prefix 入力待ち状態
 	ModeSetting                     // 設定画面 (左メニュー側にフォーカス)
+	ModeSettingGeneral              // 設定画面 general サブ (yaml パスなど読み取り専用情報)
 	ModeSettingStatus               // 設定画面 status サブ (右ペイン側にフォーカス)
 	ModeSettingStatusRename         // status のラベル変更入力
 	ModeSettingStatusAdd            // status の新規追加入力
@@ -71,6 +72,8 @@ func (m Mode) String() string {
 		return "prefix"
 	case ModeSetting:
 		return "setting"
+	case ModeSettingGeneral:
+		return "settinggeneral"
 	case ModeSettingStatus:
 		return "settingstatus"
 	case ModeSettingStatusRename:

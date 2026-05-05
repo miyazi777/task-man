@@ -40,8 +40,7 @@ func run() error {
 		return err
 	}
 
-	yamlDir := filepath.Dir(absPath)
-	model := tui.NewModel(repo, lr.Tasks, lr.Statuses, lr.Fields, lr.Tags, yamlDir, lr.Config)
+	model := tui.NewModel(repo, lr.Tasks, lr.Statuses, lr.Fields, lr.Tags, absPath, lr.Config)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		return err

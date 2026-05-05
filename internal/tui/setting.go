@@ -13,11 +13,12 @@ import (
 
 // 設定画面のメニュー項目 (左ペイン)。
 const (
-	settingMenuStatus = 0
-	settingMenuField  = 1
+	settingMenuGeneral = 0
+	settingMenuStatus  = 1
+	settingMenuField   = 2
 )
 
-var settingMenuLabels = []string{"status", "field"}
+var settingMenuLabels = []string{"general", "status", "field"}
 
 // renderSettingStatus は設定画面の status 系モード用に左メニュー + 右 status ペインを描画する。
 // menuFocused=true のとき左メニュー側にカーソル反転、=false なら右ペインの statusCursor 行に反転。
@@ -25,6 +26,14 @@ var settingMenuLabels = []string{"status", "field"}
 func renderSettingStatus(statuses task.StatusList, menuCursor, statusCursor int, menuFocused, inMoveMode bool, leftW, rightW, height int) (string, string) {
 	left := renderSettingMenu(menuCursor, menuFocused, leftW, height)
 	right := renderSettingStatusPane(statuses, statusCursor, !menuFocused, inMoveMode, rightW, height)
+	return left, right
+}
+
+// renderSettingGeneral は設定画面の general 系モード用に左メニュー + 右 general ペインを描画する。
+// 右ペインは読み取り専用 (yaml パスなど) なのでカーソル制御は不要。
+func renderSettingGeneral(yamlPath string, menuCursor int, menuFocused bool, leftW, rightW, height int) (string, string) {
+	left := renderSettingMenu(menuCursor, menuFocused, leftW, height)
+	right := renderSettingGeneralPane(yamlPath, rightW, height)
 	return left, right
 }
 
@@ -53,6 +62,31 @@ func renderSettingMenu(menuCursor int, focused bool, width, height int) string {
 		}
 	}
 	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
+}
+
+// renderSettingGeneralPane は設定画面の general 詳細を描画する。
+//   - 1 行目: ヘッダ "-- general setting --"
+//   - 2 行目: 現在対象の yaml ファイルパス (label "yaml: " 付き)
+//
+// 表示幅を超える場合は末尾を ... に切り詰める。
+func renderSettingGeneralPane(yamlPath string, width, height int) string {
+	header := lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("-- general setting --")
+
+	const label = "  yaml: "
+	labelW := ansi.StringWidth(label)
+	availW := width - labelW
+	if availW < 1 {
+		availW = 1
+	}
+	pathDisplay := yamlPath
+	if ansi.StringWidth(pathDisplay) > availW {
+		pathDisplay = ansi.Truncate(pathDisplay, availW, "...")
+	}
+	pathRow := lipgloss.NewStyle().Foreground(colorMuted).Render(label) +
+		lipgloss.NewStyle().Foreground(colorText).Render(pathDisplay)
+
+	body := strings.Join([]string{header, pathRow}, "\n")
+	return lipgloss.NewStyle().Width(width).Height(height).Render(body)
 }
 
 func renderSettingStatusPane(statuses task.StatusList, statusCursor int, focused, inMoveMode bool, width, height int) string {

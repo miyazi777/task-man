@@ -28,6 +28,7 @@ type Model struct {
 	statuses      task.StatusList
 	fields        task.FieldDefList // 拡張項目スキーマ (top-level)
 	tags          task.TagList      // タグ集合 (top-level)
+	yamlPath      string            // tasks.yaml の絶対パス (general 設定画面で表示)
 	yamlDir       string            // tasks.yaml の置かれたディレクトリ
 	cfg           storage.AppConfig // data_base_directory + editor
 	rows          []listRow         // 表示用フラット行リスト (ステータスでグループ化)
@@ -93,7 +94,8 @@ type Model struct {
 	saveErr error
 }
 
-func NewModel(repo storage.Repository, initial []task.Task, statuses task.StatusList, fields task.FieldDefList, tags task.TagList, yamlDir string, cfg storage.AppConfig) Model {
+func NewModel(repo storage.Repository, initial []task.Task, statuses task.StatusList, fields task.FieldDefList, tags task.TagList, yamlPath string, cfg storage.AppConfig) Model {
+	yamlDir := filepath.Dir(yamlPath)
 	collapsed := make(map[int]bool)
 	for _, s := range statuses {
 		if s.Collapsed {
@@ -112,6 +114,7 @@ func NewModel(repo storage.Repository, initial []task.Task, statuses task.Status
 		statuses:      statuses,
 		fields:        fields,
 		tags:          tags,
+		yamlPath:      yamlPath,
 		yamlDir:       yamlDir,
 		cfg:           cfg,
 		collapsed:     collapsed,
@@ -1405,6 +1408,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Enter):
 			// enter: 詳細ペインへフォーカス移動。
 			switch m.settingMenuCursor {
+			case settingMenuGeneral:
+				m.mode = ModeSettingGeneral
 			case settingMenuStatus:
 				m.mode = ModeSettingStatus
 				if m.settingStatusCursor >= len(m.statuses) {
@@ -1416,6 +1421,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.settingFieldCursor = 0
 				}
 			}
+			return m, nil
+		}
+		return m, nil
+
+	case ModeSettingGeneral:
+		// general 詳細は読み取り専用。q で終了確認、esc でメニューに戻る以外は受け流す。
+		switch {
+		case key.Matches(msg, m.keys.Quit):
+			m.prevMode = m.mode
+			m.mode = ModeQuitConfirm
+			return m, nil
+		case key.Matches(msg, m.keys.Back):
+			m.mode = ModeSetting
 			return m, nil
 		}
 		return m, nil
@@ -2490,6 +2508,7 @@ func twoPaneWidths(screenW int) (leftW, rightW int) {
 func isSettingMode(m Mode) bool {
 	switch m {
 	case ModeSetting,
+		ModeSettingGeneral,
 		ModeSettingStatus, ModeSettingStatusRename, ModeSettingStatusAdd,
 		ModeSettingStatusColor, ModeSettingStatusMove, ModeSettingStatusDeleteConfirm,
 		ModeSettingField, ModeSettingFieldAttribute,
@@ -2510,6 +2529,18 @@ func (m Model) isSettingFieldFocus() bool {
 		return true
 	case ModeSetting:
 		return m.settingMenuCursor == settingMenuField
+	}
+	return false
+}
+
+// isSettingGeneralFocus は設定画面で「general」側を見ている状態かを返す。
+// ModeSetting (メニュー) 中は cursor が general を指しているかで判断する。
+func (m Model) isSettingGeneralFocus() bool {
+	if m.mode == ModeSettingGeneral {
+		return true
+	}
+	if m.mode == ModeSetting {
+		return m.settingMenuCursor == settingMenuGeneral
 	}
 	return false
 }
@@ -2582,7 +2613,7 @@ func (m Model) View() string {
 			}
 			body = lipgloss.JoinHorizontal(lipgloss.Top, left, divider, mid, divider, right)
 		} else {
-			// status 系: 左メニュー + 右詳細の 2 ペイン。
+			// general / status 系: 左メニュー + 右詳細の 2 ペイン。
 			// 左メニュー幅は field 系と揃えて 12 cell 固定にする。
 			leftW := 12
 			if leftW > m.width-2 {
@@ -2595,16 +2626,21 @@ func (m Model) View() string {
 			if rightW < 1 {
 				rightW = 1
 			}
-			inSettingMove := m.mode == ModeSettingStatusMove
-			left, right := renderSettingStatus(m.statuses, m.settingMenuCursor, m.settingStatusCursor, menuFocused, inSettingMove, leftW, rightW, bodyH)
-			if inSettingMove {
-				banner := styleMoveBanner.Render("-- MOVE MODE --")
-				bannerW := lipgloss.Width(banner)
-				x := rightW - bannerW
-				if x < 0 {
-					x = 0
+			var left, right string
+			if m.isSettingGeneralFocus() {
+				left, right = renderSettingGeneral(m.yamlPath, m.settingMenuCursor, menuFocused, leftW, rightW, bodyH)
+			} else {
+				inSettingMove := m.mode == ModeSettingStatusMove
+				left, right = renderSettingStatus(m.statuses, m.settingMenuCursor, m.settingStatusCursor, menuFocused, inSettingMove, leftW, rightW, bodyH)
+				if inSettingMove {
+					banner := styleMoveBanner.Render("-- MOVE MODE --")
+					bannerW := lipgloss.Width(banner)
+					x := rightW - bannerW
+					if x < 0 {
+						x = 0
+					}
+					right = PlaceOverlay(x, 0, banner, right)
 				}
-				right = PlaceOverlay(x, 0, banner, right)
 			}
 			body = lipgloss.JoinHorizontal(lipgloss.Top, left, divider, right)
 		}
