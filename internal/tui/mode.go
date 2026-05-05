@@ -19,6 +19,7 @@ const (
 	ModePrefix                      // ; を押した直後の prefix 入力待ち状態
 	ModeSetting                     // 設定画面 (左メニュー側にフォーカス)
 	ModeSettingGeneral              // 設定画面 general サブ (yaml パスなど読み取り専用情報)
+	ModeSettingGeneralEdit          // 設定画面 general の data_base_directory 編集モーダル
 	ModeSettingStatus               // 設定画面 status サブ (右ペイン側にフォーカス)
 	ModeSettingStatusRename         // status のラベル変更入力
 	ModeSettingStatusAdd            // status の新規追加入力
@@ -74,6 +75,8 @@ func (m Mode) String() string {
 		return "setting"
 	case ModeSettingGeneral:
 		return "settinggeneral"
+	case ModeSettingGeneralEdit:
+		return "settinggeneraledit"
 	case ModeSettingStatus:
 		return "settingstatus"
 	case ModeSettingStatusRename:

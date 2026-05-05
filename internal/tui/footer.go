@@ -114,7 +114,12 @@ func renderFooter(mode, prevMode Mode, onFilesRow bool, onURLRow bool, viewTrash
 		})
 	case ModeSettingGeneral:
 		content = renderHints([]hintItem{
-			{"esc", "back"}, {"q", "quit"},
+			{"k/↑", "up"}, {"j/↓", "down"},
+			{"enter", "edit"}, {"esc", "back"}, {"q", "quit"},
+		})
+	case ModeSettingGeneralEdit:
+		content = renderHints([]hintItem{
+			{"Enter", "save"}, {"Esc", "discard"},
 		})
 	case ModeSettingField:
 		content = renderHints([]hintItem{

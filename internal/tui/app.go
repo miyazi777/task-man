@@ -52,8 +52,9 @@ type Model struct {
 	fileCursor         int         // files のインデックス
 
 	// 設定画面 (ModeSetting / ModeSettingStatus* / ModeSettingField*) 用の状態
-	settingMenuCursor   int              // 左メニュー (status / field) のインデックス
-	settingStatusCursor int              // 右ペイン: m.statuses.Sorted() のインデックス
+	settingMenuCursor    int             // 左メニュー (general / status / field) のインデックス
+	settingGeneralCursor int             // general ペイン: 編集対象行のインデックス (現状は 0=data_base_directory のみ)
+	settingStatusCursor  int             // 右ペイン: m.statuses.Sorted() のインデックス
 	settingColorChoices [][]string       // 色ピッカー候補グリッド (#rrggbb)。grid[row][col]
 	settingColorRow     int              // 色ピッカー上の行カーソル (色相)
 	settingColorCol     int              // 色ピッカー上の列カーソル (明度)
@@ -1024,9 +1025,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = m.prevMode
 			return m, nil
 		case key.Matches(msg, m.keys.PrefixSetting):
-			// s: 設定画面へ遷移。左メニューにフォーカス。
+			// s: 設定画面へ遷移。左メニューにフォーカス。最初は general を指す。
 			m.mode = ModeSetting
-			m.settingMenuCursor = settingMenuStatus
+			m.settingMenuCursor = settingMenuGeneral
 			m.settingStatusCursor = 0
 			return m, nil
 		}
@@ -1426,7 +1427,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ModeSettingGeneral:
-		// general 詳細は読み取り専用。q で終了確認、esc でメニューに戻る以外は受け流す。
+		// general 詳細: 0=data_base_directory のみ編集可能 (yaml は read-only)。
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			m.prevMode = m.mode
@@ -1435,8 +1436,47 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Back):
 			m.mode = ModeSetting
 			return m, nil
+		case key.Matches(msg, m.keys.Up), key.Matches(msg, m.keys.Down):
+			// 現状は編集可能行が 1 行だけなので no-op。将来追加した場合の足掛かり。
+			return m, nil
+		case key.Matches(msg, m.keys.Enter):
+			if m.settingGeneralCursor == 0 {
+				inputW := popupWidth(m.width) - 7
+				if inputW < 1 {
+					inputW = 1
+				}
+				m.input = newPopupInput(inputW, 1024)
+				m.input.SetValue(m.cfg.DataBaseDirectory)
+				m.input.CursorEnd()
+				m.inputErr = nil
+				m.mode = ModeSettingGeneralEdit
+				return m, textinput.Blink
+			}
+			return m, nil
 		}
 		return m, nil
+
+	case ModeSettingGeneralEdit:
+		switch msg.String() {
+		case "enter":
+			value := strings.TrimSpace(m.input.Value())
+			m.cfg.DataBaseDirectory = value
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			m.mode = ModeSettingGeneral
+			return m, nil
+		case "esc":
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			m.mode = ModeSettingGeneral
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		return m, cmd
 
 	case ModeSettingStatus:
 		sorted := m.statuses.Sorted()
@@ -2508,7 +2548,7 @@ func twoPaneWidths(screenW int) (leftW, rightW int) {
 func isSettingMode(m Mode) bool {
 	switch m {
 	case ModeSetting,
-		ModeSettingGeneral,
+		ModeSettingGeneral, ModeSettingGeneralEdit,
 		ModeSettingStatus, ModeSettingStatusRename, ModeSettingStatusAdd,
 		ModeSettingStatusColor, ModeSettingStatusMove, ModeSettingStatusDeleteConfirm,
 		ModeSettingField, ModeSettingFieldAttribute,
@@ -2536,7 +2576,7 @@ func (m Model) isSettingFieldFocus() bool {
 // isSettingGeneralFocus は設定画面で「general」側を見ている状態かを返す。
 // ModeSetting (メニュー) 中は cursor が general を指しているかで判断する。
 func (m Model) isSettingGeneralFocus() bool {
-	if m.mode == ModeSettingGeneral {
+	if m.mode == ModeSettingGeneral || m.mode == ModeSettingGeneralEdit {
 		return true
 	}
 	if m.mode == ModeSetting {
@@ -2628,7 +2668,8 @@ func (m Model) View() string {
 			}
 			var left, right string
 			if m.isSettingGeneralFocus() {
-				left, right = renderSettingGeneral(m.yamlPath, m.settingMenuCursor, menuFocused, leftW, rightW, bodyH)
+				rightFocused := m.mode == ModeSettingGeneral || m.mode == ModeSettingGeneralEdit
+				left, right = renderSettingGeneral(m.yamlPath, m.cfg.DataBaseDirectory, m.settingMenuCursor, m.settingGeneralCursor, menuFocused, rightFocused, leftW, rightW, bodyH)
 			} else {
 				inSettingMove := m.mode == ModeSettingStatusMove
 				left, right = renderSettingStatus(m.statuses, m.settingMenuCursor, m.settingStatusCursor, menuFocused, inSettingMove, leftW, rightW, bodyH)
@@ -2818,6 +2859,8 @@ func (m Model) View() string {
 				[]hintItem{{"y", "delete"}, {"n/esc", "cancel"}},
 				m.width, m.height-1)
 		}
+	case ModeSettingGeneralEdit:
+		view = overlayInputPopup(view, "data_base_directory:", m.input.View(), m.inputErr, m.width, m.height-1)
 	case ModeSettingStatusRename:
 		view = overlayInputPopup(view, "Rename status:", m.input.View(), m.inputErr, m.width, m.height-1)
 	case ModeSettingStatusAdd:

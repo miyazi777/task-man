@@ -30,10 +30,11 @@ func renderSettingStatus(statuses task.StatusList, menuCursor, statusCursor int,
 }
 
 // renderSettingGeneral は設定画面の general 系モード用に左メニュー + 右 general ペインを描画する。
-// 右ペインは読み取り専用 (yaml パスなど) なのでカーソル制御は不要。
-func renderSettingGeneral(yamlPath string, menuCursor int, menuFocused bool, leftW, rightW, height int) (string, string) {
+// rightCursor は general ペイン内の編集行カーソル (0=data_base_directory)。
+// rightFocused=true のとき、右ペインのカーソル行を反転表示する。
+func renderSettingGeneral(yamlPath, dataBaseDir string, menuCursor, rightCursor int, menuFocused, rightFocused bool, leftW, rightW, height int) (string, string) {
 	left := renderSettingMenu(menuCursor, menuFocused, leftW, height)
-	right := renderSettingGeneralPane(yamlPath, rightW, height)
+	right := renderSettingGeneralPane(yamlPath, dataBaseDir, rightCursor, rightFocused, rightW, height)
 	return left, right
 }
 
@@ -66,26 +67,55 @@ func renderSettingMenu(menuCursor int, focused bool, width, height int) string {
 
 // renderSettingGeneralPane は設定画面の general 詳細を描画する。
 //   - 1 行目: ヘッダ "-- general setting --"
-//   - 2 行目: 現在対象の yaml ファイルパス (label "yaml: " 付き)
+//   - 2 行目: 現在対象の yaml ファイルパス (label "yaml: " 付き、read-only)
+//   - 3 行目: data_base_directory の値 (cursor=0、focused=true でカーソル反転、編集可能)
 //
 // 表示幅を超える場合は末尾を ... に切り詰める。
-func renderSettingGeneralPane(yamlPath string, width, height int) string {
+func renderSettingGeneralPane(yamlPath, dataBaseDir string, cursor int, focused bool, width, height int) string {
 	header := lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("-- general setting --")
 
-	const label = "  yaml: "
-	labelW := ansi.StringWidth(label)
-	availW := width - labelW
-	if availW < 1 {
-		availW = 1
+	// yaml 行 (read-only)
+	const yamlLabel = "  yaml: "
+	yamlAvail := width - ansi.StringWidth(yamlLabel)
+	if yamlAvail < 1 {
+		yamlAvail = 1
 	}
-	pathDisplay := yamlPath
-	if ansi.StringWidth(pathDisplay) > availW {
-		pathDisplay = ansi.Truncate(pathDisplay, availW, "...")
+	yamlDisplay := yamlPath
+	if ansi.StringWidth(yamlDisplay) > yamlAvail {
+		yamlDisplay = ansi.Truncate(yamlDisplay, yamlAvail, "...")
 	}
-	pathRow := lipgloss.NewStyle().Foreground(colorMuted).Render(label) +
-		lipgloss.NewStyle().Foreground(colorText).Render(pathDisplay)
+	yamlRow := lipgloss.NewStyle().Foreground(colorMuted).Render(yamlLabel) +
+		lipgloss.NewStyle().Foreground(colorText).Render(yamlDisplay)
 
-	body := strings.Join([]string{header, pathRow}, "\n")
+	// data_base_directory 行 (editable)
+	const dbdLabel = "  data_base_directory: "
+	dbdValue := dataBaseDir
+	if dbdValue == "" {
+		dbdValue = "(empty)"
+	}
+	dbdAvail := width - ansi.StringWidth(dbdLabel)
+	if dbdAvail < 1 {
+		dbdAvail = 1
+	}
+	dbdDisplay := dbdValue
+	if ansi.StringWidth(dbdDisplay) > dbdAvail {
+		dbdDisplay = ansi.Truncate(dbdDisplay, dbdAvail, "...")
+	}
+	var dbdRow string
+	if focused && cursor == 0 {
+		// 行全体をカーソル反転で塗る。プレーン文字列で安定描画。
+		raw := dbdLabel + dbdDisplay
+		dbdRow = styleCursorRow.Width(width).Render(raw)
+	} else {
+		valueStyle := lipgloss.NewStyle().Foreground(colorText)
+		if dataBaseDir == "" {
+			valueStyle = lipgloss.NewStyle().Foreground(colorDim).Italic(true)
+		}
+		dbdRow = lipgloss.NewStyle().Foreground(colorMuted).Render(dbdLabel) +
+			valueStyle.Render(dbdDisplay)
+	}
+
+	body := strings.Join([]string{header, yamlRow, dbdRow}, "\n")
 	return lipgloss.NewStyle().Width(width).Height(height).Render(body)
 }
 
