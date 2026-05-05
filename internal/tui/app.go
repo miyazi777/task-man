@@ -2728,24 +2728,32 @@ func (m Model) View() string {
 			current = &t
 		}
 
-		// 右カラム高さ配分:
-		//   detail = bodyH の 1/2
-		//   残り = files area + preview area を 1/2 + 1/2 で分割
+		// 右カラム高さ配分: detail / files area / preview area をそれぞれ 1/3 ずつに割り当てる。
+		// 端数 (bodyH % 3) は files area → preview area の順に上乗せする。
 		//   files area の中身: "Files:" header (1) + 罫線 (1) + 名前リスト (残り)
 		//   preview area の中身: 罫線 (1) + プレビュー (残り)
-		detailH := bodyH / 2
+		detailH := bodyH / 3
+		fileAreaH := bodyH / 3
+		previewAreaH := bodyH - detailH - fileAreaH
+		// 各セクションが最低限機能する高さを確保 (header/divider/中身を 1 行ずつ)。
 		if detailH < 3 {
 			detailH = 3
-			if detailH > bodyH {
-				detailH = bodyH
+		}
+		if fileAreaH < 3 {
+			fileAreaH = 3
+		}
+		if previewAreaH < 2 {
+			previewAreaH = 2
+		}
+		// 合計が bodyH を超えた場合は preview area を縮める (最低 2 行は維持)。
+		if total := detailH + fileAreaH + previewAreaH; total > bodyH {
+			over := total - bodyH
+			if previewAreaH-over >= 2 {
+				previewAreaH -= over
+			} else {
+				previewAreaH = 2
 			}
 		}
-		bottomH := bodyH - detailH
-		if bottomH < 4 {
-			bottomH = 4
-		}
-		fileAreaH := bottomH / 2
-		previewAreaH := bottomH - fileAreaH
 		namesH := fileAreaH - 2 // header + top divider
 		if namesH < 1 {
 			namesH = 1
