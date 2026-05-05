@@ -6,7 +6,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"unicode/utf8"
 )
 
@@ -110,6 +112,53 @@ func TaskDir(yamlDir, dataBaseDir string, taskID int) string {
 		root = filepath.Join(yamlDir, dataBaseDir)
 	}
 	return filepath.Join(root, fmt.Sprintf("task-%d", taskID))
+}
+
+// taskDirNamePattern は CreateTaskData が作る "task-<int>" ディレクトリ名にマッチする。
+var taskDirNamePattern = regexp.MustCompile(`^task-\d+$`)
+
+// RemoveAllTaskData は data_base_directory 配下にある task-N (整数 N) ディレクトリを
+// すべて削除する。ロード済みの id を引数に取らないことで、yaml に載っていない孤立
+// ディレクトリも掃除できるようにしている。
+//
+//   - root が存在しない: 何もしない (エラーにしない)
+//   - 命名規則 (task-<int>) に合わない子は触らない
+//   - 通常ファイルや他ディレクトリは触らない
+//
+// 戻り値の removed には削除したディレクトリの絶対パス相当を入れる (--init の事後表示用)。
+func RemoveAllTaskData(yamlDir, dataBaseDir string) (removed []string, err error) {
+	root := yamlDir
+	if dataBaseDir != "" {
+		root = filepath.Join(yamlDir, dataBaseDir)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read dir %s: %w", root, err)
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !taskDirNamePattern.MatchString(name) {
+			continue
+		}
+		// 念のため数値部が int としてパース可能であることも確認 (regexp で保証されているがフェイルセーフ)。
+		idStr := name[len("task-"):]
+		if _, perr := strconv.Atoi(idStr); perr != nil {
+			continue
+		}
+		full := filepath.Join(root, name)
+		if rmErr := os.RemoveAll(full); rmErr != nil {
+			return removed, fmt.Errorf("remove %s: %w", full, rmErr)
+		}
+		removed = append(removed, full)
+	}
+	sort.Strings(removed)
+	return removed, nil
 }
 
 // ListTaskFiles はタスクディレクトリ内の通常ファイル名 (basename) をアルファベット順で返す。

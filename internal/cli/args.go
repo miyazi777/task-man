@@ -17,27 +17,38 @@ type Args struct {
 	// MustExist が true の場合、ファイルが存在しなければエラー終了。
 	// false の場合は存在しなければ作成して良い。
 	MustExist bool
+	// Init が true の場合、yaml と関連 task-N ディレクトリを初期化 (全リセット) する。
+	// 通常の起動 (TUI 立ち上げ) は行わない。
+	Init bool
 }
 
 // Parse は os.Args[1:] (またはテスト用の任意のスライス) を解析する。
 // -t / --tasks で yaml パスを明示できる。alias 経由でクオート付きで渡された
 // 場合のフォールバックとして、先頭の "~" / "~/" をホームディレクトリに展開する。
+// -i / --init を指定すると、yaml をデフォルト状態にリセットするフラグを立てる。
 func Parse(argv []string) (*Args, error) {
 	fs := pflag.NewFlagSet("task-man", pflag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	taskPath := fs.StringP("tasks", "t", "", "tasks yaml file path")
+	initFlag := fs.BoolP("init", "i", false, "reset yaml to defaults and delete all task data dirs")
 	if err := fs.Parse(argv); err != nil {
 		return nil, err
 	}
 
+	args := &Args{Init: *initFlag}
 	if *taskPath != "" {
 		expanded, err := expandHome(*taskPath)
 		if err != nil {
 			return nil, err
 		}
-		return &Args{Path: expanded, MustExist: true}, nil
+		args.Path = expanded
+		// init 時は yaml 不在でもエラーにせず、リセット処理側で新規作成する。
+		args.MustExist = !*initFlag
+	} else {
+		args.Path = DefaultFileName
+		args.MustExist = false
 	}
-	return &Args{Path: DefaultFileName, MustExist: false}, nil
+	return args, nil
 }
 
 // expandHome は先頭が "~" または "~/" のパスをユーザのホームディレクトリに置換する。

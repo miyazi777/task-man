@@ -227,3 +227,58 @@ func TestDeleteFileMissing(t *testing.T) {
 		t.Errorf("expected ErrFileNotFoundIn, got %v", err)
 	}
 }
+
+// RemoveAllTaskData は task-<int> 命名のディレクトリだけを再帰的に削除し、
+// 命名規則に合わない兄弟 (notes/, tasks.yaml など) には触れない。
+func TestRemoveAllTaskData(t *testing.T) {
+	yamlDir := t.TempDir()
+	if err := CreateTaskData(yamlDir, "datas", 1); err != nil {
+		t.Fatalf("setup task-1: %v", err)
+	}
+	if err := CreateTaskData(yamlDir, "datas", 2); err != nil {
+		t.Fatalf("setup task-2: %v", err)
+	}
+	// 命名規則外のディレクトリ・ファイル (掃除対象外)
+	preserveDir := filepath.Join(yamlDir, "datas", "notes")
+	if err := os.MkdirAll(preserveDir, 0o755); err != nil {
+		t.Fatalf("setup preserve dir: %v", err)
+	}
+	preserveFile := filepath.Join(yamlDir, "datas", "README.md")
+	if err := os.WriteFile(preserveFile, []byte("keep me"), 0o644); err != nil {
+		t.Fatalf("setup preserve file: %v", err)
+	}
+
+	removed, err := RemoveAllTaskData(yamlDir, "datas")
+	if err != nil {
+		t.Fatalf("RemoveAllTaskData: %v", err)
+	}
+	if len(removed) != 2 {
+		t.Errorf("removed: got %d, want 2 (%v)", len(removed), removed)
+	}
+
+	for _, id := range []int{1, 2} {
+		td := TaskDir(yamlDir, "datas", id)
+		if _, err := os.Stat(td); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("task-%d still exists: err=%v", id, err)
+		}
+	}
+	if _, err := os.Stat(preserveDir); err != nil {
+		t.Errorf("preserve dir lost: %v", err)
+	}
+	if _, err := os.Stat(preserveFile); err != nil {
+		t.Errorf("preserve file lost: %v", err)
+	}
+}
+
+// RemoveAllTaskData はベースディレクトリが存在しない場合でもエラーにせず、
+// 削除リストは空で返す (--init 直後の不在状態をそのまま許容するため)。
+func TestRemoveAllTaskDataMissingRoot(t *testing.T) {
+	yamlDir := t.TempDir()
+	removed, err := RemoveAllTaskData(yamlDir, "does-not-exist")
+	if err != nil {
+		t.Fatalf("RemoveAllTaskData: %v", err)
+	}
+	if len(removed) != 0 {
+		t.Errorf("removed: got %v, want empty", removed)
+	}
+}

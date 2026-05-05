@@ -37,6 +37,38 @@ func TestParseWithTaskFlag(t *testing.T) {
 	}
 }
 
+func TestParseInitFlag(t *testing.T) {
+	for _, args := range [][]string{
+		{"-i"},
+		{"--init"},
+	} {
+		a, err := Parse(args)
+		if err != nil {
+			t.Fatalf("Parse(%v): %v", args, err)
+		}
+		if !a.Init {
+			t.Errorf("Init: expected true for %v", args)
+		}
+		if a.Path != DefaultFileName {
+			t.Errorf("Path: got %q want %q", a.Path, DefaultFileName)
+		}
+	}
+}
+
+func TestParseInitWithTaskFlag(t *testing.T) {
+	a, err := Parse([]string{"-t", "/tmp/foo.yaml", "-i"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if !a.Init {
+		t.Error("Init: expected true")
+	}
+	// init 時は不在でも作るので MustExist=false が望ましい。
+	if a.MustExist {
+		t.Error("MustExist: expected false when -i is given")
+	}
+}
+
 // "-t '~/...'" のようにシェルに展開されないクオート付きパスでも、
 // task-man 側で先頭 ~/ をホームディレクトリへ置換する。
 func TestParseExpandsTilde(t *testing.T) {
