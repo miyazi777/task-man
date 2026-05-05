@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/pflag"
 )
@@ -18,18 +20,44 @@ type Args struct {
 }
 
 // Parse は os.Args[1:] (またはテスト用の任意のスライス) を解析する。
+// -t / --tasks で yaml パスを明示できる。alias 経由でクオート付きで渡された
+// 場合のフォールバックとして、先頭の "~" / "~/" をホームディレクトリに展開する。
 func Parse(argv []string) (*Args, error) {
 	fs := pflag.NewFlagSet("task-man", pflag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	taskPath := fs.StringP("task", "t", "", "tasks yaml file path")
+	taskPath := fs.StringP("tasks", "t", "", "tasks yaml file path")
 	if err := fs.Parse(argv); err != nil {
 		return nil, err
 	}
 
 	if *taskPath != "" {
-		return &Args{Path: *taskPath, MustExist: true}, nil
+		expanded, err := expandHome(*taskPath)
+		if err != nil {
+			return nil, err
+		}
+		return &Args{Path: expanded, MustExist: true}, nil
 	}
 	return &Args{Path: DefaultFileName, MustExist: false}, nil
+}
+
+// expandHome は先頭が "~" または "~/" のパスをユーザのホームディレクトリに置換する。
+// "~user" 形式 (他ユーザのホーム参照) は対応しない。
+func expandHome(path string) (string, error) {
+	if path == "" || path[0] != '~' {
+		return path, nil
+	}
+	if path != "~" && !strings.HasPrefix(path, "~/") {
+		// "~user/foo" のようなパターンは未対応 (シェルに任せる)。
+		return path, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve ~: %w", err)
+	}
+	if path == "~" {
+		return home, nil
+	}
+	return filepath.Join(home, path[2:]), nil
 }
 
 // EnsureFile は引数の指針に従ってファイルの存在を保証する。

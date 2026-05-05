@@ -22,7 +22,7 @@ func TestParseDefault(t *testing.T) {
 func TestParseWithTaskFlag(t *testing.T) {
 	for _, args := range [][]string{
 		{"-t", "/tmp/foo.yaml"},
-		{"--task", "/tmp/foo.yaml"},
+		{"--tasks", "/tmp/foo.yaml"},
 	} {
 		a, err := Parse(args)
 		if err != nil {
@@ -34,6 +34,23 @@ func TestParseWithTaskFlag(t *testing.T) {
 		if !a.MustExist {
 			t.Errorf("MustExist: expected true when flag given")
 		}
+	}
+}
+
+// "-t '~/...'" のようにシェルに展開されないクオート付きパスでも、
+// task-man 側で先頭 ~/ をホームディレクトリへ置換する。
+func TestParseExpandsTilde(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home dir")
+	}
+	a, err := Parse([]string{"-t", "~/private/tasks.yaml"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	want := filepath.Join(home, "private/tasks.yaml")
+	if a.Path != want {
+		t.Errorf("Path: got %q want %q", a.Path, want)
 	}
 }
 

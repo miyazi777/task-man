@@ -28,13 +28,19 @@ func run() error {
 		return err
 	}
 
-	repo := storage.NewYAMLRepository(args.Path)
+	// 相対パスで指定された場合でも、起動後の CWD 変化に依存しないよう絶対パスへ正規化する。
+	absPath, err := filepath.Abs(args.Path)
+	if err != nil {
+		return err
+	}
+
+	repo := storage.NewYAMLRepository(absPath)
 	lr, err := repo.Load()
 	if err != nil {
 		return err
 	}
 
-	yamlDir := filepath.Dir(args.Path)
+	yamlDir := filepath.Dir(absPath)
 	model := tui.NewModel(repo, lr.Tasks, lr.Statuses, lr.Fields, lr.Tags, yamlDir, lr.Config)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
