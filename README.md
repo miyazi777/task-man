@@ -19,9 +19,9 @@ A Japanese-friendly UI built with [Bubble Tea](https://github.com/charmbracelet/
 - **Layout adjustment**: Interactively resize each pane on the task list screen and persist it
 - **Multiple workspaces**: Specify a different `tasks.yaml` at startup with the `-t` option
 
-## Screenshots
+## Screenshot
 
-Mockup SVGs (such as `01-list-focused.svg`) are included in `docs/mockups/`.
+![task-man screenshot](docs/task-man.png)
 
 ## Requirements
 
@@ -236,7 +236,7 @@ Example: When `data_base_directory: ./tasks_data`, attachments for the task with
 ├── internal/storage     # tasks.yaml read/write / attachment operations
 ├── internal/task        # Domain (Task / Status / Field / Tag)
 ├── internal/tui         # Bubble Tea Model/View/Update
-├── docs/mockups         # Screen mockups (SVG)
+├── docs                 # task-man.png (screenshot)
 ├── Makefile
 ├── go.mod
 └── README.md

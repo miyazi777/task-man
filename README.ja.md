@@ -21,7 +21,7 @@
 
 ## スクリーンショット
 
-`docs/mockups/` にモックアップ SVG (`01-list-focused.svg` など) を収録しています。
+![task-man screenshot](docs/task-man.png)
 
 ## 動作要件
 
@@ -236,7 +236,7 @@ tasks:
 ├── internal/storage     # tasks.yaml の読み書き / 添付ファイル操作
 ├── internal/task        # ドメイン (Task / Status / Field / Tag)
 ├── internal/tui         # Bubble Tea Model/View/Update
-├── docs/mockups         # 画面モックアップ (SVG)
+├── docs                 # task-man.png (スクリーンショット)
 ├── Makefile
 ├── go.mod
 └── README.md
