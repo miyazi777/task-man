@@ -2683,8 +2683,18 @@ func (m Model) View() string {
 	bodyH := m.height - 1
 	divider := buildPaneDivider(bodyH, "", -1)
 
-	listFocused := m.mode == ModeList || m.mode == ModeQuitConfirm || m.mode == ModeMove || m.mode == ModePrefix || m.mode == ModeOperation
+	listFocused := m.mode == ModeList || m.mode == ModeQuitConfirm || m.mode == ModeMove || m.mode == ModeOperation
 	detailFocused := m.mode == ModeDetail || m.mode == ModeEditTitle || m.mode == ModeEditStatus
+	// ModePrefix は元々タスクリストからしか入れなかったため list フォーカス固定で良かったが、
+	// 詳細画面からも ; が入れるようになったので prevMode に応じて維持する。
+	if m.mode == ModePrefix {
+		switch m.prevMode {
+		case ModeDetail, ModeEditTitle, ModeEditStatus:
+			detailFocused = true
+		default:
+			listFocused = true
+		}
+	}
 	// レイアウトモード中は突入時のフォーカスに応じて、視覚的なフォーカス表現を維持する。
 	if m.mode == ModeLayout {
 		switch m.layoutFocus {
