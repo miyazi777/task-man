@@ -105,6 +105,25 @@ type Model struct {
 	fileOpenerTaskID     int
 	fileOpenerFile       string
 
+	// ModeSettingApplication 系の状態。
+	settingApplicationCursor      int                   // 中央ペイン: applications 内のインデックス
+	settingApplicationAttrCursor  int                   // 右ペイン: 0=id, 1=name, 2=run
+	settingApplicationMovingID    int                   // 移動中の application ID (0=未選択)
+	settingApplicationMoveBackup  []storage.Application // esc で復元する移動前スナップショット
+	addApplicationFocus           int                   // 追加モーダル: 0=name, 1=run
+	addApplicationNameBuf         string                // 追加モーダルで focus 切替時に name を退避するバッファ
+	addApplicationRunBuf          string                // 追加モーダルで focus 切替時に run を退避するバッファ
+
+	// ModeSettingFileOpener 系の状態。
+	settingFileOpenerCursor       int                  // 中央ペイン: file_openers 内のインデックス
+	settingFileOpenerAttrCursor   int                  // 右ペイン: 0=extension, 1=applications, 2=default_app
+	settingFileOpenerMovingExt    string               // 移動中の opener.Extension
+	settingFileOpenerMoveBackup   []storage.FileOpener // esc で復元する移動前スナップショット
+	// applications multi-select / default_app picker 中の表示インデックス
+	settingFileOpenerAppsCursor    int   // multi-select 中のカーソル (apps 配列の index)
+	settingFileOpenerAppsSelected  []int // 編集中の applications ID 配列 (作業用バッファ)
+	settingFileOpenerDefaultCursor int   // default_app picker 中のカーソル
+
 	width  int
 	height int
 
@@ -1541,6 +1560,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if m.settingFieldCursor >= len(m.fields) {
 					m.settingFieldCursor = 0
 				}
+			case settingMenuApplication:
+				m.mode = ModeSettingApplication
+				if m.settingApplicationCursor >= len(m.cfg.Applications) {
+					m.settingApplicationCursor = 0
+				}
+			case settingMenuFileOpener:
+				m.mode = ModeSettingFileOpener
+				if m.settingFileOpenerCursor >= len(m.cfg.FileOpeners) {
+					m.settingFileOpenerCursor = 0
+				}
 			}
 			return m, nil
 		}
@@ -2241,6 +2270,634 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case ModeSettingApplication:
+		switch {
+		case key.Matches(msg, m.keys.Quit):
+			m.prevMode = m.mode
+			m.mode = ModeQuitConfirm
+			return m, nil
+		case key.Matches(msg, m.keys.Back):
+			m.mode = ModeSetting
+			return m, nil
+		case key.Matches(msg, m.keys.Up):
+			if m.settingApplicationCursor > 0 {
+				m.settingApplicationCursor--
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			if m.settingApplicationCursor < len(m.cfg.Applications)-1 {
+				m.settingApplicationCursor++
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Enter):
+			if len(m.cfg.Applications) == 0 {
+				return m, nil
+			}
+			m.settingApplicationAttrCursor = 1 // name から開始 (id は read-only)
+			m.mode = ModeSettingApplicationAttribute
+			return m, nil
+		case key.Matches(msg, m.keys.NewTask):
+			// a: 新規追加モーダル (name + run の 2 行入力)。run は textinput を遅延初期化するため
+			// 突入時には name 用の textinput のみを構築し、focus 移動時に初期化を切り替える。
+			inputW := popupWidth(m.width) - 7
+			if inputW < 1 {
+				inputW = 1
+			}
+			m.input = newPopupInput(inputW, 256)
+			m.input.Focus()
+			m.inputErr = nil
+			m.addApplicationFocus = 0
+			m.mode = ModeSettingApplicationAdd
+			return m, textinput.Blink
+		case key.Matches(msg, m.keys.DeleteTask):
+			if len(m.cfg.Applications) == 0 {
+				return m, nil
+			}
+			m.prevMode = m.mode
+			m.mode = ModeSettingApplicationDeleteConfirm
+			return m, nil
+		case key.Matches(msg, m.keys.Move):
+			if len(m.cfg.Applications) == 0 {
+				return m, nil
+			}
+			m.settingApplicationMovingID = m.cfg.Applications[m.settingApplicationCursor].ID
+			m.settingApplicationMoveBackup = append([]storage.Application{}, m.cfg.Applications...)
+			m.mode = ModeSettingApplicationMove
+			return m, nil
+		}
+		return m, nil
+
+	case ModeSettingApplicationAttribute:
+		switch {
+		case key.Matches(msg, m.keys.Quit):
+			m.prevMode = m.mode
+			m.mode = ModeQuitConfirm
+			return m, nil
+		case key.Matches(msg, m.keys.Back):
+			m.mode = ModeSettingApplication
+			return m, nil
+		case key.Matches(msg, m.keys.Up):
+			if m.settingApplicationAttrCursor > 0 {
+				m.settingApplicationAttrCursor--
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			if m.settingApplicationAttrCursor < 2 {
+				m.settingApplicationAttrCursor++
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Enter):
+			if m.settingApplicationCursor < 0 || m.settingApplicationCursor >= len(m.cfg.Applications) {
+				return m, nil
+			}
+			a := m.cfg.Applications[m.settingApplicationCursor]
+			inputW := popupWidth(m.width) - 7
+			if inputW < 1 {
+				inputW = 1
+			}
+			switch m.settingApplicationAttrCursor {
+			case 0:
+				// id は read-only
+				return m, nil
+			case 1:
+				m.input = newPopupInput(inputW, 256)
+				m.input.SetValue(a.Name)
+				m.input.CursorEnd()
+				m.input.Focus()
+				m.inputErr = nil
+				m.mode = ModeSettingApplicationEditName
+				return m, textinput.Blink
+			case 2:
+				m.input = newPopupInput(inputW, 1024)
+				m.input.SetValue(a.Run)
+				m.input.CursorEnd()
+				m.input.Focus()
+				m.inputErr = nil
+				m.mode = ModeSettingApplicationEditRun
+				return m, textinput.Blink
+			}
+			return m, nil
+		}
+		return m, nil
+
+	case ModeSettingApplicationEditName:
+		switch msg.String() {
+		case "enter":
+			value := strings.TrimSpace(m.input.Value())
+			if value == "" {
+				m.inputErr = fmt.Errorf("name must not be empty")
+				return m, nil
+			}
+			if m.settingApplicationCursor >= 0 && m.settingApplicationCursor < len(m.cfg.Applications) {
+				m.cfg.Applications[m.settingApplicationCursor].Name = value
+				if err := m.persist(); err != nil {
+					m.saveErr = err
+				}
+			}
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			m.mode = ModeSettingApplicationAttribute
+			return m, nil
+		case "esc":
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			m.mode = ModeSettingApplicationAttribute
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		return m, cmd
+
+	case ModeSettingApplicationEditRun:
+		switch msg.String() {
+		case "enter":
+			value := strings.TrimSpace(m.input.Value())
+			if value == "" {
+				m.inputErr = fmt.Errorf("run must not be empty")
+				return m, nil
+			}
+			if m.settingApplicationCursor >= 0 && m.settingApplicationCursor < len(m.cfg.Applications) {
+				m.cfg.Applications[m.settingApplicationCursor].Run = value
+				if err := m.persist(); err != nil {
+					m.saveErr = err
+				}
+			}
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			m.mode = ModeSettingApplicationAttribute
+			return m, nil
+		case "esc":
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			m.mode = ModeSettingApplicationAttribute
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		return m, cmd
+
+	case ModeSettingApplicationAdd:
+		// 2 行モーダル: focus=0 (name) / focus=1 (run)
+		switch msg.String() {
+		case "tab":
+			inputW := popupWidth(m.width) - 7
+			if inputW < 1 {
+				inputW = 1
+			}
+			if m.addApplicationFocus == 0 {
+				m.addApplicationNameBuf = m.input.Value()
+				m.input = newPopupInput(inputW, 1024)
+				m.input.SetValue(m.addApplicationRunBuf)
+				m.input.CursorEnd()
+				m.input.Focus()
+				m.addApplicationFocus = 1
+			} else {
+				m.addApplicationRunBuf = m.input.Value()
+				m.input = newPopupInput(inputW, 256)
+				m.input.SetValue(m.addApplicationNameBuf)
+				m.input.CursorEnd()
+				m.input.Focus()
+				m.addApplicationFocus = 0
+			}
+			return m, textinput.Blink
+		case "enter":
+			var nameVal, runVal string
+			if m.addApplicationFocus == 0 {
+				nameVal = m.input.Value()
+				runVal = m.addApplicationRunBuf
+			} else {
+				nameVal = m.addApplicationNameBuf
+				runVal = m.input.Value()
+			}
+			nameVal = strings.TrimSpace(nameVal)
+			runVal = strings.TrimSpace(runVal)
+			if nameVal == "" || runVal == "" {
+				m.inputErr = fmt.Errorf("name and run must not be empty")
+				return m, nil
+			}
+			newID := nextApplicationID(m.cfg.Applications)
+			m.cfg.Applications = append(m.cfg.Applications, storage.Application{ID: newID, Name: nameVal, Run: runVal})
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			m.addApplicationNameBuf = ""
+			m.addApplicationRunBuf = ""
+			m.settingApplicationCursor = len(m.cfg.Applications) - 1
+			m.mode = ModeSettingApplication
+			return m, nil
+		case "esc":
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			m.addApplicationNameBuf = ""
+			m.addApplicationRunBuf = ""
+			m.mode = ModeSettingApplication
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		return m, cmd
+
+	case ModeSettingApplicationMove:
+		switch {
+		case key.Matches(msg, m.keys.Back):
+			// esc: スナップショットから復元してキャンセル
+			m.cfg.Applications = m.settingApplicationMoveBackup
+			m.settingApplicationMovingID = 0
+			m.settingApplicationMoveBackup = nil
+			m.mode = ModeSettingApplication
+			return m, nil
+		case key.Matches(msg, m.keys.Move), key.Matches(msg, m.keys.Confirm):
+			// m / enter: 確定
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			m.settingApplicationMovingID = 0
+			m.settingApplicationMoveBackup = nil
+			m.mode = ModeSettingApplication
+			return m, nil
+		case key.Matches(msg, m.keys.Up):
+			if m.settingApplicationCursor > 0 {
+				m.cfg.Applications[m.settingApplicationCursor], m.cfg.Applications[m.settingApplicationCursor-1] =
+					m.cfg.Applications[m.settingApplicationCursor-1], m.cfg.Applications[m.settingApplicationCursor]
+				m.settingApplicationCursor--
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			if m.settingApplicationCursor < len(m.cfg.Applications)-1 {
+				m.cfg.Applications[m.settingApplicationCursor], m.cfg.Applications[m.settingApplicationCursor+1] =
+					m.cfg.Applications[m.settingApplicationCursor+1], m.cfg.Applications[m.settingApplicationCursor]
+				m.settingApplicationCursor++
+			}
+			return m, nil
+		}
+		return m, nil
+
+	case ModeSettingApplicationDeleteConfirm:
+		switch {
+		case key.Matches(msg, m.keys.ConfirmY):
+			if m.settingApplicationCursor >= 0 && m.settingApplicationCursor < len(m.cfg.Applications) {
+				deletedID := m.cfg.Applications[m.settingApplicationCursor].ID
+				// applications から削除
+				m.cfg.Applications = append(m.cfg.Applications[:m.settingApplicationCursor], m.cfg.Applications[m.settingApplicationCursor+1:]...)
+				// FileOpeners から該当 ID への参照を除去
+				for i := range m.cfg.FileOpeners {
+					filtered := make([]int, 0, len(m.cfg.FileOpeners[i].ApplicationIDs))
+					for _, id := range m.cfg.FileOpeners[i].ApplicationIDs {
+						if id != deletedID {
+							filtered = append(filtered, id)
+						}
+					}
+					m.cfg.FileOpeners[i].ApplicationIDs = filtered
+					if m.cfg.FileOpeners[i].DefaultApp == deletedID {
+						m.cfg.FileOpeners[i].DefaultApp = 0
+					}
+				}
+				if err := m.persist(); err != nil {
+					m.saveErr = err
+				}
+				if m.settingApplicationCursor >= len(m.cfg.Applications) {
+					m.settingApplicationCursor = len(m.cfg.Applications) - 1
+				}
+				if m.settingApplicationCursor < 0 {
+					m.settingApplicationCursor = 0
+				}
+			}
+			m.mode = ModeSettingApplication
+			return m, nil
+		case key.Matches(msg, m.keys.ConfirmN):
+			m.mode = ModeSettingApplication
+			return m, nil
+		}
+		return m, nil
+
+	case ModeSettingFileOpener:
+		switch {
+		case key.Matches(msg, m.keys.Quit):
+			m.prevMode = m.mode
+			m.mode = ModeQuitConfirm
+			return m, nil
+		case key.Matches(msg, m.keys.Back):
+			m.mode = ModeSetting
+			return m, nil
+		case key.Matches(msg, m.keys.Up):
+			if m.settingFileOpenerCursor > 0 {
+				m.settingFileOpenerCursor--
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			if m.settingFileOpenerCursor < len(m.cfg.FileOpeners)-1 {
+				m.settingFileOpenerCursor++
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Enter):
+			if len(m.cfg.FileOpeners) == 0 {
+				return m, nil
+			}
+			m.settingFileOpenerAttrCursor = 0
+			m.mode = ModeSettingFileOpenerAttribute
+			return m, nil
+		case key.Matches(msg, m.keys.NewTask):
+			inputW := popupWidth(m.width) - 7
+			if inputW < 1 {
+				inputW = 1
+			}
+			m.input = newPopupInput(inputW, 32)
+			m.input.Focus()
+			m.inputErr = nil
+			m.mode = ModeSettingFileOpenerAdd
+			return m, textinput.Blink
+		case key.Matches(msg, m.keys.DeleteTask):
+			if len(m.cfg.FileOpeners) == 0 {
+				return m, nil
+			}
+			m.prevMode = m.mode
+			m.mode = ModeSettingFileOpenerDeleteConfirm
+			return m, nil
+		case key.Matches(msg, m.keys.Move):
+			if len(m.cfg.FileOpeners) == 0 {
+				return m, nil
+			}
+			m.settingFileOpenerMovingExt = m.cfg.FileOpeners[m.settingFileOpenerCursor].Extension
+			m.settingFileOpenerMoveBackup = append([]storage.FileOpener{}, m.cfg.FileOpeners...)
+			m.mode = ModeSettingFileOpenerMove
+			return m, nil
+		}
+		return m, nil
+
+	case ModeSettingFileOpenerAttribute:
+		switch {
+		case key.Matches(msg, m.keys.Quit):
+			m.prevMode = m.mode
+			m.mode = ModeQuitConfirm
+			return m, nil
+		case key.Matches(msg, m.keys.Back):
+			m.mode = ModeSettingFileOpener
+			return m, nil
+		case key.Matches(msg, m.keys.Up):
+			if m.settingFileOpenerAttrCursor > 0 {
+				m.settingFileOpenerAttrCursor--
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			if m.settingFileOpenerAttrCursor < 2 {
+				m.settingFileOpenerAttrCursor++
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Enter):
+			if m.settingFileOpenerCursor < 0 || m.settingFileOpenerCursor >= len(m.cfg.FileOpeners) {
+				return m, nil
+			}
+			op := m.cfg.FileOpeners[m.settingFileOpenerCursor]
+			inputW := popupWidth(m.width) - 7
+			if inputW < 1 {
+				inputW = 1
+			}
+			switch m.settingFileOpenerAttrCursor {
+			case 0:
+				m.input = newPopupInput(inputW, 32)
+				m.input.SetValue(op.Extension)
+				m.input.CursorEnd()
+				m.input.Focus()
+				m.inputErr = nil
+				m.mode = ModeSettingFileOpenerEditExtension
+				return m, textinput.Blink
+			case 1:
+				// applications multi-select: 編集用バッファに現在の選択を複製
+				m.settingFileOpenerAppsSelected = append([]int{}, op.ApplicationIDs...)
+				m.settingFileOpenerAppsCursor = 0
+				m.mode = ModeSettingFileOpenerEditApps
+				return m, nil
+			case 2:
+				m.settingFileOpenerDefaultCursor = 0
+				// default_app picker は applications 配列 (ApplicationIDs に限定せず全体)
+				// + "(none)" 行を先頭にもつ。現在値があればそこに合わせる。
+				if op.DefaultApp != 0 {
+					for i, a := range m.cfg.Applications {
+						if a.ID == op.DefaultApp {
+							m.settingFileOpenerDefaultCursor = i + 1 // index 0 は (none)
+							break
+						}
+					}
+				}
+				m.mode = ModeSettingFileOpenerEditDefault
+				return m, nil
+			}
+			return m, nil
+		}
+		return m, nil
+
+	case ModeSettingFileOpenerAdd:
+		switch msg.String() {
+		case "enter":
+			value := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(m.input.Value()), "."))
+			if value == "" {
+				m.inputErr = fmt.Errorf("extension must not be empty")
+				return m, nil
+			}
+			if hasFileOpenerExtension(m.cfg.FileOpeners, value) {
+				m.inputErr = fmt.Errorf("extension %q already registered", value)
+				return m, nil
+			}
+			m.cfg.FileOpeners = append(m.cfg.FileOpeners, storage.FileOpener{Extension: value})
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			m.settingFileOpenerCursor = len(m.cfg.FileOpeners) - 1
+			m.mode = ModeSettingFileOpener
+			return m, nil
+		case "esc":
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			m.mode = ModeSettingFileOpener
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		return m, cmd
+
+	case ModeSettingFileOpenerEditExtension:
+		switch msg.String() {
+		case "enter":
+			value := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(m.input.Value()), "."))
+			if value == "" {
+				m.inputErr = fmt.Errorf("extension must not be empty")
+				return m, nil
+			}
+			cur := m.cfg.FileOpeners[m.settingFileOpenerCursor]
+			if value != cur.Extension && hasFileOpenerExtension(m.cfg.FileOpeners, value) {
+				m.inputErr = fmt.Errorf("extension %q already registered", value)
+				return m, nil
+			}
+			m.cfg.FileOpeners[m.settingFileOpenerCursor].Extension = value
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			m.mode = ModeSettingFileOpenerAttribute
+			return m, nil
+		case "esc":
+			m.input = textinput.Model{}
+			m.inputErr = nil
+			m.mode = ModeSettingFileOpenerAttribute
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		return m, cmd
+
+	case ModeSettingFileOpenerEditApps:
+		// 編集用バッファ (m.settingFileOpenerAppsSelected) に対し、space でトグル、enter で確定。
+		switch {
+		case key.Matches(msg, m.keys.Back):
+			m.settingFileOpenerAppsSelected = nil
+			m.mode = ModeSettingFileOpenerAttribute
+			return m, nil
+		case key.Matches(msg, m.keys.Up):
+			if m.settingFileOpenerAppsCursor > 0 {
+				m.settingFileOpenerAppsCursor--
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			if m.settingFileOpenerAppsCursor < len(m.cfg.Applications)-1 {
+				m.settingFileOpenerAppsCursor++
+			}
+			return m, nil
+		case msg.String() == " ":
+			if m.settingFileOpenerAppsCursor < 0 || m.settingFileOpenerAppsCursor >= len(m.cfg.Applications) {
+				return m, nil
+			}
+			id := m.cfg.Applications[m.settingFileOpenerAppsCursor].ID
+			// toggle
+			found := -1
+			for i, x := range m.settingFileOpenerAppsSelected {
+				if x == id {
+					found = i
+					break
+				}
+			}
+			if found >= 0 {
+				m.settingFileOpenerAppsSelected = append(m.settingFileOpenerAppsSelected[:found], m.settingFileOpenerAppsSelected[found+1:]...)
+			} else {
+				m.settingFileOpenerAppsSelected = append(m.settingFileOpenerAppsSelected, id)
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Confirm):
+			m.cfg.FileOpeners[m.settingFileOpenerCursor].ApplicationIDs = append([]int{}, m.settingFileOpenerAppsSelected...)
+			// default_app が新 applications に含まれなくなった場合は 0 に戻す
+			defID := m.cfg.FileOpeners[m.settingFileOpenerCursor].DefaultApp
+			if defID != 0 {
+				stillIn := false
+				for _, x := range m.cfg.FileOpeners[m.settingFileOpenerCursor].ApplicationIDs {
+					if x == defID {
+						stillIn = true
+						break
+					}
+				}
+				if !stillIn {
+					m.cfg.FileOpeners[m.settingFileOpenerCursor].DefaultApp = 0
+				}
+			}
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			m.settingFileOpenerAppsSelected = nil
+			m.mode = ModeSettingFileOpenerAttribute
+			return m, nil
+		}
+		return m, nil
+
+	case ModeSettingFileOpenerEditDefault:
+		// 候補は (none) + applications 全体。enter で確定、esc で戻る。
+		switch {
+		case key.Matches(msg, m.keys.Back):
+			m.mode = ModeSettingFileOpenerAttribute
+			return m, nil
+		case key.Matches(msg, m.keys.Up):
+			if m.settingFileOpenerDefaultCursor > 0 {
+				m.settingFileOpenerDefaultCursor--
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			if m.settingFileOpenerDefaultCursor < len(m.cfg.Applications) {
+				m.settingFileOpenerDefaultCursor++
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Confirm):
+			if m.settingFileOpenerDefaultCursor == 0 {
+				m.cfg.FileOpeners[m.settingFileOpenerCursor].DefaultApp = 0
+			} else {
+				app := m.cfg.Applications[m.settingFileOpenerDefaultCursor-1]
+				m.cfg.FileOpeners[m.settingFileOpenerCursor].DefaultApp = app.ID
+			}
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			m.mode = ModeSettingFileOpenerAttribute
+			return m, nil
+		}
+		return m, nil
+
+	case ModeSettingFileOpenerMove:
+		switch {
+		case key.Matches(msg, m.keys.Back):
+			m.cfg.FileOpeners = m.settingFileOpenerMoveBackup
+			m.settingFileOpenerMovingExt = ""
+			m.settingFileOpenerMoveBackup = nil
+			m.mode = ModeSettingFileOpener
+			return m, nil
+		case key.Matches(msg, m.keys.Move), key.Matches(msg, m.keys.Confirm):
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			m.settingFileOpenerMovingExt = ""
+			m.settingFileOpenerMoveBackup = nil
+			m.mode = ModeSettingFileOpener
+			return m, nil
+		case key.Matches(msg, m.keys.Up):
+			if m.settingFileOpenerCursor > 0 {
+				m.cfg.FileOpeners[m.settingFileOpenerCursor], m.cfg.FileOpeners[m.settingFileOpenerCursor-1] =
+					m.cfg.FileOpeners[m.settingFileOpenerCursor-1], m.cfg.FileOpeners[m.settingFileOpenerCursor]
+				m.settingFileOpenerCursor--
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			if m.settingFileOpenerCursor < len(m.cfg.FileOpeners)-1 {
+				m.cfg.FileOpeners[m.settingFileOpenerCursor], m.cfg.FileOpeners[m.settingFileOpenerCursor+1] =
+					m.cfg.FileOpeners[m.settingFileOpenerCursor+1], m.cfg.FileOpeners[m.settingFileOpenerCursor]
+				m.settingFileOpenerCursor++
+			}
+			return m, nil
+		}
+		return m, nil
+
+	case ModeSettingFileOpenerDeleteConfirm:
+		switch {
+		case key.Matches(msg, m.keys.ConfirmY):
+			if m.settingFileOpenerCursor >= 0 && m.settingFileOpenerCursor < len(m.cfg.FileOpeners) {
+				m.cfg.FileOpeners = append(m.cfg.FileOpeners[:m.settingFileOpenerCursor], m.cfg.FileOpeners[m.settingFileOpenerCursor+1:]...)
+				if err := m.persist(); err != nil {
+					m.saveErr = err
+				}
+				if m.settingFileOpenerCursor >= len(m.cfg.FileOpeners) {
+					m.settingFileOpenerCursor = len(m.cfg.FileOpeners) - 1
+				}
+				if m.settingFileOpenerCursor < 0 {
+					m.settingFileOpenerCursor = 0
+				}
+			}
+			m.mode = ModeSettingFileOpener
+			return m, nil
+		case key.Matches(msg, m.keys.ConfirmN):
+			m.mode = ModeSettingFileOpener
+			return m, nil
+		}
+		return m, nil
+
 	case ModeEditFieldValue:
 		def, _ := m.fields.ByID(m.editingFieldID)
 		switch msg.String() {
@@ -2719,8 +3376,42 @@ func isSettingMode(m Mode) bool {
 		ModeSettingStatusColor, ModeSettingStatusMove, ModeSettingStatusDeleteConfirm,
 		ModeSettingField, ModeSettingFieldAttribute,
 		ModeSettingFieldAdd, ModeSettingFieldRename,
-		ModeSettingFieldMove, ModeSettingFieldDeleteConfirm:
+		ModeSettingFieldMove, ModeSettingFieldDeleteConfirm,
+		ModeSettingApplication, ModeSettingApplicationAttribute,
+		ModeSettingApplicationAdd, ModeSettingApplicationEditName, ModeSettingApplicationEditRun,
+		ModeSettingApplicationMove, ModeSettingApplicationDeleteConfirm,
+		ModeSettingFileOpener, ModeSettingFileOpenerAttribute,
+		ModeSettingFileOpenerAdd, ModeSettingFileOpenerEditExtension,
+		ModeSettingFileOpenerEditApps, ModeSettingFileOpenerEditDefault,
+		ModeSettingFileOpenerMove, ModeSettingFileOpenerDeleteConfirm:
 		return true
+	}
+	return false
+}
+
+// isSettingApplicationFocus は設定画面で「application」側を見ている状態かを返す (3 ペインレイアウト用)。
+func (m Model) isSettingApplicationFocus() bool {
+	switch m.mode {
+	case ModeSettingApplication, ModeSettingApplicationAttribute,
+		ModeSettingApplicationAdd, ModeSettingApplicationEditName, ModeSettingApplicationEditRun,
+		ModeSettingApplicationMove, ModeSettingApplicationDeleteConfirm:
+		return true
+	case ModeSetting:
+		return m.settingMenuCursor == settingMenuApplication
+	}
+	return false
+}
+
+// isSettingFileOpenerFocus は設定画面で「file_opener」側を見ている状態かを返す (3 ペインレイアウト用)。
+func (m Model) isSettingFileOpenerFocus() bool {
+	switch m.mode {
+	case ModeSettingFileOpener, ModeSettingFileOpenerAttribute,
+		ModeSettingFileOpenerAdd, ModeSettingFileOpenerEditExtension,
+		ModeSettingFileOpenerEditApps, ModeSettingFileOpenerEditDefault,
+		ModeSettingFileOpenerMove, ModeSettingFileOpenerDeleteConfirm:
+		return true
+	case ModeSetting:
+		return m.settingMenuCursor == settingMenuFileOpener
 	}
 	return false
 }
@@ -2806,7 +3497,71 @@ func (m Model) View() string {
 	var body string
 	if isSettingMode(m.mode) {
 		menuFocused := m.mode == ModeSetting
-		if m.isSettingFieldFocus() {
+		if m.isSettingApplicationFocus() {
+			// application 系: 3 ペイン (menu 12cell + 中央 + 右 attributes)。
+			leftW := 12
+			if leftW > m.width-2 {
+				leftW = m.width - 2
+				if leftW < 1 {
+					leftW = 1
+				}
+			}
+			remain := m.width - leftW - 2
+			if remain < 2 {
+				remain = 2
+			}
+			midW := remain / 2
+			rightW := remain - midW
+			midFocused := m.mode == ModeSettingApplication || m.mode == ModeSettingApplicationAdd ||
+				m.mode == ModeSettingApplicationMove || m.mode == ModeSettingApplicationDeleteConfirm
+			rightFocused := m.mode == ModeSettingApplicationAttribute ||
+				m.mode == ModeSettingApplicationEditName || m.mode == ModeSettingApplicationEditRun
+			inAppMove := m.mode == ModeSettingApplicationMove
+			left, mid, right := renderSettingApplication(m.cfg.Applications, m.settingMenuCursor, m.settingApplicationCursor, m.settingApplicationAttrCursor,
+				menuFocused, midFocused, rightFocused, inAppMove, leftW, midW, rightW, bodyH)
+			if inAppMove {
+				banner := styleMoveBanner.Render("-- MOVE MODE --")
+				bannerW := lipgloss.Width(banner)
+				x := midW - bannerW
+				if x < 0 {
+					x = 0
+				}
+				mid = PlaceOverlay(x, 0, banner, mid)
+			}
+			body = lipgloss.JoinHorizontal(lipgloss.Top, left, divider, mid, divider, right)
+		} else if m.isSettingFileOpenerFocus() {
+			leftW := 12
+			if leftW > m.width-2 {
+				leftW = m.width - 2
+				if leftW < 1 {
+					leftW = 1
+				}
+			}
+			remain := m.width - leftW - 2
+			if remain < 2 {
+				remain = 2
+			}
+			midW := remain / 2
+			rightW := remain - midW
+			midFocused := m.mode == ModeSettingFileOpener || m.mode == ModeSettingFileOpenerAdd ||
+				m.mode == ModeSettingFileOpenerMove || m.mode == ModeSettingFileOpenerDeleteConfirm
+			rightFocused := m.mode == ModeSettingFileOpenerAttribute ||
+				m.mode == ModeSettingFileOpenerEditExtension || m.mode == ModeSettingFileOpenerEditApps ||
+				m.mode == ModeSettingFileOpenerEditDefault
+			inOpenerMove := m.mode == ModeSettingFileOpenerMove
+			left, mid, right := renderSettingFileOpener(m.cfg.FileOpeners, m.cfg.Applications, m.settingMenuCursor, m.settingFileOpenerCursor, m.settingFileOpenerAttrCursor,
+				menuFocused, midFocused, rightFocused, inOpenerMove, leftW, midW, rightW, bodyH)
+			if inOpenerMove {
+				banner := styleMoveBanner.Render("-- MOVE MODE --")
+				bannerW := lipgloss.Width(banner)
+				x := midW - bannerW
+				if x < 0 {
+					x = 0
+				}
+				mid = PlaceOverlay(x, 0, banner, mid)
+			}
+			body = lipgloss.JoinHorizontal(lipgloss.Top, left, divider, mid, divider, right)
+		} else if m.isSettingFieldFocus() {
 			// field 系: 3 ペイン (menu 12cell + 中央 + 右 attributes)。
 			leftW := 12
 			if leftW > m.width-2 {
@@ -3110,6 +3865,36 @@ func (m Model) View() string {
 		msg := "delete status?"
 		if sorted := m.statuses.Sorted(); m.settingStatusCursor < len(sorted) {
 			msg = "delete status \"" + sorted[m.settingStatusCursor].Label + "\" ?"
+		}
+		view = overlayConfirmPopup(view, "Delete?", msg,
+			[]hintItem{{"y", "delete"}, {"n/esc", "cancel"}},
+			m.width, m.height-1)
+	case ModeSettingApplicationEditName:
+		view = overlayInputPopup(view, "Rename application:", m.input.View(), m.inputErr, m.width, m.height-1)
+	case ModeSettingApplicationEditRun:
+		view = overlayInputPopup(view, "Edit run:", m.input.View(), m.inputErr, m.width, m.height-1)
+	case ModeSettingApplicationAdd:
+		view = overlayApplicationAddPopup(view, m.input.View(), m.inputErr, m.addApplicationFocus, m.addApplicationNameBuf, m.addApplicationRunBuf, m.width, m.height-1)
+	case ModeSettingApplicationDeleteConfirm:
+		msg := "delete application?"
+		if m.settingApplicationCursor >= 0 && m.settingApplicationCursor < len(m.cfg.Applications) {
+			msg = "delete application \"" + m.cfg.Applications[m.settingApplicationCursor].Name + "\" ?"
+		}
+		view = overlayConfirmPopup(view, "Delete?", msg,
+			[]hintItem{{"y", "delete"}, {"n/esc", "cancel"}},
+			m.width, m.height-1)
+	case ModeSettingFileOpenerAdd:
+		view = overlayInputPopup(view, "Add file_opener (extension):", m.input.View(), m.inputErr, m.width, m.height-1)
+	case ModeSettingFileOpenerEditExtension:
+		view = overlayInputPopup(view, "Edit extension:", m.input.View(), m.inputErr, m.width, m.height-1)
+	case ModeSettingFileOpenerEditApps:
+		view = overlayFileOpenerAppsPicker(view, m.cfg.Applications, m.settingFileOpenerAppsSelected, m.settingFileOpenerAppsCursor, m.width, m.height-1)
+	case ModeSettingFileOpenerEditDefault:
+		view = overlayFileOpenerDefaultPicker(view, m.cfg.Applications, m.settingFileOpenerDefaultCursor, m.width, m.height-1)
+	case ModeSettingFileOpenerDeleteConfirm:
+		msg := "delete file_opener?"
+		if m.settingFileOpenerCursor >= 0 && m.settingFileOpenerCursor < len(m.cfg.FileOpeners) {
+			msg = "delete file_opener \"." + m.cfg.FileOpeners[m.settingFileOpenerCursor].Extension + "\" ?"
 		}
 		view = overlayConfirmPopup(view, "Delete?", msg,
 			[]hintItem{{"y", "delete"}, {"n/esc", "cancel"}},

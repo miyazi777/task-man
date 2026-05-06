@@ -7,6 +7,30 @@ import (
 	"github.com/miyazi777/task-man/internal/storage"
 )
 
+// nextApplicationID は applications の中で使われていない最小の正の ID を返す
+// (= max(id)+1)。空なら 1。
+func nextApplicationID(apps []storage.Application) int {
+	max := 0
+	for _, a := range apps {
+		if a.ID > max {
+			max = a.ID
+		}
+	}
+	return max + 1
+}
+
+// hasFileOpenerExtension は openers に同名の extension が既に登録されているかを返す。
+// 大文字小文字は無視 (loadFileOpeners と同じ正規化)。
+func hasFileOpenerExtension(openers []storage.FileOpener, ext string) bool {
+	ext = strings.ToLower(strings.TrimPrefix(ext, "."))
+	for _, op := range openers {
+		if op.Extension == ext {
+			return true
+		}
+	}
+	return false
+}
+
 // resolveDefaultApp は fileName の拡張子に対応する file_opener.default_app の Application を返す。
 // 該当拡張子の opener が無い、または default_app 未指定 (0)、または存在しない id の場合は ok=false。
 // ok=false の場合、呼び出し側は $EDITOR フォールバックを使う。

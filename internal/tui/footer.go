@@ -201,6 +201,60 @@ func renderFooter(mode, prevMode Mode, onFilesRow bool, onURLRow bool, viewTrash
 			{"k/↑", "up"}, {"j/↓", "down"},
 			{"Enter", "confirm"}, {"Esc", "cancel"},
 		})
+	case ModeSettingApplication:
+		content = renderHints([]hintItem{
+			{"k/↑", "up"}, {"j/↓", "down"},
+			{"a", "add"}, {"m", "move"}, {"d", "delete"},
+			{"enter", "detail"}, {"esc", "back"},
+		})
+	case ModeSettingApplicationAttribute:
+		content = renderHints([]hintItem{
+			{"k/↑", "up"}, {"j/↓", "down"},
+			{"enter", "edit"}, {"esc", "back"},
+		})
+	case ModeSettingApplicationAdd:
+		content = renderHints([]hintItem{
+			{"Tab", "focus"}, {"Enter", "save"}, {"Esc", "discard"},
+		})
+	case ModeSettingApplicationEditName, ModeSettingApplicationEditRun:
+		content = renderHints([]hintItem{
+			{"Enter", "save"}, {"Esc", "discard"},
+		})
+	case ModeSettingApplicationMove:
+		content = renderHints([]hintItem{
+			{"k/↑", "up"}, {"j/↓", "down"},
+			{"Enter", "confirm"}, {"Esc", "cancel"},
+		})
+	case ModeSettingFileOpener:
+		content = renderHints([]hintItem{
+			{"k/↑", "up"}, {"j/↓", "down"},
+			{"a", "add"}, {"m", "move"}, {"d", "delete"},
+			{"enter", "detail"}, {"esc", "back"},
+		})
+	case ModeSettingFileOpenerAttribute:
+		content = renderHints([]hintItem{
+			{"k/↑", "up"}, {"j/↓", "down"},
+			{"enter", "edit"}, {"esc", "back"},
+		})
+	case ModeSettingFileOpenerAdd, ModeSettingFileOpenerEditExtension:
+		content = renderHints([]hintItem{
+			{"Enter", "save"}, {"Esc", "discard"},
+		})
+	case ModeSettingFileOpenerEditApps:
+		content = renderHints([]hintItem{
+			{"k/↑", "up"}, {"j/↓", "down"},
+			{"space", "toggle"}, {"Enter", "save"}, {"Esc", "cancel"},
+		})
+	case ModeSettingFileOpenerEditDefault:
+		content = renderHints([]hintItem{
+			{"k/↑", "up"}, {"j/↓", "down"},
+			{"Enter", "save"}, {"Esc", "cancel"},
+		})
+	case ModeSettingFileOpenerMove:
+		content = renderHints([]hintItem{
+			{"k/↑", "up"}, {"j/↓", "down"},
+			{"Enter", "confirm"}, {"Esc", "cancel"},
+		})
 	}
 
 	bar := lipgloss.NewStyle().

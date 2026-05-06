@@ -41,6 +41,25 @@ const (
 	ModeTagPickerDeleteConfirm      // タグ削除確認 (y/n オーバーレイ)
 	ModeLayout                      // タスクリスト画面のレイアウト調整 (;→l で突入)
 	ModeFileOpener                  // 詳細画面 file list で o/enter 押下時のアプリ選択モーダル
+
+	// 設定画面 application サブモード群。
+	ModeSettingApplication              // 中央ペイン (application 一覧) にフォーカス
+	ModeSettingApplicationAttribute     // 右ペイン (id/name/run) にフォーカス
+	ModeSettingApplicationAdd           // 新規追加 (name + run の 2 行モーダル)
+	ModeSettingApplicationEditName      // name の編集 (textinput)
+	ModeSettingApplicationEditRun       // run の編集 (textinput)
+	ModeSettingApplicationMove          // 順序変更モード
+	ModeSettingApplicationDeleteConfirm // 削除確認
+
+	// 設定画面 file_opener サブモード群。
+	ModeSettingFileOpener              // 中央ペイン (opener 一覧) にフォーカス
+	ModeSettingFileOpenerAttribute     // 右ペイン (extension/applications/default_app) にフォーカス
+	ModeSettingFileOpenerAdd           // 新規追加 (extension モーダル)
+	ModeSettingFileOpenerEditExtension // extension の編集
+	ModeSettingFileOpenerEditApps      // applications 編集 (multi-select サブモーダル)
+	ModeSettingFileOpenerEditDefault   // default_app picker
+	ModeSettingFileOpenerMove          // 順序変更モード
+	ModeSettingFileOpenerDeleteConfirm // 削除確認
 )
 
 func (m Mode) String() string {
@@ -121,6 +140,36 @@ func (m Mode) String() string {
 		return "layout"
 	case ModeFileOpener:
 		return "fileopener"
+	case ModeSettingApplication:
+		return "settingapplication"
+	case ModeSettingApplicationAttribute:
+		return "settingapplicationattribute"
+	case ModeSettingApplicationAdd:
+		return "settingapplicationadd"
+	case ModeSettingApplicationEditName:
+		return "settingapplicationeditname"
+	case ModeSettingApplicationEditRun:
+		return "settingapplicationeditrun"
+	case ModeSettingApplicationMove:
+		return "settingapplicationmove"
+	case ModeSettingApplicationDeleteConfirm:
+		return "settingapplicationdeleteconfirm"
+	case ModeSettingFileOpener:
+		return "settingfileopener"
+	case ModeSettingFileOpenerAttribute:
+		return "settingfileopenerattribute"
+	case ModeSettingFileOpenerAdd:
+		return "settingfileopeneradd"
+	case ModeSettingFileOpenerEditExtension:
+		return "settingfileopenereditextension"
+	case ModeSettingFileOpenerEditApps:
+		return "settingfileopenereditapps"
+	case ModeSettingFileOpenerEditDefault:
+		return "settingfileopenereditdefault"
+	case ModeSettingFileOpenerMove:
+		return "settingfileopenermove"
+	case ModeSettingFileOpenerDeleteConfirm:
+		return "settingfileopenerdeleteconfirm"
 	default:
 		return "unknown"
 	}

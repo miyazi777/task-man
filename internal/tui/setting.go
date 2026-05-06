@@ -8,17 +8,20 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/miyazi777/task-man/internal/storage"
 	"github.com/miyazi777/task-man/internal/task"
 )
 
 // 設定画面のメニュー項目 (左ペイン)。
 const (
-	settingMenuGeneral = 0
-	settingMenuStatus  = 1
-	settingMenuField   = 2
+	settingMenuGeneral     = 0
+	settingMenuStatus      = 1
+	settingMenuField       = 2
+	settingMenuApplication = 3
+	settingMenuFileOpener  = 4
 )
 
-var settingMenuLabels = []string{"general", "status", "field"}
+var settingMenuLabels = []string{"general", "status", "field", "application", "file_opener"}
 
 // renderSettingStatus は設定画面の status 系モード用に左メニュー + 右 status ペインを描画する。
 // menuFocused=true のとき左メニュー側にカーソル反転、=false なら右ペインの statusCursor 行に反転。
@@ -36,6 +39,22 @@ func renderSettingGeneral(yamlPath, dataBaseDir string, menuCursor, rightCursor 
 	left := renderSettingMenu(menuCursor, menuFocused, leftW, height)
 	right := renderSettingGeneralPane(yamlPath, dataBaseDir, rightCursor, rightFocused, rightW, height)
 	return left, right
+}
+
+// renderSettingApplication は設定画面の application 系モード用に 3 ペインを描画する。
+func renderSettingApplication(apps []storage.Application, menuCursor, appCursor, attrCursor int, menuFocused, midFocused, rightFocused, inMoveMode bool, leftW, midW, rightW, height int) (string, string, string) {
+	left := renderSettingMenu(menuCursor, menuFocused, leftW, height)
+	mid := renderSettingApplicationPane(apps, appCursor, midFocused, inMoveMode, midW, height)
+	right := renderSettingApplicationAttributePane(apps, appCursor, attrCursor, rightFocused, rightW, height)
+	return left, mid, right
+}
+
+// renderSettingFileOpener は設定画面の file_opener 系モード用に 3 ペインを描画する。
+func renderSettingFileOpener(openers []storage.FileOpener, apps []storage.Application, menuCursor, openerCursor, attrCursor int, menuFocused, midFocused, rightFocused, inMoveMode bool, leftW, midW, rightW, height int) (string, string, string) {
+	left := renderSettingMenu(menuCursor, menuFocused, leftW, height)
+	mid := renderSettingFileOpenerPane(openers, openerCursor, midFocused, inMoveMode, midW, height)
+	right := renderSettingFileOpenerAttributePane(openers, apps, openerCursor, attrCursor, rightFocused, rightW, height)
+	return left, mid, right
 }
 
 // renderSettingField は設定画面の field 系モード用に左メニュー + 中央 field 一覧 + 右 attributes ペインを描画する。
@@ -565,4 +584,313 @@ func hexToHSV(hex string) (float64, float64, float64) {
 		h += 360
 	}
 	return h, s, v
+}
+
+// renderSettingApplicationPane は中央ペイン (application 一覧) を描画する。
+func renderSettingApplicationPane(apps []storage.Application, cursor int, focused, inMoveMode bool, width, height int) string {
+	header := lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("-- application setting --")
+	lines := []string{header}
+	if len(apps) == 0 {
+		lines = append(lines, lipgloss.NewStyle().Foreground(colorMuted).Italic(true).Render("  (no applications)"))
+	}
+	for i, a := range apps {
+		highlight := i == cursor && focused
+		raw := "  " + a.Name
+		if highlight {
+			lines = append(lines, cursorStyleFor(inMoveMode).Width(width).Render(raw))
+		} else {
+			lines = append(lines, lipgloss.NewStyle().Width(width).Foreground(colorText).Render(raw))
+		}
+	}
+	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
+}
+
+// renderSettingApplicationAttributePane は右ペイン (id/name/run の 3 行) を描画する。
+// id 行は read-only。
+func renderSettingApplicationAttributePane(apps []storage.Application, appCursor, attrCursor int, focused bool, width, height int) string {
+	header := lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("-- attributes --")
+	lines := []string{header}
+	if appCursor < 0 || appCursor >= len(apps) {
+		return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
+	}
+	a := apps[appCursor]
+	rows := [][2]string{
+		{"id", fmt.Sprintf("%d", a.ID)},
+		{"name", a.Name},
+		{"run", a.Run},
+	}
+	const idReadonlyNote = "(read-only)"
+	for i, kv := range rows {
+		leftPart := "  " + kv[0] + ": " + kv[1]
+		isID := kv[0] == "id"
+		isCursor := focused && i == attrCursor
+		if isID {
+			leftW := ansi.StringWidth(leftPart)
+			noteW := ansi.StringWidth(idReadonlyNote)
+			padLen := width - leftW - noteW
+			if padLen < 1 {
+				padLen = 1
+			}
+			if isCursor {
+				raw := leftPart + strings.Repeat(" ", padLen) + idReadonlyNote
+				lines = append(lines, styleCursorRow.Width(width).Render(raw))
+			} else {
+				leftStyled := lipgloss.NewStyle().Foreground(colorText).Render(leftPart)
+				noteStyled := lipgloss.NewStyle().Foreground(colorMuted).Italic(true).Render(idReadonlyNote)
+				lines = append(lines, lipgloss.NewStyle().Width(width).Render(leftStyled+strings.Repeat(" ", padLen)+noteStyled))
+			}
+			continue
+		}
+		if isCursor {
+			lines = append(lines, styleCursorRow.Width(width).Render(leftPart))
+		} else {
+			lines = append(lines, lipgloss.NewStyle().Width(width).Foreground(colorText).Render(leftPart))
+		}
+	}
+	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
+}
+
+// renderSettingFileOpenerPane は中央ペイン (file_opener 一覧、行は extension) を描画する。
+func renderSettingFileOpenerPane(openers []storage.FileOpener, cursor int, focused, inMoveMode bool, width, height int) string {
+	header := lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("-- file_opener setting --")
+	lines := []string{header}
+	if len(openers) == 0 {
+		lines = append(lines, lipgloss.NewStyle().Foreground(colorMuted).Italic(true).Render("  (no openers)"))
+	}
+	for i, op := range openers {
+		highlight := i == cursor && focused
+		raw := "  ." + op.Extension
+		if highlight {
+			lines = append(lines, cursorStyleFor(inMoveMode).Width(width).Render(raw))
+		} else {
+			lines = append(lines, lipgloss.NewStyle().Width(width).Foreground(colorText).Render(raw))
+		}
+	}
+	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
+}
+
+// renderSettingFileOpenerAttributePane は右ペイン (extension/applications/default_app) を描画する。
+// applications は app.Name のカンマ区切り、default_app は ID と name を併記する。
+func renderSettingFileOpenerAttributePane(openers []storage.FileOpener, apps []storage.Application, openerCursor, attrCursor int, focused bool, width, height int) string {
+	header := lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("-- attributes --")
+	lines := []string{header}
+	if openerCursor < 0 || openerCursor >= len(openers) {
+		return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
+	}
+	op := openers[openerCursor]
+	byID := make(map[int]storage.Application, len(apps))
+	for _, a := range apps {
+		byID[a.ID] = a
+	}
+	appsLabel := joinAppNames(op.ApplicationIDs, byID)
+	if appsLabel == "" {
+		appsLabel = "(none)"
+	}
+	defLabel := "(none)"
+	if op.DefaultApp != 0 {
+		if a, ok := byID[op.DefaultApp]; ok {
+			defLabel = fmt.Sprintf("%d:%s", a.ID, a.Name)
+		} else {
+			defLabel = fmt.Sprintf("%d (unknown)", op.DefaultApp)
+		}
+	}
+	rows := [][2]string{
+		{"extension", op.Extension},
+		{"applications", appsLabel},
+		{"default_app", defLabel},
+	}
+	for i, kv := range rows {
+		leftPart := "  " + kv[0] + ": " + kv[1]
+		if w := ansi.StringWidth(leftPart); w > width {
+			leftPart = ansi.Truncate(leftPart, width, "...")
+		}
+		isCursor := focused && i == attrCursor
+		if isCursor {
+			lines = append(lines, styleCursorRow.Width(width).Render(leftPart))
+		} else {
+			lines = append(lines, lipgloss.NewStyle().Width(width).Foreground(colorText).Render(leftPart))
+		}
+	}
+	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
+}
+
+// overlayApplicationAddPopup は application 追加用の 2 行モーダル (name + run) を描画する。
+//   - focus=0: name 行 (textinput) にフォーカス、run 行は退避バッファを read-only 表示
+//   - focus=1: run 行 (textinput) にフォーカス、name 行は退避バッファを read-only 表示
+//
+// inputView は textinput.Model.View() の結果。focus 側に表示する。
+// nameBuf/runBuf は非フォーカス側の現在値。
+func overlayApplicationAddPopup(bg, inputView string, inputErr error, focus int, nameBuf, runBuf string, screenW, screenH int) string {
+	popupOuterW := popupWidth(screenW)
+	contentW := popupOuterW - 4
+	if contentW < 12 {
+		contentW = 12
+	}
+	innerW := popupOuterW - 2
+
+	topRow := buildBorderRow("╭", "╮", stylePopupLabel.Render("Add application:"), innerW)
+	bottomRow := buildBorderRow("╰", "╯", renderPopupHints([]hintItem{
+		{"Tab", "focus"}, {"Enter", "save"}, {"Esc", "cancel"},
+	}), innerW)
+
+	wrap := func(content string) string {
+		used := ansi.StringWidth(ansi.Strip(content))
+		if used < contentW {
+			content += stylePopupFill.Render(strings.Repeat(" ", contentW-used))
+		}
+		return stylePopupBorder.Render("│") +
+			stylePopupFill.Render(" ") +
+			content +
+			stylePopupFill.Render(" ") +
+			stylePopupBorder.Render("│")
+	}
+
+	mkRow := func(label string, isFocused bool, value string) string {
+		var lbl string
+		if isFocused {
+			lbl = stylePopupFill.Foreground(colorAccent).Render(label)
+		} else {
+			lbl = stylePopupFill.Foreground(colorMuted).Render(label)
+		}
+		var valStr string
+		if isFocused {
+			valStr = inputView
+		} else {
+			if value == "" {
+				value = "(empty)"
+			}
+			if w := ansi.StringWidth(value); w > contentW-ansi.StringWidth(ansi.Strip(lbl)) {
+				value = ansi.Truncate(value, contentW-ansi.StringWidth(ansi.Strip(lbl)), "")
+			}
+			if value == "(empty)" {
+				valStr = stylePopupFill.Foreground(colorDim).Italic(true).Render(value)
+			} else {
+				valStr = stylePopupFill.Foreground(colorMuted).Render(value)
+			}
+		}
+		if w := ansi.StringWidth(valStr); w > contentW-ansi.StringWidth(ansi.Strip(lbl)) {
+			valStr = ansi.Truncate(valStr, contentW-ansi.StringWidth(ansi.Strip(lbl)), "")
+		}
+		return wrap(lbl + valStr)
+	}
+
+	nameRow := mkRow("name: ", focus == 0, nameBuf)
+	runRow := mkRow("run:  ", focus == 1, runBuf)
+
+	rows := []string{topRow, nameRow, runRow}
+	if inputErr != nil {
+		errRow := wrap(stylePopupError.Render(inputErr.Error()))
+		rows = append(rows, errRow)
+	}
+	rows = append(rows, bottomRow)
+
+	popup := lipgloss.JoinVertical(lipgloss.Left, rows...)
+	return centerOverlay(popup, bg, screenW, screenH)
+}
+
+// overlayFileOpenerAppsPicker は applications multi-select 用モーダル。
+// space で対象 toggle、enter で確定、esc でキャンセル。selected は現在選択中の ID 配列。
+func overlayFileOpenerAppsPicker(bg string, apps []storage.Application, selected []int, cursor, screenW, screenH int) string {
+	popupOuterW := popupWidth(screenW)
+	contentW := popupOuterW - 4
+	if contentW < 12 {
+		contentW = 12
+	}
+	innerW := popupOuterW - 2
+
+	topRow := buildBorderRow("╭", "╮", stylePopupLabel.Render("Applications:"), innerW)
+	bottomRow := buildBorderRow("╰", "╯", renderPopupHints([]hintItem{
+		{"k/↑", "up"}, {"j/↓", "down"}, {"space", "toggle"}, {"Enter", "save"}, {"Esc", "cancel"},
+	}), innerW)
+
+	selSet := make(map[int]struct{}, len(selected))
+	for _, id := range selected {
+		selSet[id] = struct{}{}
+	}
+
+	rows := []string{topRow}
+	if len(apps) == 0 {
+		rows = append(rows, lineWrap(stylePopupFill.Foreground(colorMuted).Italic(true).Render("(no applications)"), contentW))
+	}
+	for i, a := range apps {
+		mark := " "
+		if _, ok := selSet[a.ID]; ok {
+			mark = "x"
+		}
+		raw := fmt.Sprintf("[%s] %s", mark, a.Name)
+		if w := ansi.StringWidth(raw); w > contentW {
+			raw = ansi.Truncate(raw, contentW, "")
+		}
+		var rendered string
+		if i == cursor {
+			rendered = stylePopupCursorRow.Width(contentW).Render(raw)
+		} else {
+			rendered = stylePopupFill.Foreground(colorText).Width(contentW).Render(raw)
+		}
+		rows = append(rows, stylePopupBorder.Render("│")+stylePopupFill.Render(" ")+rendered+stylePopupFill.Render(" ")+stylePopupBorder.Render("│"))
+	}
+	rows = append(rows, bottomRow)
+	popup := lipgloss.JoinVertical(lipgloss.Left, rows...)
+	return centerOverlay(popup, bg, screenW, screenH)
+}
+
+// overlayFileOpenerDefaultPicker は default_app 選択用モーダル。
+// 0 番は "(none)"、それ以降は applications。
+func overlayFileOpenerDefaultPicker(bg string, apps []storage.Application, cursor, screenW, screenH int) string {
+	popupOuterW := popupWidth(screenW)
+	contentW := popupOuterW - 4
+	if contentW < 12 {
+		contentW = 12
+	}
+	innerW := popupOuterW - 2
+
+	topRow := buildBorderRow("╭", "╮", stylePopupLabel.Render("Default app:"), innerW)
+	bottomRow := buildBorderRow("╰", "╯", renderPopupHints([]hintItem{
+		{"k/↑", "up"}, {"j/↓", "down"}, {"Enter", "save"}, {"Esc", "cancel"},
+	}), innerW)
+
+	rowEntries := []string{"(none)"}
+	for _, a := range apps {
+		rowEntries = append(rowEntries, fmt.Sprintf("%d: %s", a.ID, a.Name))
+	}
+
+	rows := []string{topRow}
+	for i, label := range rowEntries {
+		raw := "  " + label
+		if w := ansi.StringWidth(raw); w > contentW {
+			raw = ansi.Truncate(raw, contentW, "")
+		}
+		var rendered string
+		if i == cursor {
+			rendered = stylePopupCursorRow.Width(contentW).Render(raw)
+		} else {
+			rendered = stylePopupFill.Foreground(colorText).Width(contentW).Render(raw)
+		}
+		rows = append(rows, stylePopupBorder.Render("│")+stylePopupFill.Render(" ")+rendered+stylePopupFill.Render(" ")+stylePopupBorder.Render("│"))
+	}
+	rows = append(rows, bottomRow)
+	popup := lipgloss.JoinVertical(lipgloss.Left, rows...)
+	return centerOverlay(popup, bg, screenW, screenH)
+}
+
+// lineWrap はポップアップ 1 行を contentW 幅で組み立てる小ヘルパー。
+func lineWrap(content string, contentW int) string {
+	used := ansi.StringWidth(ansi.Strip(content))
+	if used < contentW {
+		content += stylePopupFill.Render(strings.Repeat(" ", contentW-used))
+	}
+	return stylePopupBorder.Render("│") + stylePopupFill.Render(" ") + content + stylePopupFill.Render(" ") + stylePopupBorder.Render("│")
+}
+
+// joinAppNames は ID 配列を "name1, name2" のカンマ区切り表示に整形する。未知 ID は "id?(N)" 表示。
+func joinAppNames(ids []int, byID map[int]storage.Application) string {
+	parts := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if a, ok := byID[id]; ok {
+			parts = append(parts, a.Name)
+		} else {
+			parts = append(parts, fmt.Sprintf("id?(%d)", id))
+		}
+	}
+	return strings.Join(parts, ", ")
 }
