@@ -1,155 +1,157 @@
+[English](./README.md) | [日本語](./README.ja.md)
+
 # task-man
 
-ターミナルで動くタスク管理 TUI アプリケーション。すべてのデータを単一の `tasks.yaml` に保存し、タスク本文や添付ファイルは隣接するディレクトリで管理します。
+A terminal-based task management TUI application. All data is stored in a single `tasks.yaml`, while task contents and attached files live in an adjacent directory.
 
-[Bubble Tea](https://github.com/charmbracelet/bubbletea) / [Lip Gloss](https://github.com/charmbracelet/lipgloss) を利用した日本語フレンドリーな UI。
+A Japanese-friendly UI built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) / [Lip Gloss](https://github.com/charmbracelet/lipgloss).
 
-## 特徴
+## Features
 
-- **シングルファイル永続化**: タスク・ステータス・拡張項目・タグ・レイアウトをすべて 1 つの `tasks.yaml` に書き出し
-- **カスタムステータス**: `todo / doing / done` 既定に加え、yaml で自由にステータス・色を定義可能
-- **サブタスク**: 最大 5 階層のネスト
-- **タグ**: タスクに最大 5 個まで付与、設定画面でタグ管理
-- **拡張項目 (fields)**: text / date / URL の各タイプを task に追加可能
-- **ゴミ箱機能**: 削除タスクの一時保管・復元・完全削除
-- **ファイルプレビュー**: タスク添付ファイル (md / txt / csv) を右ペインに表示
-- **ファイルオープナー**: 拡張子ごとに起動するアプリを yaml で設定、ファイルから直接起動
-- **レイアウト調整**: タスクリスト画面の各ペインの比率をインタラクティブに変更し永続化
-- **複数ワークスペース**: `-t` オプションで起動時に異なる `tasks.yaml` を指定可能
+- **Single-file persistence**: Tasks, statuses, custom fields, tags, and layout are all written to a single `tasks.yaml`
+- **Custom statuses**: In addition to the default `todo / doing / done`, you can freely define statuses and colors in yaml
+- **Subtasks**: Up to 5 levels of nesting
+- **Tags**: Up to 5 tags per task; manage tags from the settings screen
+- **Custom fields**: Add `text` / `date` / `URL` typed fields to a task
+- **Trash**: Temporarily store deleted tasks, restore them, or permanently delete
+- **File preview**: Show task-attached files (md / txt / csv) in the right pane
+- **File opener**: Configure per-extension launch applications in yaml; launch directly from a file
+- **Layout adjustment**: Interactively resize each pane on the task list screen and persist it
+- **Multiple workspaces**: Specify a different `tasks.yaml` at startup with the `-t` option
 
-## スクリーンショット
+## Screenshots
 
-`docs/mockups/` にモックアップ SVG (`01-list-focused.svg` など) を収録しています。
+Mockup SVGs (such as `01-list-focused.svg`) are included in `docs/mockups/`.
 
-## 動作要件
+## Requirements
 
-- Go 1.26 以上 (`go.mod` 参照)
-- 動作確認済み環境: Linux
+- Go 1.26 or later (see `go.mod`)
+- Tested environments: Linux
 
-## ビルド・インストール
+## Build & Install
 
 ```bash
 git clone https://github.com/<your-account>/task-man.git
 cd task-man
 
-# ローカルビルド (./task-man が生成される)
+# Local build (produces ./task-man)
 make build
 
-# $GOPATH/bin にインストール
+# Install to $GOPATH/bin
 make install
 ```
 
-主な Make ターゲット:
+Main Make targets:
 
-| ターゲット | 動作 |
+| Target | Action |
 |---|---|
-| `make build` | `./task-man` バイナリをビルド |
-| `make run` | ビルドして起動 |
-| `make test` | 全パッケージのテスト実行 |
+| `make build` | Build the `./task-man` binary |
+| `make run` | Build and run |
+| `make test` | Run tests for all packages |
 | `make vet` | `go vet ./...` |
 | `make fmt` | `go fmt ./...` |
 | `make tidy` | `go mod tidy` |
-| `make clean` | バイナリ削除 |
+| `make clean` | Remove the binary |
 
-## 起動
+## Launch
 
-カレントディレクトリの `tasks.yaml` を読みます。存在しなければ自動で空ファイルを作成します。
+Reads `tasks.yaml` from the current directory. If it does not exist, an empty file is created automatically.
 
 ```bash
 ./task-man
 ```
 
-### 起動オプション
+### Launch options
 
-| フラグ | 内容 |
+| Flag | Description |
 |---|---|
-| `-t`, `--tasks <path>` | 任意の `tasks.yaml` を指定 (`~/...` の展開対応) |
-| `-i`, `--init` | yaml をデフォルト 3 ステータス (todo/doing/done) のみで初期化し、タスクデータディレクトリを全削除 (要 y/N 確認) |
+| `-t`, `--tasks <path>` | Specify any `tasks.yaml` (supports `~/...` expansion) |
+| `-i`, `--init` | Initialize the yaml with only the default 3 statuses (todo/doing/done) and remove all task data directories (requires y/N confirmation) |
 
-#### 例: 共有 tasks.yaml をエイリアスから参照する
+#### Example: Reference a shared tasks.yaml via an alias
 
 ```bash
-# 任意の作業ディレクトリから ~/private/tasks.yaml を使う
+# Use ~/private/tasks.yaml from any working directory
 alias tm='task-man -t ~/private/tasks.yaml'
 ```
 
-#### 例: 状態のリセット
+#### Example: Reset state
 
 ```bash
-./task-man -i        # 確認ありで初期化
+./task-man -i        # Initialize (with confirmation)
 ./task-man -t ~/private/tasks.yaml -i
 ```
 
-## キー操作
+## Key bindings
 
-### タスクリスト画面
+### Task list screen
 
-| キー | 動作 |
+| Key | Action |
 |---|---|
-| `k` / `↑` , `j` / `↓` | カーソル上下 |
-| `l` / `→` | ステータス・タスクの展開 |
-| `h` / `←` | 折りたたみ |
-| `enter` | タスク詳細へ遷移 |
-| `a` | 新規タスク (ステータス行) / サブタスク (タスク行) |
-| `d` | タスクをゴミ箱へ (ゴミ箱ビューでは完全削除) |
-| `m` | 移動モード開始 / 確定 |
-| `o` | operation モード (`t`=title, `s`=status, `g`=tag, `f`=files) |
-| `;` | prefix モード |
-| `q` | 終了 |
+| `k` / `↑` , `j` / `↓` | Move cursor up / down |
+| `l` / `→` | Expand status / task |
+| `h` / `←` | Collapse |
+| `enter` | Open task detail |
+| `a` | New task (on a status row) / subtask (on a task row) |
+| `d` | Move task to trash (in trash view: permanently delete) |
+| `m` | Start / confirm move mode |
+| `o` | Operation mode (`t`=title, `s`=status, `g`=tag, `f`=files) |
+| `;` | Prefix mode |
+| `q` | Quit |
 
-### prefix モード (`;` の後)
+### Prefix mode (after `;`)
 
-| キー | 動作 |
+| Key | Action |
 |---|---|
-| `t` | ゴミ箱ビュー表示トグル |
-| `s` | 設定画面へ遷移 |
-| `l` | レイアウト調整モードへ遷移 |
-| `esc` | キャンセル |
+| `t` | Toggle trash view |
+| `s` | Open settings screen |
+| `l` | Enter layout adjustment mode |
+| `esc` | Cancel |
 
-### タスク詳細画面
+### Task detail screen
 
-| キー | 動作 |
+| Key | Action |
 |---|---|
-| `k` / `j` | 行カーソル上下 |
-| `enter` | 各行の編集ポップアップを開く / Files 行ではファイルオープナー起動 (default_app) |
-| `o` | url 型項目: ブラウザで開く / Files 行: 拡張子に応じたアプリ選択モーダル |
-| `a` | Files セクションでファイル新規作成 |
-| `r` | Files セクションでファイルリネーム |
-| `d` | Files セクションでファイル削除 |
-| `;` | prefix モード |
-| `esc` | リストへ戻る |
+| `k` / `j` | Move row cursor up / down |
+| `enter` | Open the edit popup for each row / on the Files row, launch the file opener (default_app) |
+| `o` | URL field: open in browser / Files row: extension-based application selection modal |
+| `a` | Create a new file in the Files section |
+| `r` | Rename a file in the Files section |
+| `d` | Delete a file in the Files section |
+| `;` | Prefix mode |
+| `esc` | Return to the list |
 
-### レイアウト調整モード (`;` → `l`)
+### Layout adjustment mode (`;` → `l`)
 
-突入時のフォーカス (タスクリスト / タスク詳細 / ファイルリスト) によって縦操作の対象が決まります。
+The vertical operation target depends on the focus when entering the mode (task list / task detail / file list).
 
-| キー | 動作 |
+| Key | Action |
 |---|---|
-| `h` / `l` | タスクリスト幅 縮小 / 拡大 |
-| `j` / `k` (詳細 / ファイルリストフォーカス時) | 高さ拡大 / 縮小 |
-| `enter` | 確定 (yaml に保存) |
-| `esc` | 突入前の値に戻して終了 |
+| `h` / `l` | Shrink / expand task list width |
+| `j` / `k` (when detail / file list focused) | Expand / shrink height |
+| `enter` | Confirm (save to yaml) |
+| `esc` | Revert to pre-entry values and exit |
 
-### 設定画面 (`;` → `s`)
+### Settings screen (`;` → `s`)
 
-左メニューで `general` / `status` / `field` / `application` / `file_opener` を切り替え。
+Switch between `general` / `status` / `field` / `application` / `file_opener` from the left menu.
 
-- **general**: yaml パスの確認、`data_base_directory` の編集
-- **status**: ステータス追加・名称変更・色変更・削除・並べ替え
-- **field**: 拡張項目の追加・編集・並べ替え・削除
-- **application**: ファイルオープナー機能で利用するアプリの登録・編集
-- **file_opener**: 拡張子ごとに使用する application と default_app の対応を編集
+- **general**: Check yaml path, edit `data_base_directory`
+- **status**: Add / rename / change color / delete / reorder statuses
+- **field**: Add / edit / reorder / delete custom fields
+- **application**: Register / edit applications used by the file opener
+- **file_opener**: Edit the mapping of extensions to applications and `default_app`
 
-## tasks.yaml の構造
+## Structure of tasks.yaml
 
-`task-man` は以下の構造で yaml を読み書きします。各セクションは省略可能 (Statuses 以外は空でも OK)。
+`task-man` reads and writes yaml with the following structure. Each section is optional (everything except `statuses` may be empty).
 
 ```yaml
 applications:
   - application:
       id: 1
       name: editor
-      run: $EDITOR        # 環境変数 or PATH 上のコマンド
+      run: $EDITOR        # env var or command on PATH
   - application:
       id: 2
       name: md-viewer
@@ -159,14 +161,14 @@ file_opener:
   - opener:
       extension: "md"
       applications: [1, 2]
-      default_app: 1     # enter 押下時に起動するアプリ (省略時は $EDITOR)
+      default_app: 1     # app launched when enter is pressed (defaults to $EDITOR)
 
-data_base_directory: ./tasks_data   # タスク添付ディレクトリの基準 (省略時は yaml と同階層)
+data_base_directory: ./tasks_data   # base for task attachment dirs (defaults to the yaml's dir)
 
 layout:
   main:
     task_list:
-      width: 0.6      # 0.0〜1.0 の比率 (画面横幅に対する task list の占有比)
+      width: 0.6      # ratio 0.0–1.0 (task list's share of screen width)
     task_detail:
       height: 0.4
     file_list:
@@ -195,7 +197,7 @@ fields:
   - field:
       id: 1
       type: text
-      name: 締切日
+      name: due_date
       position: 1
 
 tags:
@@ -207,7 +209,7 @@ tags:
 tasks:
   - task:
       id: 1
-      title: タスク 1
+      title: Task 1
       status_id: 1
       position: 1
       tags: [1]
@@ -218,29 +220,37 @@ tasks:
             value: "2026-05-01"
 ```
 
-### data_base_directory とタスク添付
+### data_base_directory and task attachments
 
-タスクごとに `task-<id>/` ディレクトリが生成され、その中に `memo.md` 等の添付ファイルが置かれます。
-配置先は `data_base_directory` 設定に従います (未設定なら yaml と同じ階層)。
+A `task-<id>/` directory is generated per task, and attached files such as `memo.md` are placed inside it.
+The location follows the `data_base_directory` setting (defaults to the same directory as the yaml).
 
-例: `data_base_directory: ./tasks_data` のとき、ID=1 のタスクの添付は `./tasks_data/task-1/` 以下。
+Example: When `data_base_directory: ./tasks_data`, attachments for the task with ID=1 live under `./tasks_data/task-1/`.
 
-## ディレクトリ構成
+## Directory structure
 
 ```
 .
-├── cmd/task-man         # エントリポイント (main.go)
-├── internal/cli         # CLI 引数パース
-├── internal/storage     # tasks.yaml の読み書き / 添付ファイル操作
-├── internal/task        # ドメイン (Task / Status / Field / Tag)
+├── cmd/task-man         # Entry point (main.go)
+├── internal/cli         # CLI argument parsing
+├── internal/storage     # tasks.yaml read/write / attachment operations
+├── internal/task        # Domain (Task / Status / Field / Tag)
 ├── internal/tui         # Bubble Tea Model/View/Update
-├── docs/mockups         # 画面モックアップ (SVG)
+├── docs/mockups         # Screen mockups (SVG)
 ├── Makefile
 ├── go.mod
 └── README.md
 ```
 
-## 謝辞
+## Contributing
 
-- TUI 基盤: [Bubble Tea](https://github.com/charmbracelet/bubbletea) / [Bubbles](https://github.com/charmbracelet/bubbles) / [Lip Gloss](https://github.com/charmbracelet/lipgloss)
-- カラーテーマ: [Catppuccin](https://catppuccin.com/) ベース
+This repo ships a git pre-commit hook under `.githooks/` that warns when only one of `README.md` / `README.ja.md` is staged (the warning does not block the commit). Enable it once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+## Acknowledgments
+
+- TUI foundation: [Bubble Tea](https://github.com/charmbracelet/bubbletea) / [Bubbles](https://github.com/charmbracelet/bubbles) / [Lip Gloss](https://github.com/charmbracelet/lipgloss)
+- Color theme: based on [Catppuccin](https://catppuccin.com/)

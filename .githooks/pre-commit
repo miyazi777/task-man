@@ -1,0 +1,18 @@
+#!/bin/sh
+# README.md と README.ja.md の同期忘れを検出する pre-commit フック (警告のみ)
+
+staged=$(git diff --cached --name-only)
+
+en_changed=0
+ja_changed=0
+
+echo "$staged" | grep -qx "README.md" && en_changed=1
+echo "$staged" | grep -qx "README.ja.md" && ja_changed=1
+
+if [ "$en_changed" -eq 1 ] && [ "$ja_changed" -eq 0 ]; then
+    printf '\033[33m[warning]\033[0m README.md が変更されていますが README.ja.md は更新されていません。同期忘れがないか確認してください。\n' >&2
+elif [ "$ja_changed" -eq 1 ] && [ "$en_changed" -eq 0 ]; then
+    printf '\033[33m[warning]\033[0m README.ja.md が変更されていますが README.md は更新されていません。同期忘れがないか確認してください。\n' >&2
+fi
+
+exit 0
