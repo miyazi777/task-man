@@ -78,9 +78,27 @@ type yamlApplications struct {
 	Editor string `yaml:"editor,omitempty"`
 }
 
+// yamlLayoutValue は layout.main.<pane> の単一ペイン分。width / height は片方のみ使う。
+type yamlLayoutValue struct {
+	Width  *float64 `yaml:"width,omitempty"`
+	Height *float64 `yaml:"height,omitempty"`
+}
+
+type yamlLayoutMain struct {
+	TaskList    yamlLayoutValue `yaml:"task_list,omitempty"`
+	TaskDetail  yamlLayoutValue `yaml:"task_detail,omitempty"`
+	FileList    yamlLayoutValue `yaml:"file_list,omitempty"`
+	FilePreview yamlLayoutValue `yaml:"file_preview,omitempty"`
+}
+
+type yamlLayout struct {
+	Main yamlLayoutMain `yaml:"main,omitempty"`
+}
+
 type yamlFile struct {
 	Applications      yamlApplications  `yaml:"applications,omitempty"`
 	DataBaseDirectory string            `yaml:"data_base_directory,omitempty"`
+	Layout            *yamlLayout       `yaml:"layout,omitempty"`
 	Statuses          []yamlStatusEntry `yaml:"statuses"`
 	Fields            []yamlFieldEntry  `yaml:"fields,omitempty"`
 	Tags              []yamlTagEntry    `yaml:"tags,omitempty"`
@@ -131,6 +149,7 @@ func (r *YAMLRepository) Load() (LoadResult, error) {
 	cfg := AppConfig{
 		DataBaseDirectory: f.DataBaseDirectory,
 		Editor:            f.Applications.Editor,
+		Layout:            loadLayout(f.Layout),
 	}
 
 	lr := LoadResult{
@@ -148,6 +167,37 @@ func (r *YAMLRepository) Load() (LoadResult, error) {
 	}
 
 	return lr, nil
+}
+
+// loadLayout は yaml の layout セクションを LayoutConfig に変換する。
+// セクション欠落 / 該当 pane なし / 個別フィールドなし、いずれも nil ポインタとして扱う。
+func loadLayout(yl *yamlLayout) LayoutConfig {
+	if yl == nil {
+		return LayoutConfig{}
+	}
+	return LayoutConfig{
+		TaskListWidth:     yl.Main.TaskList.Width,
+		TaskDetailHeight:  yl.Main.TaskDetail.Height,
+		FileListHeight:    yl.Main.FileList.Height,
+		FilePreviewHeight: yl.Main.FilePreview.Height,
+	}
+}
+
+// marshalLayout は LayoutConfig を yaml 出力用にシリアライズする。
+// 4 値とも nil なら nil を返す (= layout キーごと省略)。
+func marshalLayout(lc LayoutConfig) *yamlLayout {
+	if lc.TaskListWidth == nil && lc.TaskDetailHeight == nil &&
+		lc.FileListHeight == nil && lc.FilePreviewHeight == nil {
+		return nil
+	}
+	return &yamlLayout{
+		Main: yamlLayoutMain{
+			TaskList:    yamlLayoutValue{Width: lc.TaskListWidth},
+			TaskDetail:  yamlLayoutValue{Height: lc.TaskDetailHeight},
+			FileList:    yamlLayoutValue{Height: lc.FileListHeight},
+			FilePreview: yamlLayoutValue{Height: lc.FilePreviewHeight},
+		},
+	}
 }
 
 // loadStatuses は yaml の statuses をドメイン型に変換し、欠落・空・id 未採番に対する
@@ -424,6 +474,7 @@ func (r *YAMLRepository) Save(lr LoadResult) error {
 	data, err := yaml.Marshal(yamlFile{
 		Applications:      yamlApplications{Editor: lr.Config.Editor},
 		DataBaseDirectory: lr.Config.DataBaseDirectory,
+		Layout:            marshalLayout(lr.Config.Layout),
 		Statuses:          statusEntries,
 		Fields:            fieldEntries,
 		Tags:              tagEntries,

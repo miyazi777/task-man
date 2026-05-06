@@ -48,6 +48,10 @@ var (
 	styleMoveBanner = lipgloss.NewStyle().Background(colorWarn).Foreground(colorBase).Bold(true).Padding(0, 1)
 	// styleOperationBanner はリスト右上に表示する operation モードバナー (黒抜き + アクセント色背景)。
 	styleOperationBanner = lipgloss.NewStyle().Background(colorAccent).Foreground(colorBase).Bold(true).Padding(0, 1)
+	// styleLayoutBanner はレイアウト調整モードバナー (operation と同じ見た目)。
+	styleLayoutBanner = lipgloss.NewStyle().Background(colorAccent).Foreground(colorBase).Bold(true).Padding(0, 1)
+	// styleLayoutFocus はレイアウトモード中のフォーカス対象ペインを示すマーカー (上部 1 行に色帯)。
+	styleLayoutFocus = lipgloss.NewStyle().Background(colorAccent).Foreground(colorBase).Bold(true)
 	// styleTrashHeader はゴミ箱ビュー時にリスト最上部 1 行を占有するヘッダ「-- TRASH BOX --」。
 	// 黒抜き (colorBase) + 赤背景 (colorDanger)、太字、左ペイン全幅で中央寄せ。
 	styleTrashHeader = lipgloss.NewStyle().Background(colorDanger).Foreground(colorBase).Bold(true).Align(lipgloss.Center)

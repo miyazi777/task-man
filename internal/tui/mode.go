@@ -39,6 +39,7 @@ const (
 	ModeTagColorPicker              // タグの色変更ピッカー (ModeTagPicker から c キーで遷移)
 	ModeTagPickerRename             // タグ名変更入力 (ModeTagPicker から r キーで遷移)
 	ModeTagPickerDeleteConfirm      // タグ削除確認 (y/n オーバーレイ)
+	ModeLayout                      // タスクリスト画面のレイアウト調整 (;→l で突入)
 )
 
 func (m Mode) String() string {
@@ -115,6 +116,8 @@ func (m Mode) String() string {
 		return "tagpickerrename"
 	case ModeTagPickerDeleteConfirm:
 		return "tagpickerdeleteconfirm"
+	case ModeLayout:
+		return "layout"
 	default:
 		return "unknown"
 	}

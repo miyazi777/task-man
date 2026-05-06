@@ -16,9 +16,10 @@ type hintItem struct {
 // onURLRow は ModeDetail のときカーソルが url 型項目行を指しているかを示す (enter:open / e:edit ヒント用)。
 // 確認モード (Quit/Delete) のときは prevMode のヒントを引き継ぎ、ポップアップにフォーカスを譲る。
 // viewTrash は ModeList のときにヒントを通常用 / ゴミ箱用で切り替えるためのフラグ。
-func renderFooter(mode, prevMode Mode, onFilesRow bool, onURLRow bool, viewTrash bool, width int) string {
+// lf は ModeLayout のときの現フォーカス (それ以外のモードでは無視)。
+func renderFooter(mode, prevMode Mode, onFilesRow bool, onURLRow bool, viewTrash bool, lf layoutFocus, width int) string {
 	if mode == ModeQuitConfirm || mode == ModeDeleteFileConfirm || mode == ModeTrashConfirm || mode == ModeDeleteTaskConfirm || mode == ModeSettingStatusDeleteConfirm || mode == ModeTagPickerDeleteConfirm {
-		return renderFooter(prevMode, ModeList, onFilesRow, onURLRow, viewTrash, width)
+		return renderFooter(prevMode, ModeList, onFilesRow, onURLRow, viewTrash, lf, width)
 	}
 
 	var content string
@@ -88,8 +89,24 @@ func renderFooter(mode, prevMode Mode, onFilesRow bool, onURLRow bool, viewTrash
 		})
 	case ModePrefix:
 		content = renderHints([]hintItem{
-			{"t", "trash"}, {"s", "setting"}, {"esc", "back"},
+			{"t", "trash"}, {"s", "setting"}, {"l", "layout"}, {"esc", "back"},
 		})
+	case ModeLayout:
+		hints := []hintItem{
+			{"h/←", "list-"}, {"l/→", "list+"},
+		}
+		// task_list フォーカス時は縦操作はメニューに出さない (no-op のため)。
+		if lf != layoutFocusTaskList {
+			hints = append(hints,
+				hintItem{"k/↑", "shrink"},
+				hintItem{"j/↓", "grow"},
+			)
+		}
+		hints = append(hints,
+			hintItem{"enter", "save"},
+			hintItem{"esc", "cancel"},
+		)
+		content = renderHints(hints)
 	case ModeOperation:
 		content = renderHints([]hintItem{
 			{"t", "title"}, {"s", "status"}, {"g", "tags"}, {"f", "files"}, {"esc", "back"},

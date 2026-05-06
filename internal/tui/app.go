@@ -89,6 +89,14 @@ type Model struct {
 	tagPickerRenameTagID int
 	tagPickerSearchSaved string
 
+	// ModeLayout 用の状態。
+	// layout は編集中の比率セット (突入時に ensureLayoutRatios で全 nil を埋める)。
+	// layoutBackup は esc で巻き戻すためのスナップショット (突入直前の cfg.Layout の値)。
+	// layoutFocus は task_list / task_detail / file_list の 3 値。
+	layout       storage.LayoutConfig
+	layoutBackup storage.LayoutConfig
+	layoutFocus  layoutFocus
+
 	width  int
 	height int
 
@@ -122,6 +130,7 @@ func NewModel(repo storage.Repository, initial []task.Task, statuses task.Status
 		taskCollapsed: taskCollapsed,
 		mode:          ModeList,
 		keys:          newKeyMap(),
+		layout:        cfg.Layout,
 	}
 	m = m.withRowsRebuilt()
 	m = m.withDetailRowsRebuilt()
@@ -779,6 +788,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Back):
 			m.mode = ModeList
 			return m, nil
+		case key.Matches(msg, m.keys.Prefix):
+			// ;: 詳細画面でも prefix モードに入れる (;→l でレイアウト調整など)。
+			m.prevMode = m.mode
+			m.mode = ModePrefix
+			return m, nil
 		case key.Matches(msg, m.keys.Up):
 			row, ok := m.currentDetailRow()
 			if !ok {
@@ -1029,6 +1043,63 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = ModeSetting
 			m.settingMenuCursor = settingMenuGeneral
 			m.settingStatusCursor = 0
+			return m, nil
+		case key.Matches(msg, m.keys.PrefixLayout):
+			// l: レイアウト調整モードへ遷移。突入時に未設定値はデフォルト比率で埋め、
+			// esc 用に layoutBackup へスナップショットを退避する。
+			// フォーカス対象は prevMode (= ; を押した瞬間のモード) と詳細カーソル位置から決定する。
+			//   ModeList → task_list
+			//   ModeDetail でカーソルが Files 行 → file_list
+			//   ModeDetail でカーソルが Files 行以外 → task_detail
+			m.layoutBackup = m.layout
+			m.layout = ensureLayoutRatios(m.layout)
+			m.layoutFocus = layoutFocusTaskList
+			if m.prevMode == ModeDetail {
+				if row, ok := m.currentDetailRow(); ok && row.kind == detailRowFiles {
+					m.layoutFocus = layoutFocusFileList
+				} else {
+					m.layoutFocus = layoutFocusTaskDetail
+				}
+			}
+			m.mode = ModeLayout
+			return m, nil
+		}
+		return m, nil
+
+	case ModeLayout:
+		// レイアウト調整モード: 比率の編集と確定/キャンセル。フォーカスは突入時に固定。
+		horiz, vert := computeLayoutDelta(m.width, m.height-1)
+		switch {
+		case key.Matches(msg, m.keys.Confirm):
+			// enter: 確定。縦 3 値を 1.0 に正規化してから cfg に反映し yaml に書き戻し、
+			// レイアウトモード突入前のモードに戻る。
+			m.layout = normalizeLayoutRatios(m.layout)
+			m.cfg.Layout = m.layout
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+			}
+			m.mode = m.prevMode
+			return m, nil
+		case key.Matches(msg, m.keys.Back):
+			// esc: 突入直前の値に戻して終了。yaml には触れない。元のモードへ戻る。
+			m.layout = m.layoutBackup
+			m.mode = m.prevMode
+			return m, nil
+		case key.Matches(msg, m.keys.Close):
+			// h/←: タスクリスト幅を縮小。フォーカスを問わず横操作は常に有効。
+			m.layout = clampLayoutRatios(adjustLayoutHorizontal(m.layout, -horiz))
+			return m, nil
+		case key.Matches(msg, m.keys.Open):
+			// l/→: タスクリスト幅を拡大。
+			m.layout = clampLayoutRatios(adjustLayoutHorizontal(m.layout, horiz))
+			return m, nil
+		case key.Matches(msg, m.keys.Up):
+			// k/↑: 対象ペインの高さを縮小。task_list フォーカス時は no-op。
+			m.layout = clampLayoutRatios(adjustLayoutVertical(m.layout, m.layoutFocus, -vert))
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			// j/↓: 対象ペインの高さを拡大。
+			m.layout = clampLayoutRatios(adjustLayoutVertical(m.layout, m.layoutFocus, vert))
 			return m, nil
 		}
 		return m, nil
@@ -2614,8 +2685,18 @@ func (m Model) View() string {
 
 	listFocused := m.mode == ModeList || m.mode == ModeQuitConfirm || m.mode == ModeMove || m.mode == ModePrefix || m.mode == ModeOperation
 	detailFocused := m.mode == ModeDetail || m.mode == ModeEditTitle || m.mode == ModeEditStatus
+	// レイアウトモード中は突入時のフォーカスに応じて、視覚的なフォーカス表現を維持する。
+	if m.mode == ModeLayout {
+		switch m.layoutFocus {
+		case layoutFocusTaskList:
+			listFocused = true
+		case layoutFocusTaskDetail, layoutFocusFileList:
+			detailFocused = true
+		}
+	}
 
 	inMoveMode := m.mode == ModeMove
+	inLayoutMode := m.mode == ModeLayout
 
 	var body string
 	if isSettingMode(m.mode) {
@@ -2686,8 +2767,34 @@ func (m Model) View() string {
 			body = lipgloss.JoinHorizontal(lipgloss.Top, left, divider, right)
 		}
 	} else {
-		// 通常画面: 左 2/3 タスクリスト | 右 1/3 (上から detail / files / preview を縦に積む)。
-		leftW, rightW := twoPaneWidths(m.width)
+		// 通常画面: 左 タスクリスト | 右 (上から detail / files / preview)。
+		// レイアウト保存値が完全 (4 値とも非 nil) のときはそれを反映、未設定なら従来計算。
+		var leftW, rightW, detailH, fileAreaH, previewAreaH int
+		if isLayoutComplete(m.layout) {
+			leftW, rightW, detailH, fileAreaH, previewAreaH = applyLayoutToScreen(m.layout, m.width, bodyH)
+		} else {
+			leftW, rightW = twoPaneWidths(m.width)
+			detailH = bodyH / 3
+			fileAreaH = bodyH / 3
+			previewAreaH = bodyH - detailH - fileAreaH
+			if detailH < 3 {
+				detailH = 3
+			}
+			if fileAreaH < 3 {
+				fileAreaH = 3
+			}
+			if previewAreaH < 2 {
+				previewAreaH = 2
+			}
+			if total := detailH + fileAreaH + previewAreaH; total > bodyH {
+				over := total - bodyH
+				if previewAreaH-over >= 2 {
+					previewAreaH -= over
+				} else {
+					previewAreaH = 2
+				}
+			}
+		}
 
 		listH := bodyH
 		if m.viewTrash {
@@ -2717,6 +2824,22 @@ func (m Model) View() string {
 			}
 			left = PlaceOverlay(x, 0, banner, left)
 		}
+		if inLayoutMode {
+			label := "-- LAYOUT --"
+			switch m.layoutFocus {
+			case layoutFocusTaskDetail:
+				label = "-- LAYOUT (detail) --"
+			case layoutFocusFileList:
+				label = "-- LAYOUT (files) --"
+			}
+			banner := styleLayoutBanner.Render(label)
+			bannerW := lipgloss.Width(banner)
+			x := leftW - bannerW
+			if x < 0 {
+				x = 0
+			}
+			left = PlaceOverlay(x, 0, banner, left)
+		}
 		if m.viewTrash {
 			// 左ペインの最上部に「-- TRASH BOX --」ヘッダ行 (黒抜き赤背景) を 1 行追加。
 			header := styleTrashHeader.Width(leftW).Render("-- TRASH BOX --")
@@ -2728,32 +2851,6 @@ func (m Model) View() string {
 			current = &t
 		}
 
-		// 右カラム高さ配分: detail / files area / preview area をそれぞれ 1/3 ずつに割り当てる。
-		// 端数 (bodyH % 3) は files area → preview area の順に上乗せする。
-		//   files area の中身: "Files:" header (1) + 罫線 (1) + 名前リスト (残り)
-		//   preview area の中身: 罫線 (1) + プレビュー (残り)
-		detailH := bodyH / 3
-		fileAreaH := bodyH / 3
-		previewAreaH := bodyH - detailH - fileAreaH
-		// 各セクションが最低限機能する高さを確保 (header/divider/中身を 1 行ずつ)。
-		if detailH < 3 {
-			detailH = 3
-		}
-		if fileAreaH < 3 {
-			fileAreaH = 3
-		}
-		if previewAreaH < 2 {
-			previewAreaH = 2
-		}
-		// 合計が bodyH を超えた場合は preview area を縮める (最低 2 行は維持)。
-		if total := detailH + fileAreaH + previewAreaH; total > bodyH {
-			over := total - bodyH
-			if previewAreaH-over >= 2 {
-				previewAreaH -= over
-			} else {
-				previewAreaH = 2
-			}
-		}
 		namesH := fileAreaH - 2 // header + top divider
 		if namesH < 1 {
 			namesH = 1
@@ -2809,7 +2906,7 @@ func (m Model) View() string {
 			}
 		}
 	}
-	footer := renderFooter(m.mode, m.prevMode, onFilesRow, onURLRow, m.viewTrash, m.width)
+	footer := renderFooter(m.mode, m.prevMode, onFilesRow, onURLRow, m.viewTrash, m.layoutFocus, m.width)
 
 	view := lipgloss.JoinVertical(lipgloss.Left, body, footer)
 

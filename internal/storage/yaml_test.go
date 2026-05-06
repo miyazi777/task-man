@@ -764,6 +764,129 @@ tasks:
 	}
 }
 
+// ---- Layout のテスト ----
+
+// floatPtr は *float64 リテラルを書きやすくするヘルパ (テスト専用)。
+func floatPtr(v float64) *float64 { return &v }
+
+// layout キーが無い既存 yaml を読んでも cfg.Layout は全 nil。
+func TestYAMLLayoutAbsent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	body := `statuses:
+  - status:
+      id: 1
+      sequence: 1
+      label: todo
+tasks: []
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	repo := NewYAMLRepository(path)
+	lr, err := repo.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	lc := lr.Config.Layout
+	if lc.TaskListWidth != nil || lc.TaskDetailHeight != nil ||
+		lc.FileListHeight != nil || lc.FilePreviewHeight != nil {
+		t.Errorf("expected all nil, got %+v", lc)
+	}
+}
+
+// 4 値が揃った yaml をロードすると LayoutConfig がポインタ越しで一致する。
+func TestYAMLLayoutRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	repo := NewYAMLRepository(path)
+
+	in := AppConfig{
+		Layout: LayoutConfig{
+			TaskListWidth:     floatPtr(0.6),
+			TaskDetailHeight:  floatPtr(0.4),
+			FileListHeight:    floatPtr(0.3),
+			FilePreviewHeight: floatPtr(0.3),
+		},
+	}
+	if err := repo.Save(LoadResult{
+		Statuses: task.DefaultStatuses(),
+		Config:   in,
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	lr, err := repo.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got := lr.Config.Layout
+	checks := []struct {
+		name string
+		got  *float64
+		want *float64
+	}{
+		{"task_list.width", got.TaskListWidth, in.Layout.TaskListWidth},
+		{"task_detail.height", got.TaskDetailHeight, in.Layout.TaskDetailHeight},
+		{"file_list.height", got.FileListHeight, in.Layout.FileListHeight},
+		{"file_preview.height", got.FilePreviewHeight, in.Layout.FilePreviewHeight},
+	}
+	for _, c := range checks {
+		if c.got == nil || c.want == nil || *c.got != *c.want {
+			t.Errorf("%s: got %v want %v", c.name, c.got, c.want)
+		}
+	}
+}
+
+// 一部のフィールドだけ書かれた yaml をロード → 該当だけ非 nil、残りは nil。
+func TestYAMLLayoutPartial(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	body := `layout:
+  main:
+    task_list:
+      width: 0.7
+statuses:
+  - status:
+      id: 1
+      sequence: 1
+      label: todo
+tasks: []
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	repo := NewYAMLRepository(path)
+	lr, err := repo.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	lc := lr.Config.Layout
+	if lc.TaskListWidth == nil || *lc.TaskListWidth != 0.7 {
+		t.Errorf("task_list.width: got %v want 0.7", lc.TaskListWidth)
+	}
+	if lc.TaskDetailHeight != nil || lc.FileListHeight != nil || lc.FilePreviewHeight != nil {
+		t.Errorf("expected other fields nil, got %+v", lc)
+	}
+}
+
+// 全 nil の LayoutConfig で Save → yaml に layout キーが書かれない。
+func TestYAMLLayoutMarshalEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	repo := NewYAMLRepository(path)
+	if err := repo.Save(LoadResult{Statuses: task.DefaultStatuses()}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if strings.Contains(string(data), "layout:") {
+		t.Errorf("expected no 'layout:' key in output, got:\n%s", string(data))
+	}
+}
+
 func TestYAMLNoFieldsKeyOK(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tasks.yaml")

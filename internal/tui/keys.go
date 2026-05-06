@@ -17,6 +17,7 @@ type keyMap struct {
 	Prefix        key.Binding // ; - prefix モードへ遷移
 	PrefixTrash   key.Binding // t - prefix 中: ゴミ箱表示トグル
 	PrefixSetting key.Binding // s - prefix 中: 設定画面へ遷移
+	PrefixLayout  key.Binding // l - prefix 中: レイアウト調整モードへ遷移
 	Color         key.Binding // c - status 設定で色変更
 	AddFile       key.Binding // a (Files セクション)
 	RenameFile  key.Binding // r (Files セクション)
@@ -43,6 +44,7 @@ func newKeyMap() keyMap {
 		Prefix:        key.NewBinding(key.WithKeys(";"), key.WithHelp(";", "prefix")),
 		PrefixTrash:   key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "trash")),
 		PrefixSetting: key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "setting")),
+		PrefixLayout:  key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "layout")),
 		Color:         key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "color")),
 		AddFile:       key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
 		RenameFile:  key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "rename")),
