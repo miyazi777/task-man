@@ -32,8 +32,8 @@ func TestYAMLRoundTrip(t *testing.T) {
 	if lr.Config.DataBaseDirectory != "" {
 		t.Errorf("data_base_directory: got %q, want empty", lr.Config.DataBaseDirectory)
 	}
-	if lr.Config.Editor != "" {
-		t.Errorf("editor: got %q, want empty", lr.Config.Editor)
+	if len(lr.Config.Applications) != 0 {
+		t.Errorf("applications: expected empty, got %+v", lr.Config.Applications)
 	}
 	if len(lr.Tasks) != len(in) {
 		t.Fatalf("tasks len: got %d want %d", len(lr.Tasks), len(in))
@@ -224,7 +224,7 @@ func TestYAMLDataBaseDirectoryRoundTrip(t *testing.T) {
 	repo := NewYAMLRepository(path)
 	if err := repo.Save(LoadResult{
 		Statuses: task.DefaultStatuses(),
-		Config:   AppConfig{DataBaseDirectory: "./datas", Editor: "$EDITOR"},
+		Config:   AppConfig{DataBaseDirectory: "./datas"},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -235,8 +235,157 @@ func TestYAMLDataBaseDirectoryRoundTrip(t *testing.T) {
 	if lr.Config.DataBaseDirectory != "./datas" {
 		t.Errorf("data_base_directory: got %q, want %q", lr.Config.DataBaseDirectory, "./datas")
 	}
-	if lr.Config.Editor != "$EDITOR" {
-		t.Errorf("editor: got %q, want %q", lr.Config.Editor, "$EDITOR")
+}
+
+// applications / file_opener のラウンドトリップ。
+func TestYAMLApplicationsRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	repo := NewYAMLRepository(path)
+	apps := []Application{
+		{ID: 1, Name: "editor", Run: "$EDITOR"},
+		{ID: 2, Name: "md-viewer", Run: "md-viewer --no-color"},
+	}
+	openers := []FileOpener{
+		{Extension: "md", ApplicationIDs: []int{1, 2}},
+	}
+	if err := repo.Save(LoadResult{
+		Statuses: task.DefaultStatuses(),
+		Config:   AppConfig{Applications: apps, FileOpeners: openers},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	lr, err := repo.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(lr.Config.Applications) != 2 {
+		t.Fatalf("applications: got %d want 2", len(lr.Config.Applications))
+	}
+	for i := range apps {
+		if lr.Config.Applications[i] != apps[i] {
+			t.Errorf("applications[%d]: got %+v want %+v", i, lr.Config.Applications[i], apps[i])
+		}
+	}
+	if len(lr.Config.FileOpeners) != 1 {
+		t.Fatalf("file_opener: got %d want 1", len(lr.Config.FileOpeners))
+	}
+	got := lr.Config.FileOpeners[0]
+	if got.Extension != "md" || len(got.ApplicationIDs) != 2 {
+		t.Errorf("opener: got %+v", got)
+	}
+}
+
+// default_app 含む round-trip。
+func TestYAMLFileOpenerDefaultAppRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	repo := NewYAMLRepository(path)
+	apps := []Application{
+		{ID: 1, Name: "editor", Run: "$EDITOR"},
+		{ID: 2, Name: "viewer", Run: "less"},
+	}
+	openers := []FileOpener{
+		{Extension: "md", ApplicationIDs: []int{1, 2}, DefaultApp: 2},
+	}
+	if err := repo.Save(LoadResult{
+		Statuses: task.DefaultStatuses(),
+		Config:   AppConfig{Applications: apps, FileOpeners: openers},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	lr, err := repo.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(lr.Config.FileOpeners) != 1 {
+		t.Fatalf("file_opener: got %d want 1", len(lr.Config.FileOpeners))
+	}
+	if lr.Config.FileOpeners[0].DefaultApp != 2 {
+		t.Errorf("default_app: got %d want 2", lr.Config.FileOpeners[0].DefaultApp)
+	}
+}
+
+// default_app が未知 id を参照したらエラー。
+func TestYAMLFileOpenerDefaultAppUnknownID(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	body := `applications:
+  - application:
+      id: 1
+      name: editor
+      run: vi
+file_opener:
+  - opener:
+      extension: md
+      applications: [1]
+      default_app: 99
+statuses:
+  - status:
+      id: 1
+      sequence: 1
+      label: todo
+tasks: []
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	repo := NewYAMLRepository(path)
+	if _, err := repo.Load(); err == nil {
+		t.Fatal("expected error for unknown default_app")
+	}
+}
+
+// 必須項目欠落でエラーになることを確認。
+func TestYAMLApplicationsMissingFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	body := `applications:
+  - application:
+      id: 1
+      name: editor
+statuses:
+  - status:
+      id: 1
+      sequence: 1
+      label: todo
+tasks: []
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	repo := NewYAMLRepository(path)
+	if _, err := repo.Load(); err == nil {
+		t.Fatal("expected error for missing run")
+	}
+}
+
+// file_opener の applications が未知 id を参照したらエラー。
+func TestYAMLFileOpenerUnknownAppID(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	body := `applications:
+  - application:
+      id: 1
+      name: editor
+      run: vi
+file_opener:
+  - opener:
+      extension: md
+      applications: [1, 99]
+statuses:
+  - status:
+      id: 1
+      sequence: 1
+      label: todo
+tasks: []
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	repo := NewYAMLRepository(path)
+	if _, err := repo.Load(); err == nil {
+		t.Fatal("expected error for unknown application id in file_opener")
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -74,8 +75,26 @@ type yamlEntry struct {
 	Task yamlTask `yaml:"task"`
 }
 
-type yamlApplications struct {
-	Editor string `yaml:"editor,omitempty"`
+// yamlApplication は applications 配列の 1 件分 (新スキーマ)。
+type yamlApplication struct {
+	ID   int    `yaml:"id"`
+	Name string `yaml:"name"`
+	Run  string `yaml:"run"`
+}
+
+type yamlApplicationEntry struct {
+	Application yamlApplication `yaml:"application"`
+}
+
+// yamlFileOpener は file_opener 配列の 1 件分。
+type yamlFileOpener struct {
+	Extension    string `yaml:"extension"`
+	Applications []int  `yaml:"applications"`
+	DefaultApp   int    `yaml:"default_app,omitempty"`
+}
+
+type yamlFileOpenerEntry struct {
+	Opener yamlFileOpener `yaml:"opener"`
 }
 
 // yamlLayoutValue は layout.main.<pane> の単一ペイン分。width / height は片方のみ使う。
@@ -96,13 +115,14 @@ type yamlLayout struct {
 }
 
 type yamlFile struct {
-	Applications      yamlApplications  `yaml:"applications,omitempty"`
-	DataBaseDirectory string            `yaml:"data_base_directory,omitempty"`
-	Layout            *yamlLayout       `yaml:"layout,omitempty"`
-	Statuses          []yamlStatusEntry `yaml:"statuses"`
-	Fields            []yamlFieldEntry  `yaml:"fields,omitempty"`
-	Tags              []yamlTagEntry    `yaml:"tags,omitempty"`
-	Tasks             []yamlEntry       `yaml:"tasks"`
+	Applications      []yamlApplicationEntry `yaml:"applications,omitempty"`
+	DataBaseDirectory string                 `yaml:"data_base_directory,omitempty"`
+	Layout            *yamlLayout            `yaml:"layout,omitempty"`
+	FileOpener        []yamlFileOpenerEntry  `yaml:"file_opener,omitempty"`
+	Statuses          []yamlStatusEntry      `yaml:"statuses"`
+	Fields            []yamlFieldEntry       `yaml:"fields,omitempty"`
+	Tags              []yamlTagEntry         `yaml:"tags,omitempty"`
+	Tasks             []yamlEntry            `yaml:"tasks"`
 }
 
 type YAMLRepository struct {
@@ -146,10 +166,20 @@ func (r *YAMLRepository) Load() (LoadResult, error) {
 		return LoadResult{}, err
 	}
 
+	apps, err := loadApplications(f.Applications)
+	if err != nil {
+		return LoadResult{}, err
+	}
+	openers, err := loadFileOpeners(f.FileOpener, apps)
+	if err != nil {
+		return LoadResult{}, err
+	}
+
 	cfg := AppConfig{
 		DataBaseDirectory: f.DataBaseDirectory,
-		Editor:            f.Applications.Editor,
 		Layout:            loadLayout(f.Layout),
+		Applications:      apps,
+		FileOpeners:       openers,
 	}
 
 	lr := LoadResult{
@@ -167,6 +197,80 @@ func (r *YAMLRepository) Load() (LoadResult, error) {
 	}
 
 	return lr, nil
+}
+
+// loadApplications は yaml の applications 配列を Application 型へ変換する。
+//   - id, name, path のいずれかが欠落していたらエラー
+//   - id の重複もエラー
+func loadApplications(entries []yamlApplicationEntry) ([]Application, error) {
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	seen := make(map[int]struct{}, len(entries))
+	out := make([]Application, 0, len(entries))
+	for i, e := range entries {
+		if e.Application.ID <= 0 {
+			return nil, fmt.Errorf("applications[%d]: id must be positive (got %d)", i, e.Application.ID)
+		}
+		if _, dup := seen[e.Application.ID]; dup {
+			return nil, fmt.Errorf("applications[%d]: duplicated id %d", i, e.Application.ID)
+		}
+		seen[e.Application.ID] = struct{}{}
+		if e.Application.Name == "" {
+			return nil, fmt.Errorf("applications[%d]: name must not be empty", i)
+		}
+		if e.Application.Run == "" {
+			return nil, fmt.Errorf("applications[%d]: run must not be empty", i)
+		}
+		out = append(out, Application{
+			ID:   e.Application.ID,
+			Name: e.Application.Name,
+			Run:  e.Application.Run,
+		})
+	}
+	return out, nil
+}
+
+// loadFileOpeners は yaml の file_opener 配列を FileOpener 型へ変換する。
+//   - extension は空文字エラー、先頭の "." は除去、小文字化
+//   - 同一 extension の重複は最後に書かれたものを採用 (yaml の上書き直感に合わせる)
+//   - applications の各 ID が apps に存在することを検証
+func loadFileOpeners(entries []yamlFileOpenerEntry, apps []Application) ([]FileOpener, error) {
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	knownIDs := make(map[int]struct{}, len(apps))
+	for _, a := range apps {
+		knownIDs[a.ID] = struct{}{}
+	}
+	seen := make(map[string]int) // ext -> index in out
+	out := make([]FileOpener, 0, len(entries))
+	for i, e := range entries {
+		ext := strings.ToLower(strings.TrimPrefix(e.Opener.Extension, "."))
+		if ext == "" {
+			return nil, fmt.Errorf("file_opener[%d]: extension must not be empty", i)
+		}
+		ids := make([]int, 0, len(e.Opener.Applications))
+		for _, id := range e.Opener.Applications {
+			if _, ok := knownIDs[id]; !ok {
+				return nil, fmt.Errorf("file_opener[%d]: applications references unknown id %d", i, id)
+			}
+			ids = append(ids, id)
+		}
+		if e.Opener.DefaultApp != 0 {
+			if _, ok := knownIDs[e.Opener.DefaultApp]; !ok {
+				return nil, fmt.Errorf("file_opener[%d]: default_app references unknown id %d", i, e.Opener.DefaultApp)
+			}
+		}
+		op := FileOpener{Extension: ext, ApplicationIDs: ids, DefaultApp: e.Opener.DefaultApp}
+		if idx, ok := seen[ext]; ok {
+			out[idx] = op
+		} else {
+			seen[ext] = len(out)
+			out = append(out, op)
+		}
+	}
+	return out, nil
 }
 
 // loadLayout は yaml の layout セクションを LayoutConfig に変換する。
@@ -471,10 +575,31 @@ func (r *YAMLRepository) Save(lr LoadResult) error {
 			},
 		})
 	}
+	appEntries := make([]yamlApplicationEntry, 0, len(lr.Config.Applications))
+	for _, a := range lr.Config.Applications {
+		appEntries = append(appEntries, yamlApplicationEntry{
+			Application: yamlApplication{ID: a.ID, Name: a.Name, Run: a.Run},
+		})
+	}
+
+	openerEntries := make([]yamlFileOpenerEntry, 0, len(lr.Config.FileOpeners))
+	for _, op := range lr.Config.FileOpeners {
+		idsCopy := make([]int, len(op.ApplicationIDs))
+		copy(idsCopy, op.ApplicationIDs)
+		openerEntries = append(openerEntries, yamlFileOpenerEntry{
+			Opener: yamlFileOpener{
+				Extension:    op.Extension,
+				Applications: idsCopy,
+				DefaultApp:   op.DefaultApp,
+			},
+		})
+	}
+
 	data, err := yaml.Marshal(yamlFile{
-		Applications:      yamlApplications{Editor: lr.Config.Editor},
+		Applications:      appEntries,
 		DataBaseDirectory: lr.Config.DataBaseDirectory,
 		Layout:            marshalLayout(lr.Config.Layout),
+		FileOpener:        openerEntries,
 		Statuses:          statusEntries,
 		Fields:            fieldEntries,
 		Tags:              tagEntries,

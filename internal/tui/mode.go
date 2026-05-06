@@ -40,6 +40,7 @@ const (
 	ModeTagPickerRename             // タグ名変更入力 (ModeTagPicker から r キーで遷移)
 	ModeTagPickerDeleteConfirm      // タグ削除確認 (y/n オーバーレイ)
 	ModeLayout                      // タスクリスト画面のレイアウト調整 (;→l で突入)
+	ModeFileOpener                  // 詳細画面 file list で o/enter 押下時のアプリ選択モーダル
 )
 
 func (m Mode) String() string {
@@ -118,6 +119,8 @@ func (m Mode) String() string {
 		return "tagpickerdeleteconfirm"
 	case ModeLayout:
 		return "layout"
+	case ModeFileOpener:
+		return "fileopener"
 	default:
 		return "unknown"
 	}

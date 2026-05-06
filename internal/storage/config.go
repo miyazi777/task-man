@@ -7,13 +7,39 @@ type AppConfig struct {
 	// 空文字なら yamlDir 直下を使う。
 	DataBaseDirectory string
 
-	// Editor はタスクファイルを開く外部エディタのコマンド (yaml の applications.editor)。
-	// "$EDITOR" のような環境変数表記を許容し、起動時に os.ExpandEnv で展開する。
-	Editor string
-
 	// Layout はタスクリスト画面のペイン比率設定。
 	// 4 値とも nil なら未設定 (=従来計算でレンダリング)。
 	Layout LayoutConfig
+
+	// Applications はファイルを開く際に使用できる外部アプリケーションの一覧。
+	// 空ならファイルオープナー機能は $EDITOR にフォールバックする。
+	Applications []Application
+
+	// FileOpeners は拡張子ごとに使用するアプリケーション (ID 配列) の対応表。
+	// 該当拡張子が無ければ $EDITOR にフォールバック。
+	FileOpeners []FileOpener
+}
+
+// Application は外部起動可能なアプリケーション 1 件分の情報。
+//   - ID: yaml 内で一意。FileOpener.ApplicationIDs から参照される。
+//   - Name: モーダル表示用ラベル。
+//   - Run: 環境変数表記 ("$EDITOR" 等) または PATH 上のコマンド名 ("md-viewer") 等を許容する。
+//     起動時に os.ExpandEnv で展開し、空白区切りで引数を分けるので "nvim --noplugin" のような表記も使える。
+type Application struct {
+	ID   int
+	Name string
+	Run  string
+}
+
+// FileOpener は単一拡張子に対するアプリケーション候補の対応。
+//   - Extension: ドット無しの拡張子 (例: "md", "txt")。大文字小文字は無視 (比較時は小文字化)。
+//   - ApplicationIDs: 候補となる Application.ID の配列。順序がモーダル表示順 (`o` キー押下時)。
+//   - DefaultApp: file list で `enter` 押下時に起動するアプリの Application.ID。
+//     0 (= 未指定) なら $EDITOR にフォールバック。
+type FileOpener struct {
+	Extension      string
+	ApplicationIDs []int
+	DefaultApp     int
 }
 
 // LayoutConfig はタスクリスト画面のペイン比率を保存する設定。

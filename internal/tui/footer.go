@@ -91,6 +91,11 @@ func renderFooter(mode, prevMode Mode, onFilesRow bool, onURLRow bool, viewTrash
 		content = renderHints([]hintItem{
 			{"t", "trash"}, {"s", "setting"}, {"l", "layout"}, {"esc", "back"},
 		})
+	case ModeFileOpener:
+		content = renderHints([]hintItem{
+			{"k/↑", "up"}, {"j/↓", "down"},
+			{"Enter", "open"}, {"Esc", "cancel"},
+		})
 	case ModeLayout:
 		hints := []hintItem{
 			{"h/←", "list-"}, {"l/→", "list+"},

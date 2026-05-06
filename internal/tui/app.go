@@ -97,6 +97,14 @@ type Model struct {
 	layoutBackup storage.LayoutConfig
 	layoutFocus  layoutFocus
 
+	// ModeFileOpener 用の状態 (file_opener モーダル)。
+	// 候補が 2 件以上の時にモーダルを開いて選ばせる。1 件以下は openCurrentFile 内で即起動。
+	// モーダル表示中はタスクリスト/ファイルカーソルが動かない前提なので、対象ファイルを文字列で固定保持する。
+	fileOpenerCandidates []storage.Application
+	fileOpenerCursor     int
+	fileOpenerTaskID     int
+	fileOpenerFile       string
+
 	width  int
 	height int
 
@@ -890,7 +898,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if len(m.files) == 0 {
 					return m, nil
 				}
-				return m.openCurrentFile()
+				return m.openCurrentFileWithDefault()
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.AddFile):
@@ -930,30 +938,41 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = ModeDeleteFileConfirm
 			return m, nil
 		case msg.String() == "o":
-			// o: url 型項目で値を OS のデフォルトブラウザで開く。
-			// enter は編集ポップアップに統一しているため、開く操作は別キーに分けている。
+			// o:
+			//   - url 型項目: 値を OS のデフォルトブラウザで開く。
+			//   - Files 行: ファイルオープナーを起動 (拡張子に対応する applications を選択)。
+			//   - enter は編集ポップアップに統一しているため、開く操作は別キーに分けている。
 			row, ok := m.currentDetailRow()
-			if !ok || row.kind != detailRowField {
-				return m, nil
-			}
-			def, ok := m.fields.ByID(row.fieldID)
-			if !ok || def.Type != task.FieldTypeURL {
-				return m, nil
-			}
-			t, _, ok := m.currentTask()
 			if !ok {
 				return m, nil
 			}
-			tf, ok := t.Fields.ByFieldID(def.ID)
-			if !ok || tf.Value == "" {
+			switch row.kind {
+			case detailRowFiles:
+				if len(m.files) == 0 {
+					return m, nil
+				}
+				return m.openCurrentFileWithPicker()
+			case detailRowField:
+				def, ok := m.fields.ByID(row.fieldID)
+				if !ok || def.Type != task.FieldTypeURL {
+					return m, nil
+				}
+				t, _, ok := m.currentTask()
+				if !ok {
+					return m, nil
+				}
+				tf, ok := t.Fields.ByFieldID(def.ID)
+				if !ok || tf.Value == "" {
+					return m, nil
+				}
+				if err := task.ValidateFieldURLValue(tf.Value); err != nil {
+					m.saveErr = err
+					return m, nil
+				}
+				if err := openURLInBrowser(tf.Value); err != nil {
+					m.saveErr = err
+				}
 				return m, nil
-			}
-			if err := task.ValidateFieldURLValue(tf.Value); err != nil {
-				m.saveErr = err
-				return m, nil
-			}
-			if err := openURLInBrowser(tf.Value); err != nil {
-				m.saveErr = err
 			}
 			return m, nil
 		}
@@ -1063,6 +1082,36 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.mode = ModeLayout
 			return m, nil
+		}
+		return m, nil
+
+	case ModeFileOpener:
+		// file_opener モーダル: 候補から選んでアプリ起動。
+		switch {
+		case key.Matches(msg, m.keys.Back):
+			m.mode = m.prevMode
+			return m, nil
+		case key.Matches(msg, m.keys.Up):
+			if m.fileOpenerCursor > 0 {
+				m.fileOpenerCursor--
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			if m.fileOpenerCursor < len(m.fileOpenerCandidates)-1 {
+				m.fileOpenerCursor++
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Confirm):
+			if len(m.fileOpenerCandidates) == 0 {
+				m.mode = m.prevMode
+				return m, nil
+			}
+			app := m.fileOpenerCandidates[m.fileOpenerCursor]
+			taskID := m.fileOpenerTaskID
+			fileName := m.fileOpenerFile
+			// モーダルを閉じてから外部プロセスを起動する (alt screen を抜けるため)。
+			m.mode = m.prevMode
+			return m.launchAppForFile(app.Run, taskID, fileName)
 		}
 		return m, nil
 
@@ -2554,16 +2603,62 @@ func validateFieldValueLiveByType(ft task.FieldType, value string) error {
 	}
 }
 
-// openCurrentFile は現在のファイルカーソルが指すファイルを外部エディタで開く tea.Cmd を返す。
-func (m Model) openCurrentFile() (Model, tea.Cmd) {
+// openCurrentFileWithDefault は file list で enter が押されたときの起動フロー。
+// file_opener.default_app が指定されていればそのアプリ、未指定なら $EDITOR フォールバック。
+// モーダル表示はせず必ず即起動する (`o` キーとの差別化)。
+func (m Model) openCurrentFileWithDefault() (Model, tea.Cmd) {
 	t, _, ok := m.currentTask()
 	if !ok {
 		return m, nil
 	}
-	taskDir := storage.TaskDir(m.yamlDir, m.cfg.DataBaseDirectory, t.ID)
-	filePath := filepath.Join(taskDir, m.files[m.fileCursor])
+	if len(m.files) == 0 || m.fileCursor < 0 || m.fileCursor >= len(m.files) {
+		return m, nil
+	}
+	fileName := m.files[m.fileCursor]
+	if app, ok := resolveDefaultApp(fileName, m.cfg.Applications, m.cfg.FileOpeners); ok {
+		return m.launchAppForFile(app.Run, t.ID, fileName)
+	}
+	return m.launchAppForFile("", t.ID, fileName)
+}
 
-	cmd, err := buildEditorCmd(m.cfg.Editor, filePath)
+// openCurrentFileWithPicker は file list で o が押されたときの起動フロー。
+//
+//   - file_opener に該当拡張子の設定がある: 候補数で分岐
+//     候補 1 件 → そのアプリで即起動
+//     候補 2 件以上 → モーダル (ModeFileOpener) を開いてユーザーに選択させる
+//   - 該当拡張子設定なし / 候補 0 件 → $EDITOR でフォールバック起動
+func (m Model) openCurrentFileWithPicker() (Model, tea.Cmd) {
+	t, _, ok := m.currentTask()
+	if !ok {
+		return m, nil
+	}
+	if len(m.files) == 0 || m.fileCursor < 0 || m.fileCursor >= len(m.files) {
+		return m, nil
+	}
+	fileName := m.files[m.fileCursor]
+	candidates := resolveFileOpenerCandidates(fileName, m.cfg.Applications, m.cfg.FileOpeners)
+	switch len(candidates) {
+	case 0:
+		return m.launchAppForFile("", t.ID, fileName)
+	case 1:
+		return m.launchAppForFile(candidates[0].Run, t.ID, fileName)
+	default:
+		// 2 件以上はモーダルで選択させる。
+		m.fileOpenerCandidates = candidates
+		m.fileOpenerCursor = 0
+		m.fileOpenerTaskID = t.ID
+		m.fileOpenerFile = fileName
+		m.prevMode = m.mode
+		m.mode = ModeFileOpener
+		return m, nil
+	}
+}
+
+// launchAppForFile は appPath (空文字なら $EDITOR フォールバック) で taskID/fileName を開く tea.Cmd を返す。
+func (m Model) launchAppForFile(appPath string, taskID int, fileName string) (Model, tea.Cmd) {
+	taskDir := storage.TaskDir(m.yamlDir, m.cfg.DataBaseDirectory, taskID)
+	filePath := filepath.Join(taskDir, fileName)
+	cmd, err := buildAppCmd(appPath, filePath)
 	if err != nil {
 		m.saveErr = err
 		return m, nil
@@ -2931,6 +3026,8 @@ func (m Model) View() string {
 		view = overlayInputPopup(view, "Rename:", m.input.View(), m.inputErr, m.width, m.height-1)
 	case ModeEditStatus:
 		view = overlayStatusPicker(view, m.statuses.Sorted(), m.statusPickerCursor, m.width, m.height-1)
+	case ModeFileOpener:
+		view = overlayFileOpenerPicker(view, m.fileOpenerCandidates, m.fileOpenerCursor, m.width, m.height-1)
 	case ModeTagPicker, ModeTagColorPicker, ModeTagPickerRename, ModeTagPickerDeleteConfirm:
 		var assigned []int
 		for _, tt := range m.tasks {
@@ -3091,6 +3188,46 @@ func overlayInputPopup(bg, label, inputView string, inputErr error, screenW, scr
 			stylePopupFill.Render(" ") +
 			stylePopupBorder.Render("│")
 		rows = append(rows, errRow)
+	}
+	rows = append(rows, bottomRow)
+
+	popup := lipgloss.JoinVertical(lipgloss.Left, rows...)
+	return centerOverlay(popup, bg, screenW, screenH)
+}
+
+// overlayFileOpenerPicker は file_opener の application 候補をポップアップとして中央オーバーレイする。
+// 描画は overlayStatusPicker と同形式 (Label = "Open with:")。
+func overlayFileOpenerPicker(bg string, candidates []storage.Application, currentIdx, screenW, screenH int) string {
+	popupOuterW := popupWidth(screenW)
+	contentW := popupOuterW - 4
+	if contentW < 4 {
+		contentW = 4
+	}
+	innerW := popupOuterW - 2
+
+	topRow := buildBorderRow("╭", "╮", stylePopupLabel.Render("Open with:"), innerW)
+	bottomRow := buildBorderRow("╰", "╯", renderPopupHints([]hintItem{
+		{"k/↑", "up"}, {"j/↓", "down"}, {"Enter", "open"}, {"Esc", "cancel"},
+	}), innerW)
+
+	rows := []string{topRow}
+	for i, app := range candidates {
+		raw := "  " + app.Name
+		if w := ansi.StringWidth(raw); w > contentW {
+			raw = ansi.Truncate(raw, contentW, "")
+		}
+		var padded string
+		if i == currentIdx {
+			padded = stylePopupCursorRow.Width(contentW).Render(raw)
+		} else {
+			padded = stylePopupFill.Foreground(colorText).Width(contentW).Render(raw)
+		}
+		row := stylePopupBorder.Render("│") +
+			stylePopupFill.Render(" ") +
+			padded +
+			stylePopupFill.Render(" ") +
+			stylePopupBorder.Render("│")
+		rows = append(rows, row)
 	}
 	rows = append(rows, bottomRow)
 

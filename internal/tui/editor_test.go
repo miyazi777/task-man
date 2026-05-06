@@ -6,7 +6,7 @@ import (
 )
 
 func TestBuildEditorCmdLiteral(t *testing.T) {
-	cmd, err := buildEditorCmd("vim", "/tmp/foo.md")
+	cmd, err := buildAppCmd("vim", "/tmp/foo.md")
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -19,7 +19,7 @@ func TestBuildEditorCmdLiteral(t *testing.T) {
 }
 
 func TestBuildEditorCmdWithArgs(t *testing.T) {
-	cmd, err := buildEditorCmd("nvim --noplugin", "/tmp/x.md")
+	cmd, err := buildAppCmd("nvim --noplugin", "/tmp/x.md")
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -30,7 +30,7 @@ func TestBuildEditorCmdWithArgs(t *testing.T) {
 
 func TestBuildEditorCmdEnvVar(t *testing.T) {
 	t.Setenv("EDITOR", "vi")
-	cmd, err := buildEditorCmd("$EDITOR", "/tmp/x.md")
+	cmd, err := buildAppCmd("$EDITOR", "/tmp/x.md")
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestBuildEditorCmdEnvVar(t *testing.T) {
 
 func TestBuildEditorCmdFallbackToEnv(t *testing.T) {
 	t.Setenv("EDITOR", "code")
-	cmd, err := buildEditorCmd("", "/tmp/x.md")
+	cmd, err := buildAppCmd("", "/tmp/x.md")
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestBuildEditorCmdFallbackToEnv(t *testing.T) {
 
 func TestBuildEditorCmdNoneConfigured(t *testing.T) {
 	t.Setenv("EDITOR", "")
-	_, err := buildEditorCmd("", "/tmp/x.md")
+	_, err := buildAppCmd("", "/tmp/x.md")
 	if err == nil {
 		t.Fatal("expected error when neither yaml nor env is set")
 	}
