@@ -1,0 +1,238 @@
+{
+  "/Users/tmiyajima/software/task-man/cmd/task-man/main.go": {
+    "mtime": 1778207540.0506039,
+    "hash": "217f08b1e6fefa5ab7fcea26105c9a20"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/list.go": {
+    "mtime": 1778207540.0556078,
+    "hash": "69f0da456be630e675905d3d3acf3a26"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/overlay_test.go": {
+    "mtime": 1778207540.0559175,
+    "hash": "ec78efe86d065d4a4839233c3e3caad9"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/preview.go": {
+    "mtime": 1778207540.0560753,
+    "hash": "cca12c2367bfb6772e566bd1e030fafb"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/fileopener.go": {
+    "mtime": 1778207540.055056,
+    "hash": "be47605300d7b4857bed751ea62a83d0"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/overlay.go": {
+    "mtime": 1778207540.0558536,
+    "hash": "6dc46895318e9250daee52c6eaa707c8"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/detail_test.go": {
+    "mtime": 1778207540.0548322,
+    "hash": "1c26b314de4e4cb40e58eb967da96637"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/setting.go": {
+    "mtime": 1778207540.0564659,
+    "hash": "fdf727ec1892d15e59317c34d6db7f93"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/popup_test.go": {
+    "mtime": 1778207540.0560052,
+    "hash": "39ba5a4d2219579779d94200dfc5be56"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/editor_test.go": {
+    "mtime": 1778207540.054988,
+    "hash": "0eafe689ef4e83fdf1a4be33ba70f3f0"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/keys.go": {
+    "mtime": 1778207540.0552995,
+    "hash": "51b5595fa17d29421003aee32096bd2f"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/layout.go": {
+    "mtime": 1778207540.055399,
+    "hash": "705849213096964daf95f81fbc1b813b"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/styles.go": {
+    "mtime": 1778207540.0566015,
+    "hash": "9ff3bea3638ef8a07195bb399aa29e46"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/app.go": {
+    "mtime": 1778207540.0543818,
+    "hash": "024ca629ed04343843dbef977b572a0a"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/tagpicker.go": {
+    "mtime": 1778207540.0567157,
+    "hash": "1e0dc5758e5b49d3c790f14ab0e30a98"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/rows_test.go": {
+    "mtime": 1778207540.0563505,
+    "hash": "1e5beb1e0d5a1236df85d102224190d0"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/footer.go": {
+    "mtime": 1778207540.0552216,
+    "hash": "3bf56ebf2e6b9d81346db478be62f094"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/detail.go": {
+    "mtime": 1778207540.0547404,
+    "hash": "4889d6ed9fb9d3035e6e1b24ea0f161c"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/preview_test.go": {
+    "mtime": 1778207540.05615,
+    "hash": "955e7e81c8fed1dabf6e495f64c459d7"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/layout_test.go": {
+    "mtime": 1778207540.0554974,
+    "hash": "ca8ce96af96ceefc194ac65f90d865b4"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/calendar.go": {
+    "mtime": 1778207540.0546055,
+    "hash": "abef19373ba563c568877db92d44f899"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/mode.go": {
+    "mtime": 1778207540.0557148,
+    "hash": "746cf0b82377be761ea94a8c2d8ec88d"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/newtask.go": {
+    "mtime": 1778207540.0557873,
+    "hash": "2ddcb7f5536c704195de2bfcc919f21b"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/browser.go": {
+    "mtime": 1778207540.0544984,
+    "hash": "6fd230b51f59ae7a461c37ed704a134e"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/fileopener_test.go": {
+    "mtime": 1778207540.0551283,
+    "hash": "b8544f7fc07a48205fdb93daa62ea877"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/rows.go": {
+    "mtime": 1778207540.0562563,
+    "hash": "9ae12d4a3bc77540c51ecc5ccf5bcedf"
+  },
+  "/Users/tmiyajima/software/task-man/internal/tui/editor.go": {
+    "mtime": 1778207540.0549133,
+    "hash": "d3d59af3c0cc1b2a985b094f6ec1cc61"
+  },
+  "/Users/tmiyajima/software/task-man/internal/cli/args_test.go": {
+    "mtime": 1778207540.0512307,
+    "hash": "4167145bdf2267aade41bbfff9720043"
+  },
+  "/Users/tmiyajima/software/task-man/internal/cli/args.go": {
+    "mtime": 1778207540.0511556,
+    "hash": "a6a47708b984526128dcba0adbdc70fb"
+  },
+  "/Users/tmiyajima/software/task-man/internal/storage/config.go": {
+    "mtime": 1778207540.0513458,
+    "hash": "4313ceaf0aa2c339e94c95759517e49c"
+  },
+  "/Users/tmiyajima/software/task-man/internal/storage/yaml_test.go": {
+    "mtime": 1778207540.0518568,
+    "hash": "e3647bdd08dfe057431bbc78e6ec7fff"
+  },
+  "/Users/tmiyajima/software/task-man/internal/storage/data_test.go": {
+    "mtime": 1778207540.05156,
+    "hash": "84e1d7f513732d9ee298de70e3177743"
+  },
+  "/Users/tmiyajima/software/task-man/internal/storage/yaml.go": {
+    "mtime": 1778207540.0517206,
+    "hash": "6de47b3aa55b65ea24a471d84ebecdb9"
+  },
+  "/Users/tmiyajima/software/task-man/internal/storage/data.go": {
+    "mtime": 1778207540.0514612,
+    "hash": "09da53f8368654ca022d81bf4ab9bc48"
+  },
+  "/Users/tmiyajima/software/task-man/internal/storage/repository.go": {
+    "mtime": 1778207540.0516274,
+    "hash": "1943e8d0aa0221bcc96f43b185087412"
+  },
+  "/Users/tmiyajima/software/task-man/internal/task/list.go": {
+    "mtime": 1778207540.052867,
+    "hash": "831ceeb7fe1de0029037cac44aca05a0"
+  },
+  "/Users/tmiyajima/software/task-man/internal/task/task.go": {
+    "mtime": 1778207540.053858,
+    "hash": "b1d6a8b88e773e1102496243a1d52a23"
+  },
+  "/Users/tmiyajima/software/task-man/internal/task/field.go": {
+    "mtime": 1778207540.0521336,
+    "hash": "e586d8d121264b6bb7c4c14227d9313b"
+  },
+  "/Users/tmiyajima/software/task-man/internal/task/trash_test.go": {
+    "mtime": 1778207540.0540836,
+    "hash": "3cac820661cb79bb514240d87670ce74"
+  },
+  "/Users/tmiyajima/software/task-man/internal/task/field_ops.go": {
+    "mtime": 1778207540.0525973,
+    "hash": "4bda129396110da4313c548730e8b6e3"
+  },
+  "/Users/tmiyajima/software/task-man/internal/task/status_test.go": {
+    "mtime": 1778207540.0535548,
+    "hash": "8450995c0820e78517090114cdc34581"
+  },
+  "/Users/tmiyajima/software/task-man/internal/task/move_test.go": {
+    "mtime": 1778207540.0531921,
+    "hash": "a307677a636c82aaca7ef1ec1b4c2965"
+  },
+  "/Users/tmiyajima/software/task-man/internal/task/field_ops_test.go": {
+    "mtime": 1778207540.0526805,
+    "hash": "36370f85dd1b8b2b149263972fe0f8ba"
+  },
+  "/Users/tmiyajima/software/task-man/internal/task/move.go": {
+    "mtime": 1778207540.0530453,
+    "hash": "c65ac01d8d23b84d96d2e7360f491be9"
+  },
+  "/Users/tmiyajima/software/task-man/internal/task/tag_test.go": {
+    "mtime": 1778207540.053781,
+    "hash": "a4f8650a20c5d444f4363fd0d74278d1"
+  },
+  "/Users/tmiyajima/software/task-man/internal/task/task_test.go": {
+    "mtime": 1778207540.0539353,
+    "hash": "edc345c407a810b3367a068f530d53ed"
+  },
+  "/Users/tmiyajima/software/task-man/internal/task/trash.go": {
+    "mtime": 1778207540.0540092,
+    "hash": "64ce5949a664796ffbdbea9c61b0a787"
+  },
+  "/Users/tmiyajima/software/task-man/internal/task/tag.go": {
+    "mtime": 1778207540.0536766,
+    "hash": "c24179272400848a7d5cc526e03a25ea"
+  },
+  "/Users/tmiyajima/software/task-man/internal/task/status.go": {
+    "mtime": 1778207540.053366,
+    "hash": "522ddd01591af945212c4ffc97d54a87"
+  },
+  "/Users/tmiyajima/software/task-man/internal/task/field_test.go": {
+    "mtime": 1778207540.0527885,
+    "hash": "9d4f509d9512eca0ffde84ebc3580f5a"
+  },
+  "/Users/tmiyajima/software/task-man/internal/task/list_test.go": {
+    "mtime": 1778207540.0529377,
+    "hash": "2754049425388755090b2500dc19f53e"
+  },
+  "/Users/tmiyajima/software/task-man/README.md": {
+    "mtime": 1778207540.0504467,
+    "hash": "996419fa57e0862bfb8e7944f2c7c9be"
+  },
+  "/Users/tmiyajima/software/task-man/README.ja.md": {
+    "mtime": 1778207540.0503397,
+    "hash": "bf1e3d4876d245151db17bdf9df283ee"
+  },
+  "/Users/tmiyajima/software/task-man/tasks/todo.md": {
+    "mtime": 1778207540.05705,
+    "hash": "159f864f41ac1b78f199257642359db9"
+  },
+  "/Users/tmiyajima/software/task-man/tasks/lessons.md": {
+    "mtime": 1778207540.0569468,
+    "hash": "aabae683d2cd2f9715991fe5957c1e42"
+  },
+  "/Users/tmiyajima/software/task-man/tasks/extension-fields-plan.md": {
+    "mtime": 1778207540.05685,
+    "hash": "19b5475c2edfcc56db5a6b871e50d69f"
+  },
+  "/Users/tmiyajima/software/task-man/docs/issues/issue.md": {
+    "mtime": 1778461535.6925342,
+    "hash": "459ac8ad8bae7118693e7327d052f390"
+  },
+  "/Users/tmiyajima/software/task-man/docs/task-man.png": {
+    "mtime": 1778207540.0508053,
+    "hash": "2403f4f4a0bec762de56ff97282ad6d0"
+  },
+  "/Users/tmiyajima/software/task-man/docs/issues/image1.png": {
+    "mtime": 1778461400.752718,
+    "hash": "b7220d6425b65c03962ba2795272e7e3"
+  }
+}
