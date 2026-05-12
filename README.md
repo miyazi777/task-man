@@ -95,7 +95,7 @@ alias tm='task-man -t ~/private/tasks.yaml'
 | `a` | New task (on a status row) / subtask (on a task row) |
 | `d` | Move task to trash (in trash view: permanently delete) |
 | `m` | Start / confirm move mode |
-| `o` | Operation mode (`t`=title, `s`=status, `g`=tag, `f`=files) |
+| `o` | Operation mode (`r`=rename, `s`=status, `g`=tag, `f`=files) |
 | `;` | Prefix mode |
 | `q` | Quit |
 
