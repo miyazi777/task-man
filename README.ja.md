@@ -95,7 +95,7 @@ alias tm='task-man -t ~/private/tasks.yaml'
 | `a` | 新規タスク (ステータス行) / サブタスク (タスク行) |
 | `d` | タスクをゴミ箱へ (ゴミ箱ビューでは完全削除) |
 | `m` | 移動モード開始 / 確定 |
-| `o` | operation モード (`t`=title, `s`=status, `g`=tag, `f`=files) |
+| `o` | operation モード (`r`=rename, `s`=status, `g`=tag, `f`=files) |
 | `;` | prefix モード |
 | `q` | 終了 |
 

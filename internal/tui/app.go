@@ -1174,7 +1174,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case ModeOperation:
 		// タスクリスト上で o を押した直後の operation 入力待ち状態。
-		// t = title 編集 / s = status 編集 / esc = キャンセル。
+		// r = rename (title 編集) / s = status 編集 / esc = キャンセル。
 		t, _, ok := m.currentTask()
 		if !ok {
 			m.mode = ModeList
@@ -1186,7 +1186,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		switch msg.String() {
-		case "t":
+		case "r":
 			inputW := popupWidth(m.width) - 7
 			if inputW < 1 {
 				inputW = 1

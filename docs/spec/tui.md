@@ -61,7 +61,7 @@
 | `d` | ゴミ箱へ移動 (通常リスト) / 完全削除 (ゴミ箱ビュー) |
 | `r` | ゴミ箱ビューでタスクを復元 |
 | `m` | 移動モードの開始 / 確定 (`ModeMove`) |
-| `o` | operation モード (`t`=title, `s`=status, `g`=tag, `f`=files) |
+|| `o` | operation モード (`r`=rename, `s`=status, `g`=tag, `f`=files) |
 | `;` | prefix モード (`ModePrefix`) |
 | `q` | 終了確認 |
 
@@ -135,7 +135,7 @@
 
 | キー | 動作 |
 |---|---|
-| `t` | タイトル編集 (`ModeEditTitle`) |
+|| `r` | タイトル編集 (`ModeEditTitle`) |
 | `s` | ステータス変更 (`ModeEditStatus`) |
 | `g` | タグピッカー (`ModeTagPicker`) |
 | `f` | 詳細画面に遷移し Files セクション先頭にカーソル合わせ |
