@@ -25,10 +25,10 @@ func renderFooter(mode, prevMode Mode, onFilesRow bool, onURLRow bool, viewTrash
 	var content string
 	switch mode {
 	case ModeList:
+		// カーソル系 (k/j/l/h と矢印キー) は自明なヒントなので footer から省き、
+		// 横幅が狭いときに重要なキーが折り返しで隠れないようにする。
 		if viewTrash {
 			content = renderHints([]hintItem{
-				{"k/↑", "up"}, {"j/↓", "down"},
-				{"l/→", "open"}, {"h/←", "close"},
 				{"enter", "detail"},
 				{"r", "restore"}, {"d", "delete"},
 				{"T", "back"}, {"q", "quit"},
@@ -36,8 +36,6 @@ func renderFooter(mode, prevMode Mode, onFilesRow bool, onURLRow bool, viewTrash
 			break
 		}
 		content = renderHints([]hintItem{
-			{"k/↑", "up"}, {"j/↓", "down"},
-			{"l/→", "open"}, {"h/←", "close"},
 			{"enter", "detail"},
 			{"m", "move"},
 			{"a", "new/subtask"},
