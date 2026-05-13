@@ -64,6 +64,20 @@ jobs:
 
             const detail = `# GitHub Issue #${issue.number}: ${issue.title}
 
+            ## Scope Guardrails (READ FIRST)
+            - This workflow is intended for **small, surgical fixes only**.
+            - Hard budget: at most **10 files** and **300 lines** of total change (insertions + deletions combined).
+              The CI gate will auto-close PRs that exceed this; do not waste effort building them.
+            - BEFORE writing any code, estimate the change size against this budget.
+            - If your proposed fix would exceed the budget:
+              1. **Do NOT implement, do NOT commit, do NOT create a PR.**
+              2. Post a comment on this issue with: (a) estimated file/line count,
+                 (b) a breakdown plan for splitting into smaller scoped issues,
+                 (c) a note that a human should re-scope the issue.
+              3. Stop.
+            - If the issue description proposes BOTH a "minimum fix" AND a "more fundamental refactor",
+              implement ONLY the minimum fix.
+
             ## Description
             ${description}
 
@@ -73,14 +87,16 @@ jobs:
             ## Instructions
             1. **Analyze**:
                - Read the issue description and prior comments above.
-               - Read \`CLAUDE.md\` and any relevant \`docs/spec/*.md\` before designing the fix.
-            2. **Fix**: Implement the changes necessary to resolve the issue.
+               - Read \`CLAUDE.md\` (or \`AGENTS.md\`; they're the same file) and any relevant \`docs/spec/*.md\`
+                 before designing the fix.
+            2. **Estimate scope**: confirm your plan fits within the Scope Guardrails above. If not, stop and comment.
+            3. **Fix**: Implement the changes necessary to resolve the issue.
                - Keep changes minimal and follow existing patterns and dependency direction.
                - Match the language (Japanese / English) of existing comments in the file you edit.
-            3. **Verify**:
+            4. **Verify**:
                - Run \`make fmt\`, \`make vet\`, and \`make test\` (or the equivalent \`go test ./...\`).
                - If you touched TUI code, run \`go test ./internal/tui/...\`.
-            4. **Output**: Do not print the diff. Provide a brief summary of what you changed and which tests you ran.
+            5. **Output**: Do not print the diff. Provide a brief summary of what you changed and which tests you ran.
             `;
             fs.writeFileSync(taskFile, detail, 'utf8');
 
@@ -100,6 +116,46 @@ jobs:
           prompt: ${{ steps.prompt.outputs.prompt }}
           warp_api_key: ${{ secrets.WARP_API_KEY }}
           profile: ${{ vars.WARP_AGENT_PROFILE || '' }}
+
+      - name: Enforce change size budget
+        if: success()
+        id: size_gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AGENT_OUTPUT: ${{ steps.agent.outputs.agent_output }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          MAX_FILES: 10
+          MAX_LINES: 300
+        run: |
+          PR_URL=$(printf '%s' "$AGENT_OUTPUT" | grep -oE 'https://github\.com/[^/]+/[^/]+/pull/[0-9]+' | tail -1)
+          if [[ -z "$PR_URL" ]]; then
+            echo "No PR URL found in agent output; nothing to gate."
+            exit 0
+          fi
+
+          PR_NUM="${PR_URL##*/}"
+          BRANCH=$(gh pr view "$PR_NUM" --json headRefName --jq .headRefName)
+          if [[ -z "$BRANCH" ]]; then
+            echo "Could not resolve head branch for PR #$PR_NUM; skipping gate."
+            exit 0
+          fi
+
+          git fetch --quiet origin "main:refs/remotes/origin/main" "$BRANCH:refs/remotes/origin/$BRANCH"
+          STATS=$(git diff --shortstat "origin/main...origin/$BRANCH")
+          echo "diff stats: $STATS"
+
+          FILES=$(echo "$STATS" | grep -oE '[0-9]+ file' | grep -oE '[0-9]+' | head -1)
+          LINES=$(echo "$STATS" | grep -oE '[0-9]+ (insertion|deletion)' | grep -oE '[0-9]+' | awk '{s+=$1} END {print s+0}')
+          FILES=${FILES:-0}
+          LINES=${LINES:-0}
+          echo "files=$FILES lines=$LINES (budget: $MAX_FILES files / $MAX_LINES lines)"
+
+          if [[ "$FILES" -gt "$MAX_FILES" || "$LINES" -gt "$MAX_LINES" ]]; then
+            gh pr close "$PR_NUM" --delete-branch --comment "Auto-closed by scope gate: change size exceeded budget (files=$FILES, lines=$LINES; budget=${MAX_FILES} files / ${MAX_LINES} lines). Please split this issue into smaller scoped tasks and re-trigger."
+            gh issue comment "$ISSUE_NUMBER" --body "**Oz scope budget exceeded** — PR #${PR_NUM} was auto-closed by the scope gate. Change size: ${FILES} files / ${LINES} lines (budget: ${MAX_FILES} files / ${MAX_LINES} lines). Consider splitting this issue into smaller scoped tasks before retrying."
+            echo "Scope budget exceeded; PR closed. Failing the job to make this visible."
+            exit 1
+          fi
 
       - name: Mark Oz Agent PR as ready for review
         if: success()
