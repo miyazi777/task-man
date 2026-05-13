@@ -204,7 +204,6 @@ func renderTaskRow(t task.Task, statuses task.StatusList, allTags task.TagList, 
 	return strings.Repeat(" ", leftPad) + marker + titleRendered + tagsRendered + badgeRendered
 }
 
-
 // cursorStyleFor は ModeMove の有無で標準/警告色のどちらの反転スタイルを返すか切り替える。
 func cursorStyleFor(inMoveMode bool) lipgloss.Style {
 	if inMoveMode {

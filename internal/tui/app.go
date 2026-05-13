@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -15,7 +16,6 @@ import (
 	"github.com/miyazi777/task-man/internal/storage"
 	"github.com/miyazi777/task-man/internal/task"
 )
-
 
 // editorFinishedMsg は外部エディタが終了したときに自身に通知する内部メッセージ。
 type editorFinishedMsg struct {
@@ -55,11 +55,11 @@ type Model struct {
 	settingMenuCursor    int             // 左メニュー (general / status / field) のインデックス
 	settingGeneralCursor int             // general ペイン: 編集対象行のインデックス (現状は 0=data_base_directory のみ)
 	settingStatusCursor  int             // 右ペイン: m.statuses.Sorted() のインデックス
-	settingColorChoices [][]string       // 色ピッカー候補グリッド (#rrggbb)。grid[row][col]
-	settingColorRow     int              // 色ピッカー上の行カーソル (色相)
-	settingColorCol     int              // 色ピッカー上の列カーソル (明度)
-	settingMovingStatus int              // ModeSettingStatusMove 中の対象 status ID (0 なら未選択)
-	settingMoveSnapshot task.StatusList  // ModeSettingStatusMove 開始時のスナップショット (esc 用)
+	settingColorChoices  [][]string      // 色ピッカー候補グリッド (#rrggbb)。grid[row][col]
+	settingColorRow      int             // 色ピッカー上の行カーソル (色相)
+	settingColorCol      int             // 色ピッカー上の列カーソル (明度)
+	settingMovingStatus  int             // ModeSettingStatusMove 中の対象 status ID (0 なら未選択)
+	settingMoveSnapshot  task.StatusList // ModeSettingStatusMove 開始時のスナップショット (esc 用)
 
 	// ModeSettingField* 用の状態
 	settingFieldCursor       int               // 中央ペイン: m.fields.Sorted() のインデックス
@@ -78,8 +78,8 @@ type Model struct {
 	// ModeTagPicker 用の状態
 	// tagPickerTaskID = 対象タスク ID (モーダルが開いている間にカーソルが動いても固定)
 	// tagPickerCursor = 0 が create input、1..N が既存タグ (Sorted 順) のインデックス
-	tagPickerTaskID  int
-	tagPickerCursor  int
+	tagPickerTaskID int
+	tagPickerCursor int
 
 	// ModeTagColorPicker 用の状態 (背後の ModeTagPicker は維持される)
 	tagColorPickerTagID int
@@ -106,19 +106,19 @@ type Model struct {
 	fileOpenerFile       string
 
 	// ModeSettingApplication 系の状態。
-	settingApplicationCursor      int                   // 中央ペイン: applications 内のインデックス
-	settingApplicationAttrCursor  int                   // 右ペイン: 0=id, 1=name, 2=run
-	settingApplicationMovingID    int                   // 移動中の application ID (0=未選択)
-	settingApplicationMoveBackup  []storage.Application // esc で復元する移動前スナップショット
-	addApplicationFocus           int                   // 追加モーダル: 0=name, 1=run
-	addApplicationNameBuf         string                // 追加モーダルで focus 切替時に name を退避するバッファ
-	addApplicationRunBuf          string                // 追加モーダルで focus 切替時に run を退避するバッファ
+	settingApplicationCursor     int                   // 中央ペイン: applications 内のインデックス
+	settingApplicationAttrCursor int                   // 右ペイン: 0=id, 1=name, 2=run
+	settingApplicationMovingID   int                   // 移動中の application ID (0=未選択)
+	settingApplicationMoveBackup []storage.Application // esc で復元する移動前スナップショット
+	addApplicationFocus          int                   // 追加モーダル: 0=name, 1=run
+	addApplicationNameBuf        string                // 追加モーダルで focus 切替時に name を退避するバッファ
+	addApplicationRunBuf         string                // 追加モーダルで focus 切替時に run を退避するバッファ
 
 	// ModeSettingFileOpener 系の状態。
-	settingFileOpenerCursor       int                  // 中央ペイン: file_openers 内のインデックス
-	settingFileOpenerAttrCursor   int                  // 右ペイン: 0=extension, 1=applications, 2=default_app
-	settingFileOpenerMovingExt    string               // 移動中の opener.Extension
-	settingFileOpenerMoveBackup   []storage.FileOpener // esc で復元する移動前スナップショット
+	settingFileOpenerCursor     int                  // 中央ペイン: file_openers 内のインデックス
+	settingFileOpenerAttrCursor int                  // 右ペイン: 0=extension, 1=applications, 2=default_app
+	settingFileOpenerMovingExt  string               // 移動中の opener.Extension
+	settingFileOpenerMoveBackup []storage.FileOpener // esc で復元する移動前スナップショット
 	// applications multi-select / default_app picker 中の表示インデックス
 	settingFileOpenerAppsCursor    int   // multi-select 中のカーソル (apps 配列の index)
 	settingFileOpenerAppsSelected  []int // 編集中の applications ID 配列 (作業用バッファ)
@@ -522,12 +522,23 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			newTasks, removedIDs := task.DeleteTaskSubtree(m.tasks, cur.ID)
 			m.tasks = newTasks
+			// yaml 保存を先に行い、失敗時はディレクトリ削除をスキップする。
+			// これにより「yaml にタスクが残っているがディレクトリだけ消えた」半削除状態を防ぐ。
+			if err := m.persist(); err != nil {
+				m.saveErr = err
+				m.mode = ModeList
+				m = m.withRowsRebuilt()
+				m = clampCursor(m)
+				m = m.withFilesRefreshed()
+				return m, nil
+			}
+			var errs []error
 			for _, id := range removedIDs {
 				if err := storage.DeleteTaskData(m.yamlDir, m.cfg.DataBaseDirectory, id); err != nil {
-					m.saveErr = err
+					errs = append(errs, err)
 				}
 			}
-			if err := m.persist(); err != nil {
+			if err := errors.Join(errs...); err != nil {
 				m.saveErr = err
 			}
 			m.mode = ModeList

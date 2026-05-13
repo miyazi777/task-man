@@ -404,8 +404,8 @@ func (fl FieldDefList) resequenceByOrder(orderedIDs []int) FieldDefList {
 
 // TaskField は単一タスク内の拡張項目インスタンス (値ホルダー)。
 type TaskField struct {
-	ID      int    // task.fields 内で一意
-	FieldID int    // FieldDef.ID への参照
+	ID      int // task.fields 内で一意
+	FieldID int // FieldDef.ID への参照
 	Value   string
 }
 

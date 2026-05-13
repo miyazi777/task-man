@@ -432,8 +432,9 @@ func overlayColorPicker(bg, labelText string, grid [][]string, curRow, curCol, s
 }
 
 // 色ピッカーのグリッド寸法 (縦長レイアウト)。
-//   行 = 固定パレットの 12 色 (Google 風カラーパレットの上段 8 + 下段 4 を上から並べる)
-//   列 = 明度 3 段階 (列ごとに V から 0.25 を差し引く)
+//
+//	行 = 固定パレットの 12 色 (Google 風カラーパレットの上段 8 + 下段 4 を上から並べる)
+//	列 = 明度 3 段階 (列ごとに V から 0.25 を差し引く)
 const (
 	colorPickerRows  = 12
 	colorPickerCols  = 3

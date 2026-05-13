@@ -188,4 +188,3 @@ func TestAdjustLayoutHorizontal(t *testing.T) {
 		t.Errorf("task_list not increased: %v -> %v", *in.TaskListWidth, *out.TaskListWidth)
 	}
 }
-
