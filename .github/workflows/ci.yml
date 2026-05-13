@@ -31,6 +31,21 @@ jobs:
           go-version-file: go.mod
       - run: go vet ./...
 
+  lint:
+    name: Lint (golangci-lint)
+    runs-on: ubuntu-latest
+    # 初回導入時は既存コードの指摘が大量に残っているため、CI 全体を即落とさない。
+    # 指摘を別 PR で順次解消後、この continue-on-error は外す。issue #8 参照。
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.1.6
+
   test:
     name: Test (race)
     runs-on: ubuntu-latest

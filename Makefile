@@ -3,7 +3,7 @@ PKG    := ./cmd/task-man
 GOFLAGS ?=
 LDFLAGS ?= -s -w
 
-.PHONY: all build run test fmt vet tidy clean install help
+.PHONY: all build run test fmt vet lint tidy clean install help
 
 all: build
 
@@ -22,6 +22,9 @@ fmt:
 vet:
 	go vet ./...
 
+lint:
+	golangci-lint run ./...
+
 tidy:
 	go mod tidy
 
@@ -39,6 +42,7 @@ help:
 	@echo "  test     全パッケージのテスト"
 	@echo "  fmt      go fmt"
 	@echo "  vet      go vet"
+	@echo "  lint     golangci-lint run"
 	@echo "  tidy     go mod tidy"
 	@echo "  install  \$$GOPATH/bin にインストール"
 	@echo "  clean    バイナリ削除"
