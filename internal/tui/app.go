@@ -1,3 +1,5 @@
+// Package tui は Bubble Tea ベースの TUI 層。Model / Update / View を提供し、
+// Mode 列挙で画面・入力フェーズを切り替える。
 package tui
 
 import (
@@ -22,6 +24,7 @@ type editorFinishedMsg struct {
 	err error
 }
 
+// Model は TUI のアプリケーション状態。Bubble Tea の Model 規約 (Init / Update / View) を実装する。
 type Model struct {
 	repo          storage.Repository
 	tasks         []task.Task
@@ -130,6 +133,7 @@ type Model struct {
 	saveErr error
 }
 
+// NewModel は初期データから Model を組み立てて返す。Bubble Tea program に渡す Model はここで作る。
 func NewModel(repo storage.Repository, initial []task.Task, statuses task.StatusList, fields task.FieldDefList, tags task.TagList, yamlPath string, cfg storage.AppConfig) Model {
 	yamlDir := filepath.Dir(yamlPath)
 	collapsed := make(map[int]bool)
@@ -367,10 +371,12 @@ func (m Model) withFilesRefreshed() Model {
 	return m
 }
 
+// Init は Bubble Tea プログラム開始時に呼ばれる。本 TUI は起動コマンドを持たないので nil を返す。
 func (m Model) Init() tea.Cmd {
 	return nil
 }
 
+// Update は Bubble Tea のメッセージを受け取り、新しい Model と次に発行するコマンドを返す。
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -3472,6 +3478,7 @@ func sortedStatusIndex(sl task.StatusList, id int) int {
 	return 0
 }
 
+// View は現在の Model をレンダリング済み文字列にして返す。Bubble Tea がこれを毎フレーム呼ぶ。
 func (m Model) View() string {
 	if m.width == 0 || m.height == 0 {
 		return ""

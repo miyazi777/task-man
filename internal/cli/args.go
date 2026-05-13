@@ -1,3 +1,4 @@
+// Package cli parses task-man の起動コマンドライン引数を扱う。
 package cli
 
 import (
@@ -10,8 +11,10 @@ import (
 	"github.com/spf13/pflag"
 )
 
+// DefaultFileName は -t / --tasks 未指定時に CWD で参照する yaml ファイル名。
 const DefaultFileName = "tasks.yaml"
 
+// Args は task-man の起動オプションを表す解析結果。Parse の戻り値として使う。
 type Args struct {
 	Path string
 	// MustExist が true の場合、ファイルが存在しなければエラー終了。

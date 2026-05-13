@@ -14,6 +14,7 @@ const MaxTitleRunes = 60
 // 値 4 のとき、トップレベル + 4 階層 = 計 5 階層まで許容する。
 const MaxNestDepth = 4
 
+// Task はドメインモデルの中心。yaml の各 task エントリと 1 対 1 に対応する。
 type Task struct {
 	ID         int
 	Title      string
@@ -26,6 +27,7 @@ type Task struct {
 	Tags       []int         // タグ ID 参照。スキーマは top-level TagList で別管理。最大 MaxTagsPerTask 個。
 }
 
+// Task のバリデーションエラー。Task.Validate / Task 系操作が返す。
 var (
 	ErrEmptyTitle      = errors.New("title must not be empty")
 	ErrInvalidID       = errors.New("id must be greater than 0")

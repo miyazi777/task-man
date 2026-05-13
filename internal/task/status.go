@@ -18,6 +18,7 @@ type Status struct {
 // StatusList は同一 yaml ファイル内で有効なステータス集合。
 type StatusList []Status
 
+// ステータス操作のバリデーションエラー。Status の Validate / StatusList の追加・削除等が返す。
 var (
 	ErrStatusEmptyLabel       = errors.New("status label must not be empty")
 	ErrStatusInvalidID        = errors.New("status id must be greater than 0")
@@ -84,17 +85,17 @@ func (sl StatusList) PrevID(currentID int) int {
 func (sl StatusList) AssignMissingIDs() (StatusList, bool) {
 	out := make(StatusList, len(sl))
 	copy(out, sl)
-	max := 0
+	maxID := 0
 	for _, s := range out {
-		if s.ID > max {
-			max = s.ID
+		if s.ID > maxID {
+			maxID = s.ID
 		}
 	}
 	changed := false
 	for i := range out {
 		if out[i].ID <= 0 {
-			max++
-			out[i].ID = max
+			maxID++
+			out[i].ID = maxID
 			changed = true
 		}
 	}
@@ -145,13 +146,13 @@ func (sl StatusList) InsertAt(insertIdx int, label, color string) (StatusList, i
 	if insertIdx > len(sl) {
 		insertIdx = len(sl)
 	}
-	max := 0
+	maxID := 0
 	for _, s := range sl {
-		if s.ID > max {
-			max = s.ID
+		if s.ID > maxID {
+			maxID = s.ID
 		}
 	}
-	newID := max + 1
+	newID := maxID + 1
 	newStatus := Status{ID: newID, Label: label, Color: color}
 
 	sorted := sl.Sorted()

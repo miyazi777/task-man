@@ -10,13 +10,13 @@ import (
 // nextApplicationID は applications の中で使われていない最小の正の ID を返す
 // (= max(id)+1)。空なら 1。
 func nextApplicationID(apps []storage.Application) int {
-	max := 0
+	maxID := 0
 	for _, a := range apps {
-		if a.ID > max {
-			max = a.ID
+		if a.ID > maxID {
+			maxID = a.ID
 		}
 	}
-	return max + 1
+	return maxID + 1
 }
 
 // hasFileOpenerExtension は openers に同名の extension が既に登録されているかを返す。

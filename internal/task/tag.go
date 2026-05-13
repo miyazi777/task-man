@@ -25,6 +25,7 @@ const (
 	MaxTagNameRunes = 8
 )
 
+// タグ操作のバリデーションエラー。Tag の Validate / TagList の操作が返す。
 var (
 	ErrTagEmptyName     = errors.New("tag name must not be empty")
 	ErrTagNameTooLong   = fmt.Errorf("tag name must be at most %d characters", MaxTagNameRunes)

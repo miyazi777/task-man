@@ -19,6 +19,7 @@ const MaxFileNameRunes = 255
 // ErrTaskDirExists はタスク用ディレクトリ (もしくは memo.md) がすでに存在することを示す。
 var ErrTaskDirExists = errors.New("task data directory already exists")
 
+// 添付ファイル名のバリデーションエラー。AddTaskFile / RenameTaskFile が返す。
 var (
 	ErrFileNameEmpty   = errors.New("filename must not be empty")
 	ErrFileNameTooLong = fmt.Errorf("filename must be at most %d characters", MaxFileNameRunes)
@@ -266,7 +267,7 @@ func ReadTaskFile(yamlDir, dataBaseDir string, taskID int, fileName string, maxB
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	data, err := io.ReadAll(io.LimitReader(f, int64(maxBytes)))
 	if err != nil {
 		return "", err

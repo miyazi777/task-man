@@ -1,3 +1,5 @@
+// Package storage は tasks.yaml と添付ファイルの永続化を担う。Repository
+// インターフェースとその唯一の実装 YAMLRepository を提供する。
 package storage
 
 // AppConfig は tasks.yaml に保存されるアプリケーション設定をまとめたもの。

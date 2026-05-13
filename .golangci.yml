@@ -1,0 +1,23 @@
+# golangci-lint v2 形式の設定。Makefile の `make lint` と CI の lint job から参照される。
+# 詳細は https://golangci-lint.run/usage/configuration/ を参照。
+version: "2"
+
+run:
+  timeout: 3m
+
+linters:
+  enable:
+    # default 群 (errcheck / govet / staticcheck / ineffassign / unused) は明示しなくても有効だが、
+    # 何が動いているか分かりやすくするため列挙しておく。
+    - errcheck
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+    # 追加で有効化するもの:
+    - misspell
+    - revive
+
+formatters:
+  enable:
+    - gofmt
