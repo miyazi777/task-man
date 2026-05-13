@@ -101,6 +101,20 @@ jobs:
           warp_api_key: ${{ secrets.WARP_API_KEY }}
           profile: ${{ vars.WARP_AGENT_PROFILE || '' }}
 
+      - name: Mark Oz Agent PR as ready for review
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AGENT_OUTPUT: ${{ steps.agent.outputs.agent_output }}
+        run: |
+          PR_URL=$(printf '%s' "$AGENT_OUTPUT" | grep -oE 'https://github\.com/[^/]+/[^/]+/pull/[0-9]+' | tail -1)
+          if [[ -n "$PR_URL" ]]; then
+            echo "Marking $PR_URL as ready for review"
+            gh pr ready "$PR_URL"
+          else
+            echo "No PR URL found in agent output; nothing to mark ready."
+          fi
+
       - name: Create PR and Comment
         env:
           GH_TOKEN: ${{ github.token }}
