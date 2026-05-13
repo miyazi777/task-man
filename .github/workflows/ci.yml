@@ -44,7 +44,10 @@ jobs:
           go-version-file: go.mod
       - uses: golangci/golangci-lint-action@v7
         with:
-          version: v2.1.6
+          # go.mod (Go 1.26.2) に追従する必要があるため、Go 1.26 でビルドされた
+          # v2.11.x 系を使う。古い v2.1.x は Go 1.24 ビルドで「targeted Go version
+          # > used Go version」エラーになる。
+          version: v2.11.4
 
   test:
     name: Test (race)
