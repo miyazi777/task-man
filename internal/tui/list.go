@@ -46,6 +46,10 @@ func renderList(tasks []task.Task, statuses task.StatusList, allTags task.TagLis
 // renderStatusHeader は ▼/▶ + [label] のステータス見出し行を描画する。
 // 通常時は status の色を背景にした反転表示 (黒抜き文字)。
 // カーソル時はリスト共通のカーソル反転 (アクセント色背景、ModeMove なら警告色) を優先する。
+//
+// 行は必ず単一行 width cell に収まるよう truncate + pad する。lipgloss の Width()
+// は内容が長すぎると word-wrap で複数行になり、最上段の見出しが画面から欠落する
+// 原因になるため、ここでは Width() に頼らず手動で幅を揃える。
 func renderStatusHeader(statuses task.StatusList, statusID int, isCollapsed, isCursor, listFocused, inMoveMode bool, width int) string {
 	status, _ := statuses.ByID(statusID)
 	marker := "[-]"
@@ -55,12 +59,23 @@ func renderStatusHeader(statuses task.StatusList, statusID int, isCollapsed, isC
 
 	if isCursor && listFocused {
 		raw := " " + marker + "  " + status.Label + " "
-		return cursorStyleFor(inMoveMode).Width(width).Render(raw)
+		return cursorStyleFor(inMoveMode).Render(clampLineWidth(raw, width))
 	}
 
 	prefix := " " + marker + " "
-	labelPart := statusRowStyleFor(status).Render(" " + status.Label + " ")
-	return lipgloss.NewStyle().Width(width).Render(prefix + labelPart)
+	// ラベルチップは " " + label + " " 構成。chip 内の前後 1 cell 余白を引いた残りでラベルを切り詰める。
+	const chipPad = 2
+	labelAvail := width - lipgloss.Width(prefix) - chipPad
+	if labelAvail < 1 {
+		labelAvail = 1
+	}
+	label := truncate(status.Label, labelAvail)
+	labelPart := statusRowStyleFor(status).Render(" " + label + " ")
+	full := prefix + labelPart
+	if pad := width - lipgloss.Width(full); pad > 0 {
+		full += strings.Repeat(" ", pad)
+	}
+	return full
 }
 
 // renderTaskRow はタスク行を描画する。先頭にインデント (depth に応じて 2 cell ずつ加算)
@@ -167,7 +182,7 @@ func renderTaskRow(t task.Task, statuses task.StatusList, allTags task.TagList, 
 			inlineTagsPart = " " + tagsPlain
 		}
 		raw := strings.Repeat(" ", leftPad) + marker + title + inlineTagsPart + strings.Repeat(" ", gap) + statusBadge
-		return cursorStyleFor(inMoveMode).Width(width).Render(raw)
+		return cursorStyleFor(inMoveMode).Render(clampLineWidth(raw, width))
 	}
 
 	var titleRendered string
@@ -225,4 +240,18 @@ func truncate(s string, w int) string {
 		}
 	}
 	return "…"
+}
+
+// clampLineWidth は s を厳密に w cell 幅の単一行に揃える。
+// 短ければ右側を半角スペースで埋め、長ければ truncate で省略表示にする。
+// ANSI escape を含まないプレーン文字列を想定 (truncate が rune 単位で切る都合)。
+func clampLineWidth(s string, w int) string {
+	sw := lipgloss.Width(s)
+	if sw == w {
+		return s
+	}
+	if sw < w {
+		return s + strings.Repeat(" ", w-sw)
+	}
+	return truncate(s, w)
 }
