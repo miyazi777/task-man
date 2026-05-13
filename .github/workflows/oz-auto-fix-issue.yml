@@ -38,10 +38,13 @@ jobs:
       - name: Construct Prompt
         id: prompt
         uses: actions/github-script@v7
+        env:
+          TASK_FILE: ${{ runner.temp }}/oz_task.md
         with:
           script: |
             const fs = require('fs');
             const issue = context.payload.issue;
+            const taskFile = process.env.TASK_FILE;
 
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
@@ -52,43 +55,41 @@ jobs:
 
             const description = issue.body || 'No description provided.';
 
-            let commentsNote = 'There are no previous comments on this issue.';
-            let commentsInstructions = '';
+            let commentsSection = 'There are no previous comments on this issue.';
             if (comments.length) {
-              const commentsText = comments
-                .map(c => `- ${c.user?.login || 'unknown'} (${c.created_at}): ${c.body}`)
+              commentsSection = comments
+                .map(c => `- ${c.user?.login || 'unknown'} (${c.created_at}):\n  ${(c.body || '').replace(/\n/g, '\n  ')}`)
                 .join('\n');
-              fs.writeFileSync('issue_comments.txt', commentsText, 'utf8');
-              commentsNote = 'All previous issue comments are stored in `issue_comments.txt` in the workspace.';
-              commentsInstructions = `
-                -   Optionally, read \`issue_comments.txt\` to understand prior discussion and clarifications.`;
             }
 
-            const prompt = `You are an expert software engineer and the Oz Agent.
-            You have been assigned to fix GitHub Issue #${issue.number} in the task-man repository
-            (a Go TUI task manager). Before coding, read \`CLAUDE.md\` at the repo root for build,
-            test, architecture, and i18n conventions you must follow.
+            const detail = `# GitHub Issue #${issue.number}: ${issue.title}
 
-            **Issue Details**:
-            - **Title**: ${issue.title}
-            - **Description**: ${description}
+            ## Description
+            ${description}
 
-            **Previous Issue Comments**:
-            ${commentsNote}
+            ## Previous Comments
+            ${commentsSection}
 
-            **Instructions**:
-            1.  **Analyze**:
-                -   Read the issue description above to understand the problem.${commentsInstructions}
-                -   Read \`CLAUDE.md\` and any relevant \`docs/spec/*.md\` before designing the fix.
-            2.  **Fix**: Implement the changes necessary to resolve the issue.
-                -   Keep changes minimal and follow existing patterns and dependency direction.
-                -   Match the language (Japanese / English) of existing comments in the file you edit.
-            3.  **Verify**:
-                -   Run \`make fmt\`, \`make vet\`, and \`make test\` (or the equivalent \`go test ./...\`).
-                -   If you touched TUI code, run \`go test ./internal/tui/...\`.
-            4.  **Output**: Do not print the diff. Provide a brief summary of what you changed and which tests you ran.
+            ## Instructions
+            1. **Analyze**:
+               - Read the issue description and prior comments above.
+               - Read \`CLAUDE.md\` and any relevant \`docs/spec/*.md\` before designing the fix.
+            2. **Fix**: Implement the changes necessary to resolve the issue.
+               - Keep changes minimal and follow existing patterns and dependency direction.
+               - Match the language (Japanese / English) of existing comments in the file you edit.
+            3. **Verify**:
+               - Run \`make fmt\`, \`make vet\`, and \`make test\` (or the equivalent \`go test ./...\`).
+               - If you touched TUI code, run \`go test ./internal/tui/...\`.
+            4. **Output**: Do not print the diff. Provide a brief summary of what you changed and which tests you ran.
             `;
-            core.setOutput('prompt', prompt);
+            fs.writeFileSync(taskFile, detail, 'utf8');
+
+            const titleSnippet = issue.title.length > 200 ? issue.title.slice(0, 200) + '...' : issue.title;
+            const shortPrompt =
+              `You are the Oz Agent. Fix GitHub Issue #${issue.number}: ${titleSnippet}. ` +
+              `Read ${taskFile} for the full task spec (description, prior comments, instructions), ` +
+              `then follow CLAUDE.md at the repo root.`;
+            core.setOutput('prompt', shortPrompt);
 
       - name: Run Oz Agent
         uses: warpdotdev/oz-agent-action@v1
@@ -107,8 +108,6 @@ jobs:
           ISSUE_TITLE: ${{ github.event.issue.title }}
           AGENT_OUTPUT: ${{ steps.agent.outputs.agent_output }}
         run: |
-          rm -f issue_comments.txt issue_description.txt
-
           if [[ -z $(git status --porcelain) ]]; then
             echo "No changes made by Oz Agent."
             gh issue comment "$ISSUE_NUMBER" --body "I analyzed the issue but couldn't determine a code change to make.
