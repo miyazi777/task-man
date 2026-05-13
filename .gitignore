@@ -3,6 +3,7 @@ private/
 tasks.yaml
 tasks.back.yaml
 task2.yaml
+*.yaml.lock
 
 # Go ビルド成果物
 /task-man

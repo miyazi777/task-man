@@ -15,4 +15,5 @@ type LoadResult struct {
 type Repository interface {
 	Load() (LoadResult, error)
 	Save(lr LoadResult) error
+	Close() error
 }

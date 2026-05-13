@@ -45,6 +45,11 @@ func run() error {
 	}
 
 	repo := storage.NewYAMLRepository(absPath)
+	if err := repo.Lock(); err != nil {
+		return err
+	}
+	defer repo.Close()
+
 	lr, err := repo.Load()
 	if err != nil {
 		return err
@@ -77,8 +82,8 @@ func runInit(yamlPath string, in io.Reader, out io.Writer) error {
 		}
 	}
 	if yamlExists {
-		repo := storage.NewYAMLRepository(yamlPath)
-		if lr, lerr := repo.Load(); lerr == nil {
+		tmpRepo := storage.NewYAMLRepository(yamlPath)
+		if lr, lerr := tmpRepo.Load(); lerr == nil {
 			existingCfg = lr.Config
 		} else {
 			return fmt.Errorf("load existing yaml (fix or remove it before --init): %w", lerr)
@@ -111,6 +116,11 @@ func runInit(yamlPath string, in io.Reader, out io.Writer) error {
 	}
 
 	repo := storage.NewYAMLRepository(yamlPath)
+	if err := repo.Lock(); err != nil {
+		return err
+	}
+	defer repo.Close()
+
 	if err := repo.Save(storage.LoadResult{
 		Tasks:    nil,
 		Statuses: task.DefaultStatuses(),

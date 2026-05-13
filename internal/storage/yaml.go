@@ -126,11 +126,31 @@ type yamlFile struct {
 }
 
 type YAMLRepository struct {
-	Path string
+	Path     string
+	lockFile *os.File // flock で保持する排他ロック用ファイル
 }
 
 func NewYAMLRepository(path string) *YAMLRepository {
 	return &YAMLRepository{Path: path}
+}
+
+// Lock は yaml ファイルに対する排他ロックを取得する。
+// 別プロセスが同じファイルをロック中の場合は ErrAlreadyLocked を返す。
+// プロセス終了時やアプリ終了時に Close を呼んでロックを解放すること。
+func (r *YAMLRepository) Lock() error {
+	f, err := acquireLock(r.Path)
+	if err != nil {
+		return err
+	}
+	r.lockFile = f
+	return nil
+}
+
+// Close は排他ロックを解放する。ロック未取得の場合は何もしない。
+func (r *YAMLRepository) Close() error {
+	err := releaseLock(r.lockFile)
+	r.lockFile = nil
+	return err
 }
 
 func (r *YAMLRepository) Load() (LoadResult, error) {

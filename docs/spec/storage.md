@@ -2,6 +2,16 @@
 
 `internal/storage` パッケージ。`Repository` インタフェースの唯一の実装は `YAMLRepository`。
 
+## ファイルロック (`internal/storage/lock.go`)
+
+同一 `tasks.yaml` を複数プロセスで同時に開くと last-writer-wins で更新が失われるため、`YAMLRepository` は起動時に advisory file lock (`flock(LOCK_EX)`) を取得してプロセス間排他を行う。
+
+- ロックファイルは `<yaml_path>.lock` (例: `tasks.yaml.lock`)。
+- `YAMLRepository.Lock()` が `flock(LOCK_EX|LOCK_NB)` でノンブロッキング取得を試みる。
+- 別プロセスがロック保持中の場合は `ErrAlreadyLocked` を返し、起動を中断する。
+- `YAMLRepository.Close()` でロックを解放する。プロセス終了時にも OS がロックを自動解放する。
+- 添付ファイルディレクトリの操作もロック保持中に行われるため、yaml と添付ファイルの整合性が保証される。
+
 ## ロード (`YAMLRepository.Load`)
 
 1. `os.ReadFile(path)` でファイル全体を読む。
@@ -90,3 +100,4 @@ type AppConfig struct {
 | `ErrFileExists` | 同名ファイルが既に存在 |
 | `ErrFileNotFoundIn` | 対象ファイルがタスクディレクトリ内に無い |
 | `ErrFileNotFound` | tasks ファイル自体が無い |
+| `ErrAlreadyLocked` | 別プロセスが同じ tasks ファイルをロック中 |
