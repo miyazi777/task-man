@@ -19,9 +19,9 @@ type Status struct {
 type StatusList []Status
 
 var (
-	ErrStatusEmptyLabel        = errors.New("status label must not be empty")
-	ErrStatusInvalidID         = errors.New("status id must be greater than 0")
-	ErrCannotDeleteLastStatus  = errors.New("cannot delete the last remaining status")
+	ErrStatusEmptyLabel       = errors.New("status label must not be empty")
+	ErrStatusInvalidID        = errors.New("status id must be greater than 0")
+	ErrCannotDeleteLastStatus = errors.New("cannot delete the last remaining status")
 )
 
 // DefaultStatuses は statuses 未定義時に注入されるデフォルト集合。
@@ -169,8 +169,8 @@ func (sl StatusList) InsertAt(insertIdx int, label, color string) (StatusList, i
 // その status を参照していたタスクの再割当て先 (fallback status id) を返す。
 //
 // fallback の決定 (rows.go は sequence 昇順で描画 = 表示上「下」 = sequence 値が大きい方):
-//  - Sorted で対象の次 (sequence が 1 つ大きい = 表示上 1 つ下) の status があればそれ。
-//  - 無ければ (= 対象が最大 sequence) Sorted で対象の前 (sequence が 1 つ小さい = 表示上 1 つ上) の status。
+//   - Sorted で対象の次 (sequence が 1 つ大きい = 表示上 1 つ下) の status があればそれ。
+//   - 無ければ (= 対象が最大 sequence) Sorted で対象の前 (sequence が 1 つ小さい = 表示上 1 つ上) の status。
 //
 // status が 1 つしか無い場合は ErrCannotDeleteLastStatus。
 // id が見つからない場合もエラー。

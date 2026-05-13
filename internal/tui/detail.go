@@ -292,4 +292,3 @@ func renderFileNamesList(files []string, focused, blockFocused bool, fileCursor,
 	}
 	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
 }
-
