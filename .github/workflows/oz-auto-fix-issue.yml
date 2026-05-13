@@ -1,0 +1,143 @@
+# ======================================================================================
+# Workflow: Oz Auto Fix Issue
+# ======================================================================================
+# Usage:
+#   - Apply the label 'oz-agent' to any GitHub Issue to delegate it to the Oz Agent.
+#   - The agent analyzes the issue, writes a fix, and opens a PR (fix/issue-NUMBER).
+#
+# Setup:
+#   - Repository Secret: WARP_API_KEY (from Warp app Settings)
+#   - Optional Repository Variable: WARP_AGENT_PROFILE
+#   - Create a label named 'oz-agent' in this repository
+#
+# Notes:
+#   - If no change is needed, the agent comments on the issue instead of opening a PR.
+#   - Untrusted issue fields (title/body/comments) are passed via env vars to avoid
+#     shell injection. See: https://github.blog/security/vulnerability-research/how-to-catch-github-actions-workflow-injections-before-attackers-do/
+# ======================================================================================
+name: Oz Auto Fix Issue
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  auto_fix:
+    if: github.event.label.name == 'oz-agent'
+    name: Auto Fix Issue
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Construct Prompt
+        id: prompt
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const issue = context.payload.issue;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              per_page: 100,
+            });
+
+            const description = issue.body || 'No description provided.';
+
+            let commentsNote = 'There are no previous comments on this issue.';
+            let commentsInstructions = '';
+            if (comments.length) {
+              const commentsText = comments
+                .map(c => `- ${c.user?.login || 'unknown'} (${c.created_at}): ${c.body}`)
+                .join('\n');
+              fs.writeFileSync('issue_comments.txt', commentsText, 'utf8');
+              commentsNote = 'All previous issue comments are stored in `issue_comments.txt` in the workspace.';
+              commentsInstructions = `
+                -   Optionally, read \`issue_comments.txt\` to understand prior discussion and clarifications.`;
+            }
+
+            const prompt = `You are an expert software engineer and the Oz Agent.
+            You have been assigned to fix GitHub Issue #${issue.number} in the task-man repository
+            (a Go TUI task manager). Before coding, read \`CLAUDE.md\` at the repo root for build,
+            test, architecture, and i18n conventions you must follow.
+
+            **Issue Details**:
+            - **Title**: ${issue.title}
+            - **Description**: ${description}
+
+            **Previous Issue Comments**:
+            ${commentsNote}
+
+            **Instructions**:
+            1.  **Analyze**:
+                -   Read the issue description above to understand the problem.${commentsInstructions}
+                -   Read \`CLAUDE.md\` and any relevant \`docs/spec/*.md\` before designing the fix.
+            2.  **Fix**: Implement the changes necessary to resolve the issue.
+                -   Keep changes minimal and follow existing patterns and dependency direction.
+                -   Match the language (Japanese / English) of existing comments in the file you edit.
+            3.  **Verify**:
+                -   Run \`make fmt\`, \`make vet\`, and \`make test\` (or the equivalent \`go test ./...\`).
+                -   If you touched TUI code, run \`go test ./internal/tui/...\`.
+            4.  **Output**: Do not print the diff. Provide a brief summary of what you changed and which tests you ran.
+            `;
+            core.setOutput('prompt', prompt);
+
+      - name: Run Oz Agent
+        uses: warpdotdev/oz-agent-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        id: agent
+        with:
+          prompt: ${{ steps.prompt.outputs.prompt }}
+          warp_api_key: ${{ secrets.WARP_API_KEY }}
+          profile: ${{ vars.WARP_AGENT_PROFILE || '' }}
+
+      - name: Create PR and Comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          AGENT_OUTPUT: ${{ steps.agent.outputs.agent_output }}
+        run: |
+          rm -f issue_comments.txt issue_description.txt
+
+          if [[ -z $(git status --porcelain) ]]; then
+            echo "No changes made by Oz Agent."
+            gh issue comment "$ISSUE_NUMBER" --body "I analyzed the issue but couldn't determine a code change to make.
+
+          **Agent Output:**
+          $AGENT_OUTPUT"
+            exit 0
+          fi
+
+          BRANCH_NAME="fix/issue-$ISSUE_NUMBER"
+
+          git config user.name "Oz Agent"
+          git config user.email "agent@warp.dev"
+
+          git checkout -b "$BRANCH_NAME"
+          git add .
+          git commit -m "Fix for Issue #$ISSUE_NUMBER"
+          git push origin "$BRANCH_NAME" --force
+
+          TITLE="Fix Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}"
+          BODY="This PR attempts to fix Issue #${ISSUE_NUMBER}.
+
+          **Agent Summary**:
+          ${AGENT_OUTPUT}
+
+          Closes #${ISSUE_NUMBER}"
+
+          PR_URL=$(gh pr create --title "$TITLE" --body "$BODY" --base main --head "$BRANCH_NAME")
+
+          echo "Created PR: $PR_URL"
+
+          gh issue comment "$ISSUE_NUMBER" --body "I have created a fix for this issue: $PR_URL"
