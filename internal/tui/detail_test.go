@@ -45,4 +45,3 @@ func TestBuildDetailRowsWithFields(t *testing.T) {
 		t.Errorf("last should be Files, got %+v", rows[6])
 	}
 }
-
