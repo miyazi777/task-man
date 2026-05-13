@@ -336,14 +336,6 @@ func overlayFieldAddPopup(bg, nameInputView string, nameErr error, focus int, cu
 	return centerOverlay(popup, bg, screenW, screenH)
 }
 
-// renderColorSwatch は ██ 2 cell の色見本を生成する (ピッカー用、背景は素のまま)。
-func renderColorSwatch(hex string) string {
-	if hex == "" {
-		return "  "
-	}
-	return lipgloss.NewStyle().Foreground(lipgloss.Color(hex)).Render("██")
-}
-
 // overlayColorPicker は色変更用ピッカーをポップアップ表示する。
 // labelText はモーダル上罫線に出すラベル (例: "Status Color:" / "Tag Color:")。
 // grid[row][col] が #rrggbb 形式の色 (行 = 色相、列 = 明度)。
@@ -548,9 +540,7 @@ func hsvToHex(h, s, v float64) string {
 // 解釈失敗時は (0, 0, 0) を返す。
 func hexToHSV(hex string) (float64, float64, float64) {
 	hex = strings.TrimSpace(hex)
-	if strings.HasPrefix(hex, "#") {
-		hex = hex[1:]
-	}
+	hex = strings.TrimPrefix(hex, "#")
 	if len(hex) != 6 {
 		return 0, 0, 0
 	}

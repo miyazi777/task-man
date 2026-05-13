@@ -12,6 +12,8 @@ type LoadResult struct {
 	Config   AppConfig
 }
 
+// Repository は永続化レイヤの抽象。タスク・ステータス等の塊を一括で読み書きする。
+// 唯一の実装は YAMLRepository。
 type Repository interface {
 	Load() (LoadResult, error)
 	Save(lr LoadResult) error

@@ -133,7 +133,7 @@ func TestPopupHasUniformInnerWidth(t *testing.T) {
 		// last は rune インデックスではなくバイトインデックスだが、対象文字は 3 バイト。
 		// 文字数ベースの幅として再計算する。
 		runes := []rune(stripped)
-		var firstR, lastR int = -1, -1
+		firstR, lastR := -1, -1
 		for i, r := range runes {
 			if firstR == -1 && (r == '│' || r == '╭' || r == '╰') {
 				firstR = i

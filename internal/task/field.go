@@ -1,3 +1,6 @@
+// Package task はタスク・ステータス・タグ・拡張項目などのドメインモデルとその
+// バリデーション・並び替えロジックを提供する純粋ドメイン層。他の internal
+// パッケージには依存しない。
 package task
 
 import (
@@ -13,6 +16,7 @@ import (
 // FieldType は拡張項目の値の型。
 type FieldType string
 
+// 拡張項目の値型を表す定数。yaml に保存されるのは文字列値そのまま。
 const (
 	FieldTypeText FieldType = "text"
 	FieldTypeDate FieldType = "date" // yyyy-mm-dd の文字列を保持する。空文字列も許容 (未設定状態)。
@@ -44,6 +48,7 @@ const (
 	MaxFieldURLValueRunes = 320
 )
 
+// 拡張項目関連のバリデーションエラー。Field の Validate / TaskField の参照解決等が返す。
 var (
 	ErrFieldEmptyName       = errors.New("field name must not be empty")
 	ErrFieldNameTooLong     = fmt.Errorf("field name must be at most %d characters", MaxFieldNameRunes)
@@ -403,6 +408,9 @@ func (fl FieldDefList) resequenceByOrder(orderedIDs []int) FieldDefList {
 }
 
 // TaskField は単一タスク内の拡張項目インスタンス (値ホルダー)。
+// NOTE: 名前 stutter (task.TaskField → task.Field の方が綺麗) は別 issue でリネーム予定。
+//
+//revive:disable-next-line:exported
 type TaskField struct {
 	ID      int // task.fields 内で一意
 	FieldID int // FieldDef.ID への参照
@@ -410,6 +418,8 @@ type TaskField struct {
 }
 
 // TaskFieldList は task が持つ拡張項目値の集合。
+//
+//revive:disable-next-line:exported
 type TaskFieldList []TaskField
 
 // ByFieldID は field_id に一致する TaskField を返す。

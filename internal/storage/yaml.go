@@ -125,14 +125,19 @@ type yamlFile struct {
 	Tasks             []yamlEntry            `yaml:"tasks"`
 }
 
+// YAMLRepository は tasks.yaml をバックエンドにする Repository 実装。
 type YAMLRepository struct {
 	Path string
 }
 
+// NewYAMLRepository は指定 path の yaml をバックエンドにする Repository を返す。
+// 実際の I/O は Load / Save 呼び出し時に発生する。
 func NewYAMLRepository(path string) *YAMLRepository {
 	return &YAMLRepository{Path: path}
 }
 
+// Load は yaml を読み込み LoadResult を返す。id / position / sequence の欠落を
+// 補完した場合は内部で Save し直して yaml の表現を正規化する。
 func (r *YAMLRepository) Load() (LoadResult, error) {
 	data, err := os.ReadFile(r.Path)
 	if err != nil {
@@ -496,6 +501,7 @@ func validateParents(tasks []task.Task) error {
 	return nil
 }
 
+// Save は LoadResult を yaml に書き出す。書き込みは atomicWrite で原子的に行われる。
 func (r *YAMLRepository) Save(lr LoadResult) error {
 	sortedStatuses := lr.Statuses.Sorted()
 	statusEntries := make([]yamlStatusEntry, 0, len(sortedStatuses))
@@ -578,7 +584,7 @@ func (r *YAMLRepository) Save(lr LoadResult) error {
 	appEntries := make([]yamlApplicationEntry, 0, len(lr.Config.Applications))
 	for _, a := range lr.Config.Applications {
 		appEntries = append(appEntries, yamlApplicationEntry{
-			Application: yamlApplication{ID: a.ID, Name: a.Name, Run: a.Run},
+			Application: yamlApplication(a),
 		})
 	}
 
@@ -642,4 +648,5 @@ func atomicWrite(path string, data []byte) error {
 	return nil
 }
 
+// ErrFileNotFound は Load 対象の yaml が存在しないことを示すセンチネルエラー。
 var ErrFileNotFound = errors.New("tasks file not found")

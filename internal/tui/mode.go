@@ -1,8 +1,11 @@
 package tui
 
+// Mode は TUI のスクリーン・入力フェーズの識別子。同じキーでも Mode によって意味が変わる。
 type Mode int
 
+// TUI のモード列挙。値は iota ベースなので順序は安定だが yaml には永続化しない。
 const (
+	// ModeList はタスクリスト画面 (起動直後のデフォルトモード)。
 	ModeList Mode = iota
 	ModeDetail
 	ModeNewTask
@@ -42,7 +45,7 @@ const (
 	ModeLayout                     // タスクリスト画面のレイアウト調整 (;→l で突入)
 	ModeFileOpener                 // 詳細画面 file list で o/enter 押下時のアプリ選択モーダル
 
-	// 設定画面 application サブモード群。
+	// ModeSettingApplication 系: 設定画面 application サブモード群。
 	ModeSettingApplication              // 中央ペイン (application 一覧) にフォーカス
 	ModeSettingApplicationAttribute     // 右ペイン (id/name/run) にフォーカス
 	ModeSettingApplicationAdd           // 新規追加 (name + run の 2 行モーダル)
@@ -51,7 +54,7 @@ const (
 	ModeSettingApplicationMove          // 順序変更モード
 	ModeSettingApplicationDeleteConfirm // 削除確認
 
-	// 設定画面 file_opener サブモード群。
+	// ModeSettingFileOpener 系: 設定画面 file_opener サブモード群。
 	ModeSettingFileOpener              // 中央ペイン (opener 一覧) にフォーカス
 	ModeSettingFileOpenerAttribute     // 右ペイン (extension/applications/default_app) にフォーカス
 	ModeSettingFileOpenerAdd           // 新規追加 (extension モーダル)

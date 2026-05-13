@@ -1,3 +1,4 @@
+// Command task-man is the entry point for the task-man TUI task manager.
 package main
 
 import (
@@ -90,18 +91,18 @@ func runInit(yamlPath string, in io.Reader, out io.Writer) error {
 		dataRoot = filepath.Join(yamlDir, existingCfg.DataBaseDirectory)
 	}
 
-	fmt.Fprintln(out, "task-man --init will:")
-	fmt.Fprintf(out, "  - reset statuses to default (todo / doing / done)\n")
-	fmt.Fprintf(out, "  - clear all tasks, fields, and tags\n")
-	fmt.Fprintf(out, "  - delete every task-<id> directory under: %s\n", dataRoot)
-	fmt.Fprintf(out, "  - rewrite yaml: %s\n", yamlPath)
-	fmt.Fprint(out, "Are you sure? (y/N): ")
+	_, _ = fmt.Fprintln(out, "task-man --init will:")
+	_, _ = fmt.Fprintf(out, "  - reset statuses to default (todo / doing / done)\n")
+	_, _ = fmt.Fprintf(out, "  - clear all tasks, fields, and tags\n")
+	_, _ = fmt.Fprintf(out, "  - delete every task-<id> directory under: %s\n", dataRoot)
+	_, _ = fmt.Fprintf(out, "  - rewrite yaml: %s\n", yamlPath)
+	_, _ = fmt.Fprint(out, "Are you sure? (y/N): ")
 
 	reader := bufio.NewReader(in)
 	line, _ := reader.ReadString('\n')
 	answer := strings.ToLower(strings.TrimSpace(line))
 	if answer != "y" && answer != "yes" {
-		fmt.Fprintln(out, "aborted.")
+		_, _ = fmt.Fprintln(out, "aborted.")
 		return nil
 	}
 
@@ -121,7 +122,7 @@ func runInit(yamlPath string, in io.Reader, out io.Writer) error {
 		return err
 	}
 
-	fmt.Fprintf(out, "removed %d task directory(ies).\n", len(removed))
-	fmt.Fprintf(out, "wrote: %s\n", yamlPath)
+	_, _ = fmt.Fprintf(out, "removed %d task directory(ies).\n", len(removed))
+	_, _ = fmt.Fprintf(out, "wrote: %s\n", yamlPath)
 	return nil
 }
