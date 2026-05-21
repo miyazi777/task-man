@@ -45,22 +45,23 @@ func renderFooter(mode, prevMode Mode, onFilesRow bool, onURLRow bool, viewTrash
 			{"q", "quit"},
 		})
 	case ModeDetail:
+		// ModeList と同様、k/j と矢印キーは自明なので footer から省く。
+		// Files 行のカーソル上下も同じ扱い。
 		switch {
 		case onFilesRow:
 			content = renderHints([]hintItem{
-				{"k/↑", "up"}, {"j/↓", "down"}, {"enter", "open"},
+				{"enter", "open"},
 				{"a", "add"}, {"r", "rename"}, {"d", "delete"},
 				{"esc", "back"}, {"q", "quit"},
 			})
 		case onURLRow:
 			content = renderHints([]hintItem{
-				{"k/↑", "up"}, {"j/↓", "down"},
 				{"enter", "edit"}, {"o", "open"},
 				{"esc", "back"}, {"q", "quit"},
 			})
 		default:
 			content = renderHints([]hintItem{
-				{"k/↑", "up"}, {"j/↓", "down"}, {"enter", "edit"}, {"esc", "back"}, {"q", "quit"},
+				{"enter", "edit"}, {"esc", "back"}, {"q", "quit"},
 			})
 		}
 	case ModeNewTask, ModeNewSubtask:
