@@ -6,14 +6,18 @@
 
 1. `os.ReadFile(path)` でファイル全体を読む。
 2. 空でなければ `yaml.Unmarshal` で `yamlFile` 構造体にデコードする。
-3. セクションごとに以下の順序で正規化と検証を行う:
+3. スキーマバージョン (`yamlFile.Version`) を検証する。
+   - `> CurrentSchemaVersion` (現行は 1): `ErrSchemaVersionUnsupported` を返して起動を拒否。
+   - `0` (version キー無し / 旧 yaml): 現行バージョンとして解釈し、`versionChanged=true` を立てて末尾の再 Save で `version: 1` を補完する。
+   - `1..CurrentSchemaVersion`: そのまま受け入れる。将来 `< CurrentSchemaVersion` のケースが必要になれば、ここに移行ロジックを挟む。
+4. セクションごとに以下の順序で正規化と検証を行う:
    1. `loadStatuses`: 空または未定義なら `task.DefaultStatuses()` を注入 (要書き戻し)。id 未採番は `AssignMissingIDs` で `max+1` から採番。`Validate` で id 重複 / 0 以下 / label 空 を検出。
    2. `loadFieldDefs`: 各 field の id/position/type 補完を `AssignMissingIDsAndPositions` で行い、`Validate` で id 重複 / name 検証 / type 検証 / position>0 を確認。
    3. `loadTags`: id 未採番を補完して `Validate` する。
    4. `loadTasks`: id 重複・id 不正を弾く。task 内 fields の id 補完。`Task.Validate` (status_id 参照 / tags 参照) と `TaskFieldList.Validate(defs)` を実行。`validateParents` で循環 / 親不在 / ネスト超過を検出。`assignMissingPositions` で position=0 のタスクに兄弟内 `max+1` から採番。
    5. `loadApplications`: id>0 / 重複なし / name/run 非空を確認。
    6. `loadFileOpeners`: extension 正規化、applications 内 id の存在確認。
-4. いずれかの補完が起きた場合 (`statusesChanged || defsChanged || tagsChanged || tasksChanged`) は、ロード直後に `Save(lr)` を呼んで yaml を整える。
+5. いずれかの補完が起きた場合 (`statusesChanged || defsChanged || tagsChanged || tasksChanged || versionChanged`) は、ロード直後に `Save(lr)` を呼んで yaml を整える。
 
 ロード時の自動補完一覧:
 - `statuses` 空 → デフォルト 3 種注入
@@ -106,3 +110,4 @@ type AppConfig struct {
 | `ErrFileNotFoundIn` | 対象ファイルがタスクディレクトリ内に無い |
 | `ErrFileNotFound` | tasks ファイル自体が無い |
 | `ErrInvalidRelPath` | 絶対パス指定や `..` 経由でタスクディレクトリの外を指している |
+| `ErrSchemaVersionUnsupported` | yaml の `version` が `CurrentSchemaVersion` より新しい (古いバイナリで開いている可能性) |

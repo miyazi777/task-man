@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1033,6 +1034,113 @@ func TestYAMLLayoutMarshalEmpty(t *testing.T) {
 	}
 	if strings.Contains(string(data), "layout:") {
 		t.Errorf("expected no 'layout:' key in output, got:\n%s", string(data))
+	}
+}
+
+// version キーを持たない旧 yaml を読み込んだ場合: v1 として扱われ、
+// Load 内の再 Save で version: 1 が補完される。
+func TestYAMLLegacyNoVersionUpgrades(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	body := `statuses:
+  - status:
+      id: 1
+      sequence: 1
+      label: todo
+tasks:
+  - task:
+      id: 1
+      title: x
+      status_id: 1
+      position: 1
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	repo := NewYAMLRepository(path)
+	if _, err := repo.Load(); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	// Load 後のディスク上には version: 1 が補完されているはず。
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read after Load: %v", err)
+	}
+	if !strings.Contains(string(data), "version: 1") {
+		t.Errorf("expected 'version: 1' in saved file, got:\n%s", string(data))
+	}
+}
+
+// 現行バージョン (version: 1) を持つ yaml はそのまま読める。
+func TestYAMLCurrentVersionLoads(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	body := `version: 1
+statuses:
+  - status:
+      id: 1
+      sequence: 1
+      label: todo
+tasks:
+  - task:
+      id: 1
+      title: x
+      status_id: 1
+      position: 1
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	repo := NewYAMLRepository(path)
+	if _, err := repo.Load(); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+}
+
+// 現行バイナリより新しい version は ErrSchemaVersionUnsupported で起動拒否される。
+func TestYAMLFutureVersionRejected(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	body := `version: 99
+statuses:
+  - status:
+      id: 1
+      sequence: 1
+      label: todo
+tasks: []
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	repo := NewYAMLRepository(path)
+	_, err := repo.Load()
+	if err == nil {
+		t.Fatal("expected error for future version")
+	}
+	if !errors.Is(err, ErrSchemaVersionUnsupported) {
+		t.Errorf("expected ErrSchemaVersionUnsupported, got %v", err)
+	}
+	// 拒否されたらディスクは元の内容のまま (再 Save しない)。
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), "version: 99") {
+		t.Errorf("file should be untouched after rejection, got:\n%s", string(data))
+	}
+}
+
+// Save は常に CurrentSchemaVersion を書く。
+func TestYAMLSaveWritesCurrentVersion(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	repo := NewYAMLRepository(path)
+	if err := repo.Save(LoadResult{Statuses: task.DefaultStatuses()}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !strings.HasPrefix(string(data), "version: 1\n") {
+		t.Errorf("expected file to start with 'version: 1', got first 50 bytes:\n%s", string(data[:min(50, len(data))]))
 	}
 }
 

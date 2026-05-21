@@ -115,6 +115,10 @@ type yamlLayout struct {
 }
 
 type yamlFile struct {
+	// Version は yaml スキーマのバージョン。task-man が読み書きする現行バージョンは
+	// CurrentSchemaVersion。version キーが無い旧 yaml は v1 として扱い、Load 後の
+	// 再 Save で version: 1 を補完する。
+	Version           int                    `yaml:"version,omitempty"`
 	Applications      []yamlApplicationEntry `yaml:"applications,omitempty"`
 	DataBaseDirectory string                 `yaml:"data_base_directory,omitempty"`
 	Layout            *yamlLayout            `yaml:"layout,omitempty"`
@@ -124,6 +128,16 @@ type yamlFile struct {
 	Tags              []yamlTagEntry         `yaml:"tags,omitempty"`
 	Tasks             []yamlEntry            `yaml:"tasks"`
 }
+
+// CurrentSchemaVersion は task-man が読み書きする tasks.yaml のスキーマバージョン。
+// 互換性を破る変更を加えるたびに 1 ずつ増やし、Load 側で旧版からの移行ロジックを
+// 追加していく (現時点では v1 しか存在しないため移行ロジックは未実装)。
+const CurrentSchemaVersion = 1
+
+// ErrSchemaVersionUnsupported は yaml の version が現行 (CurrentSchemaVersion) より
+// 大きい場合に返される。新しいバージョンの task-man で書かれた yaml を古いバイナリで
+// 開いた可能性が高く、データ破壊を避けるため起動を中断する。
+var ErrSchemaVersionUnsupported = errors.New("tasks.yaml schema version is newer than this binary supports")
 
 // YAMLRepository は tasks.yaml をバックエンドにする Repository 実装。
 type YAMLRepository struct {
@@ -150,6 +164,18 @@ func (r *YAMLRepository) Load() (LoadResult, error) {
 			return LoadResult{}, fmt.Errorf("parse %s: %w", r.Path, err)
 		}
 	}
+
+	// スキーマバージョン検証。
+	//   - version > CurrentSchemaVersion: 未来バージョンの yaml を読み書きするとデータ破壊の恐れ
+	//     があるため、起動を拒否する。
+	//   - version == 0: yaml に version キーが無い (旧 yaml)。現行バージョンとして扱い、
+	//     Load 後に再 Save して version: 1 を補完する。
+	//   - 1 <= version <= CurrentSchemaVersion: そのまま受け入れる (将来 version < CurrentSchemaVersion
+	//     になったら移行ロジックを挟む箇所)。
+	if f.Version > CurrentSchemaVersion {
+		return LoadResult{}, fmt.Errorf("%w: %s has version %d, supported up to %d", ErrSchemaVersionUnsupported, r.Path, f.Version, CurrentSchemaVersion)
+	}
+	versionChanged := f.Version != CurrentSchemaVersion
 
 	statuses, statusesChanged := loadStatuses(f.Statuses)
 	if err := statuses.Validate(); err != nil {
@@ -195,7 +221,7 @@ func (r *YAMLRepository) Load() (LoadResult, error) {
 		Config:   cfg,
 	}
 
-	if statusesChanged || defsChanged || tagsChanged || tasksChanged {
+	if statusesChanged || defsChanged || tagsChanged || tasksChanged || versionChanged {
 		if err := r.Save(lr); err != nil {
 			return LoadResult{}, fmt.Errorf("write back defaults: %w", err)
 		}
@@ -602,6 +628,7 @@ func (r *YAMLRepository) Save(lr LoadResult) error {
 	}
 
 	data, err := yaml.Marshal(yamlFile{
+		Version:           CurrentSchemaVersion,
 		Applications:      appEntries,
 		DataBaseDirectory: lr.Config.DataBaseDirectory,
 		Layout:            marshalLayout(lr.Config.Layout),
