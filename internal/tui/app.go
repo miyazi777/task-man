@@ -3912,7 +3912,7 @@ func (m Model) View() string {
 		}
 		if m.viewTrash {
 			// 左ペインの最上部に「-- TRASH BOX --」ヘッダ行 (黒抜き赤背景) を 1 行追加。
-			header := styleTrashHeader.Width(leftW).Render("-- TRASH BOX --")
+			header := renderSingleLineRow(styleTrashHeader, "-- TRASH BOX --", leftW)
 			left = lipgloss.JoinVertical(lipgloss.Left, header, left)
 		}
 
@@ -3934,7 +3934,7 @@ func (m Model) View() string {
 		detailBlock := renderDetail(current, m.statuses, m.fields, m.tags, m.detailRows, detailFocused, m.detailCursor, rightW, detailH)
 
 		// Files: header + 罫線 + 名前リスト。
-		filesHeader := lipgloss.NewStyle().Width(rightW).Render("  " + styleLabel.Render("Files:"))
+		filesHeader := renderSingleLineRow(lipgloss.NewStyle(), "  "+styleLabel.Render("Files:"), rightW)
 		hDivider := styleDivider.Render(strings.Repeat("─", rightW))
 		hasCursorOnFiles := false
 		if row, ok := m.currentDetailRow(); ok && row.kind == detailRowFiles {
@@ -4173,7 +4173,7 @@ func overlayInputPopup(bg, label, inputView string, inputErr error, screenW, scr
 	if w := ansi.StringWidth(inputView); w > contentW {
 		inputView = ansi.Truncate(inputView, contentW, "")
 	}
-	inputPadded := stylePopupFill.Width(contentW).Render(inputView)
+	inputPadded := renderSingleLineRow(stylePopupFill, inputView, contentW)
 	inputRow := stylePopupBorder.Render("│") +
 		stylePopupFill.Render(" ") +
 		inputPadded +
@@ -4186,7 +4186,7 @@ func overlayInputPopup(bg, label, inputView string, inputErr error, screenW, scr
 		if w := ansi.StringWidth(errMsg); w > contentW {
 			errMsg = ansi.Truncate(errMsg, contentW, "")
 		}
-		errPadded := stylePopupFill.Width(contentW).Render(errMsg)
+		errPadded := renderSingleLineRow(stylePopupFill, errMsg, contentW)
 		errRow := stylePopupBorder.Render("│") +
 			stylePopupFill.Render(" ") +
 			errPadded +
@@ -4223,9 +4223,9 @@ func overlayFileOpenerPicker(bg string, candidates []storage.Application, curren
 		}
 		var padded string
 		if i == currentIdx {
-			padded = stylePopupCursorRow.Width(contentW).Render(raw)
+			padded = renderSingleLineRow(stylePopupCursorRow, raw, contentW)
 		} else {
-			padded = stylePopupFill.Foreground(colorText).Width(contentW).Render(raw)
+			padded = renderSingleLineRow(stylePopupFill.Foreground(colorText), raw, contentW)
 		}
 		row := stylePopupBorder.Render("│") +
 			stylePopupFill.Render(" ") +
@@ -4263,9 +4263,9 @@ func overlayStatusPicker(bg string, sortedStatuses task.StatusList, currentIdx, 
 		}
 		var padded string
 		if i == currentIdx {
-			padded = stylePopupCursorRow.Width(contentW).Render(raw)
+			padded = renderSingleLineRow(stylePopupCursorRow, raw, contentW)
 		} else {
-			padded = stylePopupFill.Foreground(colorText).Width(contentW).Render(raw)
+			padded = renderSingleLineRow(stylePopupFill.Foreground(colorText), raw, contentW)
 		}
 		row := stylePopupBorder.Render("│") +
 			stylePopupFill.Render(" ") +
@@ -4298,7 +4298,7 @@ func overlayConfirmPopup(bg, label, message string, hints []hintItem, screenW, s
 		message = ansi.Truncate(message, contentW, "")
 	}
 	body := stylePopupFill.Foreground(colorText).Render(message)
-	padded := stylePopupFill.Width(contentW).Render(body)
+	padded := renderSingleLineRow(stylePopupFill, body, contentW)
 	msgRow := stylePopupBorder.Render("│") +
 		stylePopupFill.Render(" ") +
 		padded +
@@ -4329,7 +4329,7 @@ func overlayErrorPopup(bg, message string, screenW, screenH int) string {
 		message = ansi.Truncate(message, contentW, "")
 	}
 	body := stylePopupFill.Foreground(colorDanger).Render(message)
-	padded := stylePopupFill.Width(contentW).Render(body)
+	padded := renderSingleLineRow(stylePopupFill, body, contentW)
 	msgRow := stylePopupBorder.Render("│") +
 		stylePopupFill.Render(" ") +
 		padded +

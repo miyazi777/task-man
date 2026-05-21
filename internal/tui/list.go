@@ -37,10 +37,7 @@ func renderList(tasks []task.Task, statuses task.StatusList, allTags task.TagLis
 		}
 	}
 
-	return lipgloss.NewStyle().
-		Width(width).
-		Height(height).
-		Render(strings.Join(lines, "\n"))
+	return renderPaneBlock(strings.Join(lines, "\n"), width, height)
 }
 
 // renderStatusHeader は ▼/▶ + [label] のステータス見出し行を描画する。
@@ -59,7 +56,7 @@ func renderStatusHeader(statuses task.StatusList, statusID int, isCollapsed, isC
 
 	if isCursor && listFocused {
 		raw := " " + marker + "  " + status.Label + " "
-		return cursorStyleFor(inMoveMode).Render(clampLineWidth(raw, width))
+		return renderSingleLineRow(cursorStyleFor(inMoveMode), raw, width)
 	}
 
 	prefix := " " + marker + " "
@@ -182,7 +179,7 @@ func renderTaskRow(t task.Task, statuses task.StatusList, allTags task.TagList, 
 			inlineTagsPart = " " + tagsPlain
 		}
 		raw := strings.Repeat(" ", leftPad) + marker + title + inlineTagsPart + strings.Repeat(" ", gap) + statusBadge
-		return cursorStyleFor(inMoveMode).Render(clampLineWidth(raw, width))
+		return renderSingleLineRow(cursorStyleFor(inMoveMode), raw, width)
 	}
 
 	var titleRendered string
@@ -240,18 +237,4 @@ func truncate(s string, w int) string {
 		}
 	}
 	return "…"
-}
-
-// clampLineWidth は s を厳密に w cell 幅の単一行に揃える。
-// 短ければ右側を半角スペースで埋め、長ければ truncate で省略表示にする。
-// ANSI escape を含まないプレーン文字列を想定 (truncate が rune 単位で切る都合)。
-func clampLineWidth(s string, w int) string {
-	sw := lipgloss.Width(s)
-	if sw == w {
-		return s
-	}
-	if sw < w {
-		return s + strings.Repeat(" ", w-sw)
-	}
-	return truncate(s, w)
 }
