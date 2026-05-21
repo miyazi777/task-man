@@ -50,6 +50,18 @@ func TestRenderPreview(t *testing.T) {
 	if strings.Contains(got, previewNotAvailableMessage) {
 		t.Errorf("empty preview should not show not-available message, got:\n%s", got)
 	}
+
+	// サブディレクトリ配下のファイルも relPath ("sub/inner.md") で表示できる。
+	subDir := filepath.Join(taskDir, "sub")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatalf("mkdir sub: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(subDir, "inner.md"), []byte("nested content"), 0o644); err != nil {
+		t.Fatalf("write inner.md: %v", err)
+	}
+	if got := renderPreview(dir, "", 1, "sub/inner.md", 80, 10); !strings.Contains(got, "nested content") {
+		t.Errorf("nested preview should contain content, got:\n%s", got)
+	}
 }
 
 // previewLines が height 行で切り、tab を 4 スペース展開し、width で切り詰めることを検証。

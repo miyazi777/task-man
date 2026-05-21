@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -25,6 +27,9 @@ var (
 	ErrFileNameTooLong = fmt.Errorf("filename must be at most %d characters", MaxFileNameRunes)
 	ErrFileExists      = errors.New("file already exists")
 	ErrFileNotFoundIn  = errors.New("file not found in task directory")
+	// ErrInvalidRelPath はタスクディレクトリ外を参照する相対パス (絶対パス指定や
+	// 親 (`..`) によるエスケープ等) を渡された場合に返される。
+	ErrInvalidRelPath = errors.New("invalid relative path")
 )
 
 // FileNameForbiddenCharError は使用できない文字がファイル名に含まれていることを示す。
@@ -162,38 +167,96 @@ func RemoveAllTaskData(yamlDir, dataBaseDir string) (removed []string, err error
 	return removed, nil
 }
 
-// ListTaskFiles はタスクディレクトリ内の通常ファイル名 (basename) をアルファベット順で返す。
-// ディレクトリ自体が無い場合は空スライスを返し、エラーにはしない (旧タスクや手動配置の許容)。
-func ListTaskFiles(yamlDir, dataBaseDir string, taskID int) ([]string, error) {
+// FileEntry は ListTaskFileTree が返す再帰的なファイルツリーのノード。
+// RelPath はタスクディレクトリからの相対パスで、セパレータは常に "/" (POSIX 形式) で保持する。
+// Children は IsDir==true のときのみ意味を持ち、空ディレクトリは len(Children)==0 となる。
+type FileEntry struct {
+	Name     string
+	RelPath  string
+	IsDir    bool
+	Children []FileEntry
+}
+
+// ListTaskFileTree はタスクディレクトリ配下を再帰的に走査して FileEntry の木を返す。
+// 各階層内は Name 昇順 (大文字小文字は string 比較に従う)。通常ファイル / ディレクトリ以外
+// (symlink, FIFO, ソケット等) は表示対象外として無視する。タスクディレクトリ自体が存在
+// しない場合は (nil, nil) を返し、エラーにはしない。
+func ListTaskFileTree(yamlDir, dataBaseDir string, taskID int) ([]FileEntry, error) {
 	taskDir := TaskDir(yamlDir, dataBaseDir, taskID)
-	entries, err := os.ReadDir(taskDir)
+	return readDirAsTree(taskDir, "")
+}
+
+func readDirAsTree(absDir, relPrefix string) ([]FileEntry, error) {
+	entries, err := os.ReadDir(absDir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("read dir %s: %w", taskDir, err)
+		return nil, fmt.Errorf("read dir %s: %w", absDir, err)
 	}
-	var files []string
+	out := make([]FileEntry, 0, len(entries))
 	for _, e := range entries {
-		if e.Type().IsRegular() {
-			files = append(files, e.Name())
+		typ := e.Type()
+		isDir := typ.IsDir()
+		isReg := typ.IsRegular()
+		if !isDir && !isReg {
+			continue
 		}
+		name := e.Name()
+		rel := name
+		if relPrefix != "" {
+			rel = relPrefix + "/" + name
+		}
+		fe := FileEntry{Name: name, RelPath: rel, IsDir: isDir}
+		if isDir {
+			children, err := readDirAsTree(filepath.Join(absDir, name), rel)
+			if err != nil {
+				return nil, err
+			}
+			fe.Children = children
+		}
+		out = append(out, fe)
 	}
-	sort.Strings(files)
-	return files, nil
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// resolveTaskRelPath は relPath がタスクディレクトリ内に閉じていることを検証し、
+// 絶対パスに変換する。空文字は relPath==taskDir 相当として扱う ("." 指定と同じ)。
+// 絶対パス指定や `..` での親ディレクトリ脱出は ErrInvalidRelPath を返す。
+func resolveTaskRelPath(taskDir, relPath string) (string, error) {
+	if filepath.IsAbs(relPath) {
+		return "", fmt.Errorf("%w: %s", ErrInvalidRelPath, relPath)
+	}
+	// path.Clean (POSIX) で正規化することで、"sub/" や "sub//foo" を吸収する。
+	// "" は "." に正規化される。
+	cleaned := path.Clean(relPath)
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", fmt.Errorf("%w: %s", ErrInvalidRelPath, relPath)
+	}
+	if cleaned == "." || cleaned == "" {
+		return taskDir, nil
+	}
+	// filepath.FromSlash で OS 依存セパレータに戻す。
+	return filepath.Join(taskDir, filepath.FromSlash(cleaned)), nil
 }
 
 // CreateFile はタスクディレクトリ内に空ファイルを新規作成する。
-// 同名が既にあれば ErrFileExists を返す。タスクディレクトリが無ければ作る。
-func CreateFile(yamlDir, dataBaseDir string, taskID int, fileName string) error {
+// relDir はタスクディレクトリからの相対パス (例: "sub" / "sub/inner")。空文字 or "." はタスクディレクトリ直下。
+// 同名が既にあれば ErrFileExists を返す。タスクディレクトリや relDir が無ければ作る。
+func CreateFile(yamlDir, dataBaseDir string, taskID int, relDir, fileName string) error {
 	if err := ValidateFileName(fileName); err != nil {
 		return err
 	}
 	taskDir := TaskDir(yamlDir, dataBaseDir, taskID)
-	if err := os.MkdirAll(taskDir, 0o755); err != nil {
-		return fmt.Errorf("ensure task dir %s: %w", taskDir, err)
+	dirAbs, err := resolveTaskRelPath(taskDir, relDir)
+	if err != nil {
+		return err
 	}
-	full := filepath.Join(taskDir, fileName)
+	if err := os.MkdirAll(dirAbs, 0o755); err != nil {
+		return fmt.Errorf("ensure dir %s: %w", dirAbs, err)
+	}
+	full := filepath.Join(dirAbs, fileName)
 	f, err := os.OpenFile(full, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
@@ -204,9 +267,9 @@ func CreateFile(yamlDir, dataBaseDir string, taskID int, fileName string) error 
 	return f.Close()
 }
 
-// RenameFile はタスクディレクトリ内のファイル名を変更する。
+// RenameFile はタスクディレクトリ内 (relDir 配下) のファイル名を変更する。同一ディレクトリ内のみ。
 // oldName が存在しなければ ErrFileNotFoundIn、newName が既存なら ErrFileExists。
-func RenameFile(yamlDir, dataBaseDir string, taskID int, oldName, newName string) error {
+func RenameFile(yamlDir, dataBaseDir string, taskID int, relDir, oldName, newName string) error {
 	if err := ValidateFileName(newName); err != nil {
 		return err
 	}
@@ -214,8 +277,12 @@ func RenameFile(yamlDir, dataBaseDir string, taskID int, oldName, newName string
 		return nil
 	}
 	taskDir := TaskDir(yamlDir, dataBaseDir, taskID)
-	oldPath := filepath.Join(taskDir, oldName)
-	newPath := filepath.Join(taskDir, newName)
+	dirAbs, err := resolveTaskRelPath(taskDir, relDir)
+	if err != nil {
+		return err
+	}
+	oldPath := filepath.Join(dirAbs, oldName)
+	newPath := filepath.Join(dirAbs, newName)
 
 	if _, err := os.Stat(oldPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -253,16 +320,20 @@ func DeleteTaskData(yamlDir, dataBaseDir string, taskID int) error {
 	return nil
 }
 
-// ReadTaskFile はタスクディレクトリ内の指定ファイルを先頭 maxBytes バイトまで読み込む。
+// ReadTaskFile はタスクディレクトリ内の relPath が指すファイルを先頭 maxBytes バイトまで読み込む。
 // プレビュー用。ファイルが存在しない場合は os.ErrNotExist でラップしたエラーを返す。
-func ReadTaskFile(yamlDir, dataBaseDir string, taskID int, fileName string, maxBytes int) (string, error) {
-	if fileName == "" {
+func ReadTaskFile(yamlDir, dataBaseDir string, taskID int, relPath string, maxBytes int) (string, error) {
+	if relPath == "" {
 		return "", ErrFileNameEmpty
 	}
 	if maxBytes <= 0 {
 		return "", nil
 	}
-	full := filepath.Join(TaskDir(yamlDir, dataBaseDir, taskID), fileName)
+	taskDir := TaskDir(yamlDir, dataBaseDir, taskID)
+	full, err := resolveTaskRelPath(taskDir, relPath)
+	if err != nil {
+		return "", err
+	}
 	f, err := os.Open(full)
 	if err != nil {
 		return "", err
@@ -275,14 +346,17 @@ func ReadTaskFile(yamlDir, dataBaseDir string, taskID int, fileName string, maxB
 	return string(data), nil
 }
 
-// DeleteFile はタスクディレクトリ内のファイルを削除する。
+// DeleteFile はタスクディレクトリ内 (relPath が指す) ファイルを削除する。
 // 不在なら ErrFileNotFoundIn を返す。ディレクトリやその他特殊ファイルは対象外。
-func DeleteFile(yamlDir, dataBaseDir string, taskID int, fileName string) error {
-	if fileName == "" {
+func DeleteFile(yamlDir, dataBaseDir string, taskID int, relPath string) error {
+	if relPath == "" {
 		return ErrFileNameEmpty
 	}
 	taskDir := TaskDir(yamlDir, dataBaseDir, taskID)
-	full := filepath.Join(taskDir, fileName)
+	full, err := resolveTaskRelPath(taskDir, relPath)
+	if err != nil {
+		return err
+	}
 
 	info, err := os.Stat(full)
 	if err != nil {

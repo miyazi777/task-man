@@ -248,19 +248,38 @@ func padDetailLabel(label string, w int) string {
 	return label + strings.Repeat(" ", diff)
 }
 
-// renderFileNamesList はファイル名一覧のみを width × height の領域に描画する。
+// fileRow はファイルリストの 1 行分の表示モデル。
+// withFilesRefreshed で構築され renderFileNamesList が消費する。
+//   - relPath: タスクディレクトリからの相対パス ("/" 区切り)。各種ファイル操作で使う。
+//   - hasChildren: ディレクトリかつ子を 1 つ以上含む場合のみ true。マーカー表示の有無を決める。
+//   - collapsed: ディレクトリが折りたたまれていれば true。
+type fileRow struct {
+	name        string
+	relPath     string
+	isDir       bool
+	depth       int
+	hasChildren bool
+	collapsed   bool
+}
+
+// renderFileNamesList はファイル一覧を width × height の領域に描画する。
 // Files: ヘッダや罫線は含まない (新レイアウトで右ペインを上下分割するため、ヘッダ/罫線は呼び出し側で組み立てる)。
 //   - blockFocused: detailCursor が Files セクションを指しているか
 //   - fileCursor: Files 内の選択行
 //
+// 行レイアウトは "<indent><marker><name>"。
+//   - indent: fileBaseLeftPad + depth*filePerDepth
+//   - marker: タスクリストと揃え、hasChildren && collapsed なら "+ "、!collapsed なら "- "、それ以外は "  "
+//   - name: ディレクトリの場合は末尾に "/" を付ける
+//
 // ファイルが 0 件のときは "(no files)" を 1 行表示し、残りは空行で埋める。
 // ファイル数が height を超える場合は fileCursor が見える範囲を表示するスクロールを行う。
-func renderFileNamesList(files []string, focused, blockFocused bool, fileCursor, width, height int) string {
+func renderFileNamesList(files []fileRow, focused, blockFocused bool, fileCursor, width, height int) string {
 	if height <= 0 {
 		return ""
 	}
 	if len(files) == 0 {
-		empty := "    " + styleValueDim.Render("(no files)")
+		empty := strings.Repeat(" ", fileBaseLeftPad) + styleValueDim.Render("(no files)")
 		return lipgloss.NewStyle().Width(width).Height(height).Render(empty)
 	}
 
@@ -276,19 +295,39 @@ func renderFileNamesList(files []string, focused, blockFocused bool, fileCursor,
 
 	var lines []string
 	for i := startIdx; i < endIdx; i++ {
-		name := files[i]
+		row := files[i]
+		indent := strings.Repeat(" ", fileBaseLeftPad+row.depth*filePerDepth)
+		marker := "  "
+		if row.hasChildren {
+			if row.collapsed {
+				marker = "+ "
+			} else {
+				marker = "- "
+			}
+		}
+		name := row.name
+		if row.isDir {
+			name += "/"
+		}
+		raw := indent + marker + name
+
 		isCursor := blockFocused && focused && i == fileCursor
 		if isCursor {
-			lines = append(lines, styleCursorRow.Width(width).Render("    "+name))
+			lines = append(lines, styleCursorRow.Width(width).Render(raw))
 			continue
 		}
-		var line string
 		if focused {
-			line = "    " + styleValue.Render(name)
+			lines = append(lines, indent+marker+styleValue.Render(name))
 		} else {
-			line = "    " + styleValueDim.Render(name)
+			lines = append(lines, indent+marker+styleValueDim.Render(name))
 		}
-		lines = append(lines, line)
 	}
 	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
 }
+
+// ファイルリストのインデント定数。タスクリストと同じ階層 2 cell で揃える。
+// ベース 4 cell は "  " (2 cell, marker と同じ幅) + 詳細ペインの行頭余白 2 cell 相当。
+const (
+	fileBaseLeftPad = 4
+	filePerDepth    = 2
+)

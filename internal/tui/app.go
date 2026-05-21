@@ -48,11 +48,14 @@ type Model struct {
 	input    textinput.Model
 	inputErr error // 入力ライブ検証用 (禁止文字・長さ超過)
 
-	detailRows         []detailRow // 詳細画面の論理行リスト (Title/Status/field×N/Files)
-	detailCursor       int         // detailRows のインデックス
-	statusPickerCursor int         // sorted statuses のインデックス
-	files              []string    // 現タスクのディレクトリ内ファイル一覧
-	fileCursor         int         // files のインデックス
+	detailRows         []detailRow     // 詳細画面の論理行リスト (Title/Status/field×N/Files)
+	detailCursor       int             // detailRows のインデックス
+	statusPickerCursor int             // sorted statuses のインデックス
+	files              []fileRow       // 現タスクのディレクトリ内ファイル一覧 (DFS フラット化済)
+	fileCursor         int             // files のインデックス
+	fileCollapsed      map[string]bool // ディレクトリ relPath -> 折りたたみ中
+	filesTaskID        int             // m.files の元になったタスク ID。切り替え検出に使う
+	addFileRelDir      string          // ModeAddFile 突入時に決めた作成先の親ディレクトリ (relPath、空文字 = タスク直下)
 
 	// 設定画面 (ModeSetting / ModeSettingStatus* / ModeSettingField*) 用の状態
 	settingMenuCursor    int             // 左メニュー (general / status / field) のインデックス
@@ -356,20 +359,115 @@ func (m Model) currentStatusID() int {
 
 // withFilesRefreshed は cursor が指すタスクのディレクトリ配下のファイル一覧を再読込する。
 // status 行・separator 行や、ディレクトリ無しの場合は空にする。エラーは握り潰し (UX 上は空表示で十分)。
+//
+// タスク ID が前回読み込み時から変わっていた場合は折りたたみ状態をリセットする
+// (フォルダ構成が大きく異なるタスク間で持ち越すと混乱の元になるため)。
 func (m Model) withFilesRefreshed() Model {
 	t, _, ok := m.currentTask()
 	if !ok {
 		m.files = nil
 		m.fileCursor = 0
+		m.filesTaskID = 0
 		return m
 	}
-	files, _ := storage.ListTaskFiles(m.yamlDir, m.cfg.DataBaseDirectory, t.ID)
-	m.files = files
-	if m.fileCursor >= len(files) {
+	if t.ID != m.filesTaskID {
+		m.fileCollapsed = nil
+		m.filesTaskID = t.ID
+	}
+	tree, _ := storage.ListTaskFileTree(m.yamlDir, m.cfg.DataBaseDirectory, t.ID)
+	m.files = flattenFileTree(tree, 0, m.fileCollapsed)
+	if m.fileCursor >= len(m.files) {
 		m.fileCursor = 0
 	}
 	return m
 }
+
+// flattenFileTree は FileEntry ツリーを DFS でフラット化する。
+// collapsed[relPath]==true のディレクトリでは子を出さない (ディレクトリ自身は表示)。
+func flattenFileTree(tree []storage.FileEntry, depth int, collapsed map[string]bool) []fileRow {
+	var out []fileRow
+	for _, e := range tree {
+		row := fileRow{
+			name:        e.Name,
+			relPath:     e.RelPath,
+			isDir:       e.IsDir,
+			depth:       depth,
+			hasChildren: e.IsDir && len(e.Children) > 0,
+			collapsed:   e.IsDir && collapsed[e.RelPath],
+		}
+		out = append(out, row)
+		if row.hasChildren && !row.collapsed {
+			out = append(out, flattenFileTree(e.Children, depth+1, collapsed)...)
+		}
+	}
+	return out
+}
+
+// currentFileRow は m.fileCursor が指す fileRow を返す。範囲外なら ok=false。
+func (m Model) currentFileRow() (fileRow, bool) {
+	if m.fileCursor < 0 || m.fileCursor >= len(m.files) {
+		return fileRow{}, false
+	}
+	return m.files[m.fileCursor], true
+}
+
+// toggleFileCollapse はディレクトリ row の折りたたみ状態を反転して再フラット化する。
+// row.hasChildren==false のときは状態を持たないため何もしない。
+// カーソルはトグル対象のディレクトリ自身に追従する (折りたたみで子が消えた / 展開で子が現れた場合の安定性のため)。
+func (m Model) toggleFileCollapse(row fileRow) Model {
+	if !row.isDir || !row.hasChildren {
+		return m
+	}
+	if m.fileCollapsed == nil {
+		m.fileCollapsed = map[string]bool{}
+	}
+	if m.fileCollapsed[row.relPath] {
+		delete(m.fileCollapsed, row.relPath)
+	} else {
+		m.fileCollapsed[row.relPath] = true
+	}
+	m = m.withFilesRefreshed()
+	for i, f := range m.files {
+		if f.relPath == row.relPath {
+			m.fileCursor = i
+			break
+		}
+	}
+	return m
+}
+
+// joinRelPath は相対パスを "/" 区切りで結合する。空のセグメントは無視する。
+// 結果が空のときは "" を返す (タスクディレクトリ直下を意味する)。
+func joinRelPath(parts ...string) string {
+	var out []string
+	for _, p := range parts {
+		if p == "" || p == "." {
+			continue
+		}
+		out = append(out, p)
+	}
+	return strings.Join(out, "/")
+}
+
+// parentRelPath は relPath の親ディレクトリの相対パスを返す。
+// "foo.md" → ""、"sub/foo.md" → "sub"、"" / "." → ""。
+func parentRelPath(relPath string) string {
+	if relPath == "" || relPath == "." {
+		return ""
+	}
+	idx := strings.LastIndex(relPath, "/")
+	if idx < 0 {
+		return ""
+	}
+	return relPath[:idx]
+}
+
+// ディレクトリ操作の未対応エラー。issue #23 のスコープでは ディレクトリの rename / delete は
+// 提供しない方針なので、ユーザー操作に対しては saveErr に出して no-op とする。
+var (
+	errDirRenameUnsupported = errors.New("directory rename is not supported")
+	errDirDeleteUnsupported = errors.New("directory delete is not supported")
+)
 
 // Init は Bubble Tea プログラム開始時に呼ばれる。本 TUI は起動コマンドを持たないので nil を返す。
 func (m Model) Init() tea.Cmd {
@@ -429,26 +527,34 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.mode = ModeDetail
 				return m, nil
 			}
-			if err := storage.CreateFile(m.yamlDir, m.cfg.DataBaseDirectory, t.ID, name); err != nil {
+			relDir := m.addFileRelDir
+			if err := storage.CreateFile(m.yamlDir, m.cfg.DataBaseDirectory, t.ID, relDir, name); err != nil {
 				m.saveErr = err
 				return m, nil
 			}
 			m.mode = ModeDetail
 			m.input = textinput.Model{}
 			m.inputErr = nil
+			// 追加ファイルがある親ディレクトリは折りたたみ解除して、新規ファイルを可視化する。
+			if relDir != "" && relDir != "." && m.fileCollapsed != nil {
+				delete(m.fileCollapsed, relDir)
+			}
 			m = m.withFilesRefreshed()
 			// 追加ファイルにカーソルを合わせる
+			createdRel := joinRelPath(relDir, name)
 			for i, f := range m.files {
-				if f == name {
+				if f.relPath == createdRel {
 					m.fileCursor = i
 					break
 				}
 			}
+			m.addFileRelDir = ""
 			return m, nil
 		case "esc":
 			m.mode = ModeDetail
 			m.input = textinput.Model{}
 			m.inputErr = nil
+			m.addFileRelDir = ""
 			return m, nil
 		}
 		var cmd tea.Cmd
@@ -468,8 +574,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.mode = ModeDetail
 				return m, nil
 			}
-			oldName := m.files[m.fileCursor]
-			if err := storage.RenameFile(m.yamlDir, m.cfg.DataBaseDirectory, t.ID, oldName, name); err != nil {
+			cur, ok := m.currentFileRow()
+			if !ok || cur.isDir {
+				// モーダル中に状況が変わった (本来到達不能)。
+				m.mode = ModeDetail
+				m.input = textinput.Model{}
+				m.inputErr = nil
+				return m, nil
+			}
+			relDir := parentRelPath(cur.relPath)
+			if err := storage.RenameFile(m.yamlDir, m.cfg.DataBaseDirectory, t.ID, relDir, cur.name, name); err != nil {
 				m.saveErr = err
 				return m, nil
 			}
@@ -477,8 +591,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.input = textinput.Model{}
 			m.inputErr = nil
 			m = m.withFilesRefreshed()
+			newRel := joinRelPath(relDir, name)
 			for i, f := range m.files {
-				if f == name {
+				if f.relPath == newRel {
 					m.fileCursor = i
 					break
 				}
@@ -566,8 +681,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.mode = ModeDetail
 				return m, nil
 			}
-			name := m.files[m.fileCursor]
-			if err := storage.DeleteFile(m.yamlDir, m.cfg.DataBaseDirectory, t.ID, name); err != nil {
+			cur, ok := m.currentFileRow()
+			if !ok || cur.isDir {
+				m.mode = ModeDetail
+				return m, nil
+			}
+			if err := storage.DeleteFile(m.yamlDir, m.cfg.DataBaseDirectory, t.ID, cur.relPath); err != nil {
 				m.saveErr = err
 				m.mode = ModeDetail
 				return m, nil
@@ -934,9 +1053,39 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if len(m.files) == 0 {
 					return m, nil
 				}
+				cur, ok := m.currentFileRow()
+				if !ok {
+					return m, nil
+				}
+				if cur.isDir {
+					// ディレクトリ行で enter は折りたたみトグル。
+					return m.toggleFileCollapse(cur), nil
+				}
 				return m.openCurrentFileWithDefault()
 			}
 			return m, nil
+		case key.Matches(msg, m.keys.Open):
+			// Files 行のディレクトリで右キーは展開。葉ファイルでは何もしない。
+			row, ok := m.currentDetailRow()
+			if !ok || row.kind != detailRowFiles {
+				return m, nil
+			}
+			cur, ok := m.currentFileRow()
+			if !ok || !cur.isDir || !cur.hasChildren || !cur.collapsed {
+				return m, nil
+			}
+			return m.toggleFileCollapse(cur), nil
+		case key.Matches(msg, m.keys.Close):
+			// Files 行のディレクトリで左キーは折りたたみ。葉ファイルでは何もしない。
+			row, ok := m.currentDetailRow()
+			if !ok || row.kind != detailRowFiles {
+				return m, nil
+			}
+			cur, ok := m.currentFileRow()
+			if !ok || !cur.isDir || !cur.hasChildren || cur.collapsed {
+				return m, nil
+			}
+			return m.toggleFileCollapse(cur), nil
 		case key.Matches(msg, m.keys.AddFile):
 			row, ok := m.currentDetailRow()
 			if !ok || row.kind != detailRowFiles {
@@ -948,6 +1097,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.input = newFileNameInput(inputW)
 			m.inputErr = nil
+			// 作成先ディレクトリ: カーソルがディレクトリ行ならその直下、ファイル行ならその親、
+			// カーソルが無ければタスク直下。
+			m.addFileRelDir = ""
+			if cur, ok := m.currentFileRow(); ok {
+				if cur.isDir {
+					m.addFileRelDir = cur.relPath
+				} else {
+					m.addFileRelDir = parentRelPath(cur.relPath)
+				}
+			}
 			m.mode = ModeAddFile
 			return m, textinput.Blink
 		case key.Matches(msg, m.keys.RenameFile):
@@ -955,12 +1114,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if !ok || row.kind != detailRowFiles || len(m.files) == 0 {
 				return m, nil
 			}
+			cur, ok := m.currentFileRow()
+			if !ok {
+				return m, nil
+			}
+			if cur.isDir {
+				m.saveErr = errDirRenameUnsupported
+				return m, nil
+			}
 			inputW := popupWidth(m.width) - 7
 			if inputW < 1 {
 				inputW = 1
 			}
 			m.input = newFileNameInput(inputW)
-			m.input.SetValue(m.files[m.fileCursor])
+			m.input.SetValue(cur.name)
 			m.input.CursorEnd()
 			m.inputErr = storage.ValidateFileNameChars(m.input.Value())
 			m.mode = ModeRenameFile
@@ -968,6 +1135,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.DeleteFile):
 			row, ok := m.currentDetailRow()
 			if !ok || row.kind != detailRowFiles || len(m.files) == 0 {
+				return m, nil
+			}
+			cur, ok := m.currentFileRow()
+			if !ok {
+				return m, nil
+			}
+			if cur.isDir {
+				m.saveErr = errDirDeleteUnsupported
 				return m, nil
 			}
 			m.prevMode = m.mode
@@ -985,6 +1160,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			switch row.kind {
 			case detailRowFiles:
 				if len(m.files) == 0 {
+					return m, nil
+				}
+				if cur, ok := m.currentFileRow(); ok && cur.isDir {
 					return m, nil
 				}
 				return m.openCurrentFileWithPicker()
@@ -3279,20 +3457,20 @@ func validateFieldValueLiveByType(ft task.FieldType, value string) error {
 
 // openCurrentFileWithDefault は file list で enter が押されたときの起動フロー。
 // file_opener.default_app が指定されていればそのアプリ、未指定なら $EDITOR フォールバック。
-// モーダル表示はせず必ず即起動する (`o` キーとの差別化)。
+// モーダル表示はせず必ず即起動する (`o` キーとの差別化)。ディレクトリ行は呼び出し側で除外する前提。
 func (m Model) openCurrentFileWithDefault() (Model, tea.Cmd) {
 	t, _, ok := m.currentTask()
 	if !ok {
 		return m, nil
 	}
-	if len(m.files) == 0 || m.fileCursor < 0 || m.fileCursor >= len(m.files) {
+	cur, ok := m.currentFileRow()
+	if !ok || cur.isDir {
 		return m, nil
 	}
-	fileName := m.files[m.fileCursor]
-	if app, ok := resolveDefaultApp(fileName, m.cfg.Applications, m.cfg.FileOpeners); ok {
-		return m.launchAppForFile(app.Run, t.ID, fileName)
+	if app, ok := resolveDefaultApp(cur.name, m.cfg.Applications, m.cfg.FileOpeners); ok {
+		return m.launchAppForFile(app.Run, t.ID, cur.relPath)
 	}
-	return m.launchAppForFile("", t.ID, fileName)
+	return m.launchAppForFile("", t.ID, cur.relPath)
 }
 
 // openCurrentFileWithPicker は file list で o が押されたときの起動フロー。
@@ -3306,32 +3484,33 @@ func (m Model) openCurrentFileWithPicker() (Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	if len(m.files) == 0 || m.fileCursor < 0 || m.fileCursor >= len(m.files) {
+	cur, ok := m.currentFileRow()
+	if !ok || cur.isDir {
 		return m, nil
 	}
-	fileName := m.files[m.fileCursor]
-	candidates := resolveFileOpenerCandidates(fileName, m.cfg.Applications, m.cfg.FileOpeners)
+	candidates := resolveFileOpenerCandidates(cur.name, m.cfg.Applications, m.cfg.FileOpeners)
 	switch len(candidates) {
 	case 0:
-		return m.launchAppForFile("", t.ID, fileName)
+		return m.launchAppForFile("", t.ID, cur.relPath)
 	case 1:
-		return m.launchAppForFile(candidates[0].Run, t.ID, fileName)
+		return m.launchAppForFile(candidates[0].Run, t.ID, cur.relPath)
 	default:
 		// 2 件以上はモーダルで選択させる。
 		m.fileOpenerCandidates = candidates
 		m.fileOpenerCursor = 0
 		m.fileOpenerTaskID = t.ID
-		m.fileOpenerFile = fileName
+		m.fileOpenerFile = cur.relPath
 		m.prevMode = m.mode
 		m.mode = ModeFileOpener
 		return m, nil
 	}
 }
 
-// launchAppForFile は appPath (空文字なら $EDITOR フォールバック) で taskID/fileName を開く tea.Cmd を返す。
-func (m Model) launchAppForFile(appPath string, taskID int, fileName string) (Model, tea.Cmd) {
+// launchAppForFile は appPath (空文字なら $EDITOR フォールバック) で taskID 配下の
+// relPath (タスクディレクトリからの相対パス) を開く tea.Cmd を返す。
+func (m Model) launchAppForFile(appPath string, taskID int, relPath string) (Model, tea.Cmd) {
 	taskDir := storage.TaskDir(m.yamlDir, m.cfg.DataBaseDirectory, taskID)
-	filePath := filepath.Join(taskDir, fileName)
+	filePath := filepath.Join(taskDir, filepath.FromSlash(relPath))
 	cmd, err := buildAppCmd(appPath, filePath)
 	if err != nil {
 		m.saveErr = err
@@ -3750,12 +3929,15 @@ func (m Model) View() string {
 		}
 		fileNamesBlock := renderFileNamesList(m.files, detailFocused, hasCursorOnFiles, m.fileCursor, rightW, namesH)
 
-		// プレビュー: 現在タスクの fileCursor が指すファイルを対象にする。
+		// プレビュー: 現在タスクの fileCursor が指す通常ファイルを対象にする。
+		// カーソルがディレクトリ行のときは空ペインを返す (renderPreview の空指定経路)。
 		var previewFile string
 		var previewTaskID int
 		if current != nil && len(m.files) > 0 && m.fileCursor >= 0 && m.fileCursor < len(m.files) {
-			previewFile = m.files[m.fileCursor]
-			previewTaskID = current.ID
+			if cur := m.files[m.fileCursor]; !cur.isDir {
+				previewFile = cur.relPath
+				previewTaskID = current.ID
+			}
 		}
 		previewBlock := renderPreview(m.yamlDir, m.cfg.DataBaseDirectory, previewTaskID, previewFile, rightW, previewH)
 
@@ -3923,8 +4105,8 @@ func (m Model) View() string {
 			m.width, m.height-1)
 	case ModeDeleteFileConfirm:
 		msg := "delete file?"
-		if m.fileCursor < len(m.files) {
-			msg = "delete \"" + m.files[m.fileCursor] + "\" ?"
+		if cur, ok := m.currentFileRow(); ok {
+			msg = "delete \"" + cur.relPath + "\" ?"
 		}
 		view = overlayConfirmPopup(view, "Delete?", msg,
 			[]hintItem{{"y", "delete"}, {"n/esc", "cancel"}},
