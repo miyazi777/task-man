@@ -1,0 +1,6 @@
+# mise (https://mise.jdx.dev) で管理するプロジェクト固有ツール。
+# Go 本体は go.mod の toolchain ディレクティブで固定されるため、ここでは扱わない。
+# CI (.github/workflows/ci.yml) で使用しているバージョンと一致させること。
+
+[tools]
+golangci-lint = "2.11.4"

@@ -17,7 +17,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `make run` | ビルド後、CWD の `tasks.yaml` を開いて起動 |
 | `make test` | `go test ./...` |
 | `make vet` / `make fmt` / `make tidy` | `go vet` / `go fmt` / `go mod tidy` |
-| `make lint` | `golangci-lint run ./...`（要 `golangci-lint` v2.x）|
+| `make lint` | `golangci-lint run ./...`（バージョンは `.mise.toml` で固定。`mise install` で導入）|
 | `make install` | `$GOPATH/bin` にインストール |
 
 単一テスト / サブテストを走らせる:
