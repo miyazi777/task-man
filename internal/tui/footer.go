@@ -47,10 +47,13 @@ func renderFooter(mode, prevMode Mode, onFilesRow bool, onURLRow bool, viewTrash
 	case ModeDetail:
 		// ModeList と同様、k/j と矢印キーは自明なので footer から省く。
 		// Files 行のカーソル上下も同じ扱い。
+		// Files 行の l/h はディレクトリ展開・折りたたみ。タスクリストと同じ操作だが
+		// ファイル UI として自明ではないので明示する。
 		switch {
 		case onFilesRow:
 			content = renderHints([]hintItem{
-				{"enter", "open"},
+				{"enter", "open/toggle"},
+				{"l", "expand"}, {"h", "collapse"},
 				{"a", "add"}, {"r", "rename"}, {"d", "delete"},
 				{"esc", "back"}, {"q", "quit"},
 			})

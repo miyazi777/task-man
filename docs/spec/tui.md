@@ -79,13 +79,17 @@
 | キー | 動作 |
 |---|---|
 | `k` / `j` | 行カーソル上下。Files 行内ではファイルカーソルが上下する。 |
-| `enter` | Title/Status は編集ポップアップ、Tags 行はタグピッカー、Field 行は型別ポップアップ (text/url) または日付カレンダー (date)、Files 行は `default_app` でファイルを開く |
-| `o` | url 型項目をブラウザで開く (`openURLInBrowser`)、Files 行は拡張子に応じた候補モーダルを開く |
-| `a` | Files 行で新規ファイル作成 (`ModeAddFile`) |
-| `r` | Files 行でファイルをリネーム (`ModeRenameFile`) |
-| `d` | Files 行でファイル削除確認 (`ModeDeleteFileConfirm`) |
+| `l` / `→` | Files 行のディレクトリを展開 (タスクリストと同じ表現)。葉ファイルでは no-op。 |
+| `h` / `←` | Files 行のディレクトリを折りたたみ。葉ファイルでは no-op。 |
+| `enter` | Title/Status は編集ポップアップ、Tags 行はタグピッカー、Field 行は型別ポップアップ (text/url) または日付カレンダー (date)、Files 行はファイルなら `default_app` で開き、ディレクトリなら折りたたみトグル |
+| `o` | url 型項目をブラウザで開く (`openURLInBrowser`)、Files 行 (ファイル) は拡張子に応じた候補モーダルを開く。ディレクトリ行では no-op |
+| `a` | Files 行で新規エントリ作成 (`ModeAddFile`)。カーソルがディレクトリ行ならその直下、ファイル行ならその親ディレクトリ。入力末尾が `/` ならディレクトリとして作成、それ以外はファイル |
+| `r` | Files 行でリネーム (`ModeRenameFile`)。ファイル / ディレクトリ どちらも対象 |
+| `d` | Files 行で削除確認 (`ModeDeleteFileConfirm`)。ファイルは単体削除、ディレクトリは再帰削除 (確認モーダルに配下も消える旨を明示) |
 | `;` | prefix モードへ |
 | `esc` | リストへ戻る |
+
+ファイルリストはタスクディレクトリ配下を再帰的に表示し、ディレクトリの折りたたみ状態はセッション内・現在タスクに限り保持される (タスク切り替えでリセット)。マーカーは hasChildren を持つディレクトリのみ `+ `/`- ` を出し、葉ファイルや空ディレクトリは空白 2 cell。
 
 ### 移動モード (`ModeMove`)
 

@@ -66,43 +66,75 @@ func TestCreateTaskDataRelativeBase(t *testing.T) {
 	}
 }
 
-func TestListTaskFiles(t *testing.T) {
+func TestListTaskFileTree(t *testing.T) {
 	yamlDir := t.TempDir()
 	if err := CreateTaskData(yamlDir, "", 5); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 	taskDir := filepath.Join(yamlDir, "task-5")
+	// トップレベル: zzz.md, aaa.txt, bbb.md (memo.md は CreateTaskData が作成済)
 	for _, name := range []string{"zzz.md", "aaa.txt", "bbb.md"} {
 		if err := os.WriteFile(filepath.Join(taskDir, name), []byte{}, 0o644); err != nil {
 			t.Fatalf("write %s: %v", name, err)
 		}
 	}
+	// サブディレクトリ: subdir/ と subdir/inner.md, subdir/empty/
 	if err := os.Mkdir(filepath.Join(taskDir, "subdir"), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
+		t.Fatalf("mkdir subdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(taskDir, "subdir", "inner.md"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write inner.md: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(taskDir, "subdir", "empty"), 0o755); err != nil {
+		t.Fatalf("mkdir empty: %v", err)
 	}
 
-	files, err := ListTaskFiles(yamlDir, "", 5)
+	tree, err := ListTaskFileTree(yamlDir, "", 5)
 	if err != nil {
-		t.Fatalf("ListTaskFiles: %v", err)
+		t.Fatalf("ListTaskFileTree: %v", err)
 	}
-	want := []string{"aaa.txt", "bbb.md", "memo.md", "zzz.md"}
-	if len(files) != len(want) {
-		t.Fatalf("got %v, want %v", files, want)
+	// トップレベルは aaa.txt, bbb.md, memo.md, subdir, zzz.md の順 (Name 昇順)。
+	wantTopNames := []string{"aaa.txt", "bbb.md", "memo.md", "subdir", "zzz.md"}
+	if len(tree) != len(wantTopNames) {
+		t.Fatalf("top entries: got %d, want %d (%v)", len(tree), len(wantTopNames), tree)
 	}
-	for i := range want {
-		if files[i] != want[i] {
-			t.Errorf("[%d]: got %q, want %q", i, files[i], want[i])
+	for i, want := range wantTopNames {
+		if tree[i].Name != want {
+			t.Errorf("top[%d].Name: got %q, want %q", i, tree[i].Name, want)
 		}
+		if tree[i].RelPath != want {
+			t.Errorf("top[%d].RelPath: got %q, want %q", i, tree[i].RelPath, want)
+		}
+	}
+	// subdir エントリの IsDir / Children 検証
+	var sub FileEntry
+	for _, e := range tree {
+		if e.Name == "subdir" {
+			sub = e
+		}
+	}
+	if !sub.IsDir {
+		t.Fatalf("subdir.IsDir = false, want true")
+	}
+	if len(sub.Children) != 2 {
+		t.Fatalf("subdir children: got %d, want 2 (%v)", len(sub.Children), sub.Children)
+	}
+	// 子は empty (dir), inner.md (file) の順
+	if sub.Children[0].Name != "empty" || !sub.Children[0].IsDir || sub.Children[0].RelPath != "subdir/empty" {
+		t.Errorf("subdir/empty: %+v", sub.Children[0])
+	}
+	if sub.Children[1].Name != "inner.md" || sub.Children[1].IsDir || sub.Children[1].RelPath != "subdir/inner.md" {
+		t.Errorf("subdir/inner.md: %+v", sub.Children[1])
 	}
 }
 
-func TestListTaskFilesMissingDir(t *testing.T) {
-	files, err := ListTaskFiles(t.TempDir(), "", 999)
+func TestListTaskFileTreeMissingDir(t *testing.T) {
+	tree, err := ListTaskFileTree(t.TempDir(), "", 999)
 	if err != nil {
-		t.Fatalf("ListTaskFiles: %v", err)
+		t.Fatalf("ListTaskFileTree: %v", err)
 	}
-	if len(files) != 0 {
-		t.Errorf("expected empty, got %v", files)
+	if len(tree) != 0 {
+		t.Errorf("expected empty, got %v", tree)
 	}
 }
 
@@ -137,9 +169,48 @@ func TestValidateFileNameCharsAllowsEmpty(t *testing.T) {
 	}
 }
 
+func TestResolveTaskRelPathRejectsEscape(t *testing.T) {
+	taskDir := filepath.Join(t.TempDir(), "task-1")
+	cases := []string{
+		"../escape",
+		"sub/../../escape",
+		"/abs/path",
+		"..",
+	}
+	for _, c := range cases {
+		t.Run(c, func(t *testing.T) {
+			if _, err := resolveTaskRelPath(taskDir, c); !errors.Is(err, ErrInvalidRelPath) {
+				t.Errorf("resolveTaskRelPath(%q) err = %v, want ErrInvalidRelPath", c, err)
+			}
+		})
+	}
+}
+
+func TestResolveTaskRelPathAcceptsNormal(t *testing.T) {
+	taskDir := filepath.Join(t.TempDir(), "task-1")
+	cases := map[string]string{
+		"":             taskDir,
+		".":            taskDir,
+		"foo.md":       filepath.Join(taskDir, "foo.md"),
+		"sub/foo.md":   filepath.Join(taskDir, "sub", "foo.md"),
+		"./sub/foo.md": filepath.Join(taskDir, "sub", "foo.md"),
+	}
+	for in, want := range cases {
+		t.Run(in, func(t *testing.T) {
+			got, err := resolveTaskRelPath(taskDir, in)
+			if err != nil {
+				t.Fatalf("err: %v", err)
+			}
+			if got != want {
+				t.Errorf("got %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func TestCreateFile(t *testing.T) {
 	yamlDir := t.TempDir()
-	if err := CreateFile(yamlDir, "", 6, "report.md"); err != nil {
+	if err := CreateFile(yamlDir, "", 6, "", "report.md"); err != nil {
 		t.Fatalf("CreateFile: %v", err)
 	}
 	full := filepath.Join(yamlDir, "task-6", "report.md")
@@ -149,12 +220,32 @@ func TestCreateFile(t *testing.T) {
 	}
 }
 
+func TestCreateFileInSubDir(t *testing.T) {
+	yamlDir := t.TempDir()
+	// サブディレクトリは事前に存在しなくても CreateFile が作る。
+	if err := CreateFile(yamlDir, "", 6, "sub", "report.md"); err != nil {
+		t.Fatalf("CreateFile: %v", err)
+	}
+	full := filepath.Join(yamlDir, "task-6", "sub", "report.md")
+	if _, err := os.Stat(full); err != nil {
+		t.Errorf("file not created: %v", err)
+	}
+}
+
+func TestCreateFileRejectsEscape(t *testing.T) {
+	yamlDir := t.TempDir()
+	err := CreateFile(yamlDir, "", 6, "../escape", "x.md")
+	if !errors.Is(err, ErrInvalidRelPath) {
+		t.Errorf("expected ErrInvalidRelPath, got %v", err)
+	}
+}
+
 func TestCreateFileConflict(t *testing.T) {
 	yamlDir := t.TempDir()
-	if err := CreateFile(yamlDir, "", 7, "x.md"); err != nil {
+	if err := CreateFile(yamlDir, "", 7, "", "x.md"); err != nil {
 		t.Fatalf("first CreateFile: %v", err)
 	}
-	err := CreateFile(yamlDir, "", 7, "x.md")
+	err := CreateFile(yamlDir, "", 7, "", "x.md")
 	if err == nil {
 		t.Fatal("expected error on conflict")
 	}
@@ -165,10 +256,10 @@ func TestCreateFileConflict(t *testing.T) {
 
 func TestRenameFile(t *testing.T) {
 	yamlDir := t.TempDir()
-	if err := CreateFile(yamlDir, "", 8, "old.md"); err != nil {
+	if err := CreateFile(yamlDir, "", 8, "", "old.md"); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
-	if err := RenameFile(yamlDir, "", 8, "old.md", "new.md"); err != nil {
+	if err := RenameFile(yamlDir, "", 8, "", "old.md", "new.md"); err != nil {
 		t.Fatalf("RenameFile: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(yamlDir, "task-8", "new.md")); err != nil {
@@ -179,15 +270,28 @@ func TestRenameFile(t *testing.T) {
 	}
 }
 
+func TestRenameFileInSubDir(t *testing.T) {
+	yamlDir := t.TempDir()
+	if err := CreateFile(yamlDir, "", 8, "sub", "old.md"); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := RenameFile(yamlDir, "", 8, "sub", "old.md", "new.md"); err != nil {
+		t.Fatalf("RenameFile: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(yamlDir, "task-8", "sub", "new.md")); err != nil {
+		t.Errorf("new path not present: %v", err)
+	}
+}
+
 func TestRenameFileConflict(t *testing.T) {
 	yamlDir := t.TempDir()
-	if err := CreateFile(yamlDir, "", 9, "a.md"); err != nil {
+	if err := CreateFile(yamlDir, "", 9, "", "a.md"); err != nil {
 		t.Fatalf("setup1: %v", err)
 	}
-	if err := CreateFile(yamlDir, "", 9, "b.md"); err != nil {
+	if err := CreateFile(yamlDir, "", 9, "", "b.md"); err != nil {
 		t.Fatalf("setup2: %v", err)
 	}
-	err := RenameFile(yamlDir, "", 9, "a.md", "b.md")
+	err := RenameFile(yamlDir, "", 9, "", "a.md", "b.md")
 	if !errors.Is(err, ErrFileExists) {
 		t.Errorf("expected ErrFileExists, got %v", err)
 	}
@@ -198,7 +302,7 @@ func TestRenameFileMissingSource(t *testing.T) {
 	if err := CreateTaskData(yamlDir, "", 10); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
-	err := RenameFile(yamlDir, "", 10, "ghost.md", "new.md")
+	err := RenameFile(yamlDir, "", 10, "", "ghost.md", "new.md")
 	if !errors.Is(err, ErrFileNotFoundIn) {
 		t.Errorf("expected ErrFileNotFoundIn, got %v", err)
 	}
@@ -206,13 +310,26 @@ func TestRenameFileMissingSource(t *testing.T) {
 
 func TestDeleteFile(t *testing.T) {
 	yamlDir := t.TempDir()
-	if err := CreateFile(yamlDir, "", 11, "x.md"); err != nil {
+	if err := CreateFile(yamlDir, "", 11, "", "x.md"); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 	if err := DeleteFile(yamlDir, "", 11, "x.md"); err != nil {
 		t.Fatalf("DeleteFile: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(yamlDir, "task-11", "x.md")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("file should be gone: %v", err)
+	}
+}
+
+func TestDeleteFileInSubDir(t *testing.T) {
+	yamlDir := t.TempDir()
+	if err := CreateFile(yamlDir, "", 11, "sub", "x.md"); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := DeleteFile(yamlDir, "", 11, "sub/x.md"); err != nil {
+		t.Fatalf("DeleteFile: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(yamlDir, "task-11", "sub", "x.md")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("file should be gone: %v", err)
 	}
 }
@@ -225,6 +342,139 @@ func TestDeleteFileMissing(t *testing.T) {
 	err := DeleteFile(yamlDir, "", 12, "ghost.md")
 	if !errors.Is(err, ErrFileNotFoundIn) {
 		t.Errorf("expected ErrFileNotFoundIn, got %v", err)
+	}
+}
+
+func TestDeleteFileRejectsDirectory(t *testing.T) {
+	yamlDir := t.TempDir()
+	if err := CreateFile(yamlDir, "", 13, "sub", "memo.md"); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	err := DeleteFile(yamlDir, "", 13, "sub")
+	if err == nil {
+		t.Fatal("expected error when deleting a directory")
+	}
+}
+
+func TestCreateDir(t *testing.T) {
+	yamlDir := t.TempDir()
+	if err := CreateDir(yamlDir, "", 14, "", "new-dir"); err != nil {
+		t.Fatalf("CreateDir: %v", err)
+	}
+	full := filepath.Join(yamlDir, "task-14", "new-dir")
+	info, err := os.Stat(full)
+	if err != nil || !info.IsDir() {
+		t.Errorf("directory not created: err=%v info=%+v", err, info)
+	}
+}
+
+func TestCreateDirNested(t *testing.T) {
+	yamlDir := t.TempDir()
+	// parent ディレクトリが無くても作る。
+	if err := CreateDir(yamlDir, "", 14, "parent", "child"); err != nil {
+		t.Fatalf("CreateDir: %v", err)
+	}
+	full := filepath.Join(yamlDir, "task-14", "parent", "child")
+	if info, err := os.Stat(full); err != nil || !info.IsDir() {
+		t.Errorf("nested dir not created: err=%v", err)
+	}
+}
+
+func TestCreateDirConflict(t *testing.T) {
+	yamlDir := t.TempDir()
+	if err := CreateDir(yamlDir, "", 15, "", "dir"); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	err := CreateDir(yamlDir, "", 15, "", "dir")
+	if !errors.Is(err, ErrFileExists) {
+		t.Errorf("expected ErrFileExists, got %v", err)
+	}
+}
+
+func TestCreateDirConflictWithFile(t *testing.T) {
+	yamlDir := t.TempDir()
+	if err := CreateFile(yamlDir, "", 15, "", "name"); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	err := CreateDir(yamlDir, "", 15, "", "name")
+	if !errors.Is(err, ErrFileExists) {
+		t.Errorf("expected ErrFileExists when file with same name exists, got %v", err)
+	}
+}
+
+func TestCreateDirRejectsEscape(t *testing.T) {
+	yamlDir := t.TempDir()
+	err := CreateDir(yamlDir, "", 15, "../escape", "name")
+	if !errors.Is(err, ErrInvalidRelPath) {
+		t.Errorf("expected ErrInvalidRelPath, got %v", err)
+	}
+}
+
+func TestDeleteDir(t *testing.T) {
+	yamlDir := t.TempDir()
+	// dir に中身ありで作って、再帰削除できることを確認。
+	if err := CreateFile(yamlDir, "", 16, "sub", "memo.md"); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := DeleteDir(yamlDir, "", 16, "sub"); err != nil {
+		t.Fatalf("DeleteDir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(yamlDir, "task-16", "sub")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("sub should be gone: %v", err)
+	}
+}
+
+func TestDeleteDirRejectsRoot(t *testing.T) {
+	yamlDir := t.TempDir()
+	if err := CreateTaskData(yamlDir, "", 16); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	for _, p := range []string{"", "."} {
+		if err := DeleteDir(yamlDir, "", 16, p); err == nil {
+			t.Errorf("expected error for root delete (%q)", p)
+		}
+	}
+	if _, err := os.Stat(TaskDir(yamlDir, "", 16)); err != nil {
+		t.Errorf("task root should still exist: %v", err)
+	}
+}
+
+func TestDeleteDirRejectsFile(t *testing.T) {
+	yamlDir := t.TempDir()
+	if err := CreateFile(yamlDir, "", 16, "", "file.md"); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	err := DeleteDir(yamlDir, "", 16, "file.md")
+	if err == nil {
+		t.Fatal("expected error when deleting a regular file via DeleteDir")
+	}
+}
+
+func TestDeleteDirMissing(t *testing.T) {
+	yamlDir := t.TempDir()
+	if err := CreateTaskData(yamlDir, "", 17); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	err := DeleteDir(yamlDir, "", 17, "ghost")
+	if !errors.Is(err, ErrFileNotFoundIn) {
+		t.Errorf("expected ErrFileNotFoundIn, got %v", err)
+	}
+}
+
+func TestRenameDirectory(t *testing.T) {
+	// RenameFile はディレクトリにも適用できる (os.Rename 経由)。
+	yamlDir := t.TempDir()
+	if err := CreateDir(yamlDir, "", 18, "", "old-dir"); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := CreateFile(yamlDir, "", 18, "old-dir", "inner.md"); err != nil {
+		t.Fatalf("setup inner: %v", err)
+	}
+	if err := RenameFile(yamlDir, "", 18, "", "old-dir", "new-dir"); err != nil {
+		t.Fatalf("RenameFile: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(yamlDir, "task-18", "new-dir", "inner.md")); err != nil {
+		t.Errorf("renamed dir should keep content: %v", err)
 	}
 }
 

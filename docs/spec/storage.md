@@ -65,13 +65,28 @@ type AppConfig struct {
 |---|---|
 | `TaskDir(yamlDir, dataBaseDir, taskID)` | ディレクトリパスを組み立てる。`dataBaseDir` 空文字なら `yamlDir` 直下。 |
 | `CreateTaskData(yamlDir, dataBaseDir, taskID)` | `task-<id>/memo.md` を作成。既存衝突は `ErrTaskDirExists` (no-op、何も作らない)。memo.md 作成失敗時はディレクトリも巻き戻し。 |
-| `ListTaskFiles(yamlDir, dataBaseDir, taskID)` | タスクディレクトリ内の通常ファイルを basename のアルファベット順で返す。ディレクトリ不在は空スライスを返す。 |
-| `CreateFile(yamlDir, dataBaseDir, taskID, name)` | 空ファイル作成。同名既存は `ErrFileExists`。タスクディレクトリが無ければ作る。 |
-| `RenameFile(yamlDir, dataBaseDir, taskID, oldName, newName)` | リネーム。元不在は `ErrFileNotFoundIn`、先既存は `ErrFileExists`。 |
-| `DeleteFile(yamlDir, dataBaseDir, taskID, name)` | 通常ファイルのみ削除。ディレクトリや特殊ファイルは拒否。 |
-| `ReadTaskFile(yamlDir, dataBaseDir, taskID, name, maxBytes)` | プレビュー用に先頭 `maxBytes` バイトまで読む。 |
+| `ListTaskFileTree(yamlDir, dataBaseDir, taskID)` | タスクディレクトリ配下を再帰的に走査して `[]FileEntry` (木構造) を返す。各階層は Name 昇順。通常ファイル / ディレクトリ以外 (symlink 等) はスキップ。ディレクトリ不在は空スライスで返す。 |
+| `CreateFile(yamlDir, dataBaseDir, taskID, relDir, name)` | `relDir` 配下に空ファイル作成。`relDir` 空文字 / `.` はタスク直下。途中ディレクトリも無ければ `MkdirAll` で作る。同名既存は `ErrFileExists`。`..` 経由の脱出は `ErrInvalidRelPath`。 |
+| `CreateDir(yamlDir, dataBaseDir, taskID, relDir, name)` | `relDir` 配下にサブディレクトリを作成。途中の階層も無ければ作る。同名既存 (ファイル / ディレクトリ問わず) は `ErrFileExists`。 |
+| `RenameFile(yamlDir, dataBaseDir, taskID, relDir, oldName, newName)` | `relDir` 配下で同一ディレクトリ内リネーム。ファイル / ディレクトリ どちらにも適用できる (`os.Rename` 経由)。元不在は `ErrFileNotFoundIn`、先既存は `ErrFileExists`。 |
+| `DeleteFile(yamlDir, dataBaseDir, taskID, relPath)` | `relPath` が指す通常ファイルを削除。ディレクトリや特殊ファイルは拒否。`..` 経由の脱出は `ErrInvalidRelPath`。 |
+| `DeleteDir(yamlDir, dataBaseDir, taskID, relPath)` | `relPath` が指すディレクトリを配下ごと再帰削除 (`os.RemoveAll`)。タスクディレクトリ自身 (`""` / `"."`) や通常ファイルは拒否。 |
+| `ReadTaskFile(yamlDir, dataBaseDir, taskID, relPath, maxBytes)` | プレビュー用に `relPath` の先頭 `maxBytes` バイトまで読む。 |
 | `DeleteTaskData(yamlDir, dataBaseDir, taskID)` | `task-<id>/` を再帰削除。不在は no-op。 |
 | `RemoveAllTaskData(yamlDir, dataBaseDir)` | data_base_directory 配下にある `task-<int>` 名のディレクトリをすべて削除。整数でない子や通常ファイルには触れない。`--init` で利用される。 |
+
+### `FileEntry` 型
+
+`ListTaskFileTree` が返すノード:
+
+- `Name`: basename
+- `RelPath`: タスクディレクトリからの相対パス (セパレータは常に `/`)
+- `IsDir`: ディレクトリ判定
+- `Children`: `IsDir == true` のときのみ意味を持つ。空ディレクトリは `len(Children) == 0`。
+
+### 相対パスの安全性
+
+`CreateFile` / `RenameFile` / `DeleteFile` / `ReadTaskFile` は内部で `resolveTaskRelPath` を通し、絶対パス指定や `..` を含む脱出パスを `ErrInvalidRelPath` で弾く。
 
 ### ファイル名検証
 
@@ -90,3 +105,4 @@ type AppConfig struct {
 | `ErrFileExists` | 同名ファイルが既に存在 |
 | `ErrFileNotFoundIn` | 対象ファイルがタスクディレクトリ内に無い |
 | `ErrFileNotFound` | tasks ファイル自体が無い |
+| `ErrInvalidRelPath` | 絶対パス指定や `..` 経由でタスクディレクトリの外を指している |
