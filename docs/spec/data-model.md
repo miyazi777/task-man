@@ -1,12 +1,30 @@
 # データモデル (`tasks.yaml`)
 
-`tasks.yaml` は task-man の唯一の永続化先である。トップレベルのキーは `applications` / `file_opener` / `data_base_directory` / `layout` / `statuses` / `fields` / `tags` / `tasks` の 8 種類で、`statuses` 以外は省略可能 (空配列 / 未定義どちらでも可)。
+`tasks.yaml` は task-man の唯一の永続化先である。トップレベルのキーは `version` / `applications` / `file_opener` / `data_base_directory` / `layout` / `statuses` / `fields` / `tags` / `tasks` の 9 種類で、`statuses` 以外は省略可能 (空配列 / 未定義どちらでも可)。
 
 実装は `internal/storage/yaml.go` の `yamlFile` 型と `Load` / `Save` で行う。
+
+## スキーマバージョン
+
+`version` キーは yaml スキーマのバージョンを示す。
+
+- 現行バージョンは `internal/storage/yaml.go` の `CurrentSchemaVersion`（執筆時点で `1`）。
+- 互換性を破る変更を加えるたびに 1 ずつ増やす。
+- Load 時の挙動:
+  - `version > CurrentSchemaVersion` → `ErrSchemaVersionUnsupported` で起動を拒否。古いバイナリで新しい yaml を上書きしてデータを破壊することを防ぐ。
+  - `version` 未指定（旧 yaml）→ 現行バージョンとして解釈し、Load 後の再 Save で `version: 1` を補完する。
+  - `1 <= version <= CurrentSchemaVersion` → そのまま受け入れる。将来 `version < CurrentSchemaVersion` のケースが発生したら、ここに移行ロジックを挟む（現時点では v1 しか存在しないため未実装）。
+- Save は常に `CurrentSchemaVersion` を書き出す。
+
+```yaml
+version: 1
+```
 
 ## トップレベルの例
 
 ```yaml
+version: 1
+
 applications:
   - application:
       id: 1
