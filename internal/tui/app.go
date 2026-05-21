@@ -462,13 +462,6 @@ func parentRelPath(relPath string) string {
 	return relPath[:idx]
 }
 
-// ディレクトリ操作の未対応エラー。issue #23 のスコープでは ディレクトリの rename / delete は
-// 提供しない方針なので、ユーザー操作に対しては saveErr に出して no-op とする。
-var (
-	errDirRenameUnsupported = errors.New("directory rename is not supported")
-	errDirDeleteUnsupported = errors.New("directory delete is not supported")
-)
-
 // Init は Bubble Tea プログラム開始時に呼ばれる。本 TUI は起動コマンドを持たないので nil を返す。
 func (m Model) Init() tea.Cmd {
 	return nil
@@ -518,8 +511,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ModeAddFile:
 		switch msg.String() {
 		case "enter":
-			name := strings.TrimSpace(m.input.Value())
-			if name == "" || m.inputErr != nil {
+			raw := strings.TrimSpace(m.input.Value())
+			if raw == "" || m.inputErr != nil {
+				return m, nil
+			}
+			// 末尾 "/" は「ディレクトリとして作成」のマーカー。
+			asDir := strings.HasSuffix(raw, "/")
+			name := strings.TrimSuffix(raw, "/")
+			if name == "" {
 				return m, nil
 			}
 			t, _, ok := m.currentTask()
@@ -528,19 +527,25 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			relDir := m.addFileRelDir
-			if err := storage.CreateFile(m.yamlDir, m.cfg.DataBaseDirectory, t.ID, relDir, name); err != nil {
-				m.saveErr = err
+			var createErr error
+			if asDir {
+				createErr = storage.CreateDir(m.yamlDir, m.cfg.DataBaseDirectory, t.ID, relDir, name)
+			} else {
+				createErr = storage.CreateFile(m.yamlDir, m.cfg.DataBaseDirectory, t.ID, relDir, name)
+			}
+			if createErr != nil {
+				m.saveErr = createErr
 				return m, nil
 			}
 			m.mode = ModeDetail
 			m.input = textinput.Model{}
 			m.inputErr = nil
-			// 追加ファイルがある親ディレクトリは折りたたみ解除して、新規ファイルを可視化する。
+			// 追加ファイルがある親ディレクトリは折りたたみ解除して、新規エントリを可視化する。
 			if relDir != "" && relDir != "." && m.fileCollapsed != nil {
 				delete(m.fileCollapsed, relDir)
 			}
 			m = m.withFilesRefreshed()
-			// 追加ファイルにカーソルを合わせる
+			// 追加した entry にカーソルを合わせる
 			createdRel := joinRelPath(relDir, name)
 			for i, f := range m.files {
 				if f.relPath == createdRel {
@@ -559,7 +564,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
-		m.inputErr = storage.ValidateFileNameChars(m.input.Value())
+		// 末尾 "/" は「ディレクトリ作成」のマーカーとして許容するため、validation 時は剥がす。
+		m.inputErr = storage.ValidateFileNameChars(strings.TrimSuffix(m.input.Value(), "/"))
 		return m, cmd
 
 	case ModeRenameFile:
@@ -575,7 +581,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			cur, ok := m.currentFileRow()
-			if !ok || cur.isDir {
+			if !ok {
 				// モーダル中に状況が変わった (本来到達不能)。
 				m.mode = ModeDetail
 				m.input = textinput.Model{}
@@ -682,14 +688,30 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			cur, ok := m.currentFileRow()
-			if !ok || cur.isDir {
+			if !ok {
 				m.mode = ModeDetail
 				return m, nil
 			}
-			if err := storage.DeleteFile(m.yamlDir, m.cfg.DataBaseDirectory, t.ID, cur.relPath); err != nil {
-				m.saveErr = err
+			var delErr error
+			if cur.isDir {
+				delErr = storage.DeleteDir(m.yamlDir, m.cfg.DataBaseDirectory, t.ID, cur.relPath)
+			} else {
+				delErr = storage.DeleteFile(m.yamlDir, m.cfg.DataBaseDirectory, t.ID, cur.relPath)
+			}
+			if delErr != nil {
+				m.saveErr = delErr
 				m.mode = ModeDetail
 				return m, nil
+			}
+			// ディレクトリを消した場合、その配下を fileCollapsed に記憶していた key も無効化する。
+			if cur.isDir && m.fileCollapsed != nil {
+				prefix := cur.relPath + "/"
+				delete(m.fileCollapsed, cur.relPath)
+				for k := range m.fileCollapsed {
+					if strings.HasPrefix(k, prefix) {
+						delete(m.fileCollapsed, k)
+					}
+				}
 			}
 			m.mode = ModeDetail
 			m = m.withFilesRefreshed()
@@ -1118,10 +1140,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if !ok {
 				return m, nil
 			}
-			if cur.isDir {
-				m.saveErr = errDirRenameUnsupported
-				return m, nil
-			}
 			inputW := popupWidth(m.width) - 7
 			if inputW < 1 {
 				inputW = 1
@@ -1137,12 +1155,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if !ok || row.kind != detailRowFiles || len(m.files) == 0 {
 				return m, nil
 			}
-			cur, ok := m.currentFileRow()
-			if !ok {
-				return m, nil
-			}
-			if cur.isDir {
-				m.saveErr = errDirDeleteUnsupported
+			if _, ok := m.currentFileRow(); !ok {
 				return m, nil
 			}
 			m.prevMode = m.mode
@@ -4104,11 +4117,18 @@ func (m Model) View() string {
 			[]hintItem{{"y", "quit"}, {"n/esc", "cancel"}},
 			m.width, m.height-1)
 	case ModeDeleteFileConfirm:
+		title := "Delete?"
 		msg := "delete file?"
 		if cur, ok := m.currentFileRow(); ok {
-			msg = "delete \"" + cur.relPath + "\" ?"
+			if cur.isDir {
+				// ディレクトリ削除は再帰削除なので、配下も消えることを明示する。
+				title = "Delete directory?"
+				msg = "delete directory \"" + cur.relPath + "/\" and all files inside?"
+			} else {
+				msg = "delete \"" + cur.relPath + "\" ?"
+			}
 		}
-		view = overlayConfirmPopup(view, "Delete?", msg,
+		view = overlayConfirmPopup(view, title, msg,
 			[]hintItem{{"y", "delete"}, {"n/esc", "cancel"}},
 			m.width, m.height-1)
 	case ModeTrashConfirm:

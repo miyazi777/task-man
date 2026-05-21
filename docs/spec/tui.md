@@ -83,9 +83,9 @@
 | `h` / `←` | Files 行のディレクトリを折りたたみ。葉ファイルでは no-op。 |
 | `enter` | Title/Status は編集ポップアップ、Tags 行はタグピッカー、Field 行は型別ポップアップ (text/url) または日付カレンダー (date)、Files 行はファイルなら `default_app` で開き、ディレクトリなら折りたたみトグル |
 | `o` | url 型項目をブラウザで開く (`openURLInBrowser`)、Files 行 (ファイル) は拡張子に応じた候補モーダルを開く。ディレクトリ行では no-op |
-| `a` | Files 行で新規ファイル作成 (`ModeAddFile`)。カーソルがディレクトリ行ならその直下、ファイル行ならその親ディレクトリに作成する |
-| `r` | Files 行でファイルをリネーム (`ModeRenameFile`)。ディレクトリ行では未対応エラー |
-| `d` | Files 行でファイル削除確認 (`ModeDeleteFileConfirm`)。ディレクトリ行では未対応エラー |
+| `a` | Files 行で新規エントリ作成 (`ModeAddFile`)。カーソルがディレクトリ行ならその直下、ファイル行ならその親ディレクトリ。入力末尾が `/` ならディレクトリとして作成、それ以外はファイル |
+| `r` | Files 行でリネーム (`ModeRenameFile`)。ファイル / ディレクトリ どちらも対象 |
+| `d` | Files 行で削除確認 (`ModeDeleteFileConfirm`)。ファイルは単体削除、ディレクトリは再帰削除 (確認モーダルに配下も消える旨を明示) |
 | `;` | prefix モードへ |
 | `esc` | リストへ戻る |
 

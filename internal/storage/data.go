@@ -267,8 +267,9 @@ func CreateFile(yamlDir, dataBaseDir string, taskID int, relDir, fileName string
 	return f.Close()
 }
 
-// RenameFile はタスクディレクトリ内 (relDir 配下) のファイル名を変更する。同一ディレクトリ内のみ。
+// RenameFile はタスクディレクトリ内 (relDir 配下) のエントリ名を変更する。同一ディレクトリ内のみ。
 // oldName が存在しなければ ErrFileNotFoundIn、newName が既存なら ErrFileExists。
+// ファイル / ディレクトリ どちらにも適用できる (内部で `os.Rename` を使う)。
 func RenameFile(yamlDir, dataBaseDir string, taskID int, relDir, oldName, newName string) error {
 	if err := ValidateFileName(newName); err != nil {
 		return err
@@ -344,6 +345,61 @@ func ReadTaskFile(yamlDir, dataBaseDir string, taskID int, relPath string, maxBy
 		return "", err
 	}
 	return string(data), nil
+}
+
+// CreateDir はタスクディレクトリ内 (relDir 配下) に新しいサブディレクトリを作成する。
+// relDir 空文字 / "." はタスク直下。途中の階層も無ければ作る。
+// 同名のファイル / ディレクトリが既にあれば ErrFileExists を返す。
+func CreateDir(yamlDir, dataBaseDir string, taskID int, relDir, dirName string) error {
+	if err := ValidateFileName(dirName); err != nil {
+		return err
+	}
+	taskDir := TaskDir(yamlDir, dataBaseDir, taskID)
+	parentAbs, err := resolveTaskRelPath(taskDir, relDir)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(parentAbs, 0o755); err != nil {
+		return fmt.Errorf("ensure dir %s: %w", parentAbs, err)
+	}
+	full := filepath.Join(parentAbs, dirName)
+	if _, err := os.Stat(full); err == nil {
+		return fmt.Errorf("%w: %s", ErrFileExists, full)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat %s: %w", full, err)
+	}
+	if err := os.Mkdir(full, 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", full, err)
+	}
+	return nil
+}
+
+// DeleteDir はタスクディレクトリ内 relPath が指すディレクトリを配下ごと再帰削除する。
+// タスクディレクトリ自体 (relPath="" / ".") の指定は安全のため拒否する。
+// 対象が通常ファイルのときは error、不在なら ErrFileNotFoundIn を返す。
+func DeleteDir(yamlDir, dataBaseDir string, taskID int, relPath string) error {
+	if relPath == "" || relPath == "." {
+		return errors.New("cannot delete task root directory")
+	}
+	taskDir := TaskDir(yamlDir, dataBaseDir, taskID)
+	full, err := resolveTaskRelPath(taskDir, relPath)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(full)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("%w: %s", ErrFileNotFoundIn, full)
+		}
+		return fmt.Errorf("stat %s: %w", full, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("not a directory: %s", full)
+	}
+	if err := os.RemoveAll(full); err != nil {
+		return fmt.Errorf("remove dir %s: %w", full, err)
+	}
+	return nil
 }
 
 // DeleteFile はタスクディレクトリ内 (relPath が指す) ファイルを削除する。
