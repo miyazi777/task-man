@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/miyazi777/task-man/internal/task"
 )
 
@@ -92,5 +93,42 @@ func TestRenderFileNamesListEmpty(t *testing.T) {
 	out := renderFileNamesList(nil, true, false, 0, 40, 3)
 	if !strings.Contains(out, "(no files)") {
 		t.Errorf("expected '(no files)' placeholder, got:\n%s", out)
+	}
+}
+
+// #18 の回帰テスト: 詳細画面 Title 行カーソルが narrow width でも分裂しない。
+// 元コードでは styleCursorRow.Width(width).Render(raw) が長いタイトルを word-wrap
+// して詳細ペイン全体が下方向に押し下げられる現象があった。
+func TestRenderDetailTitleCursorRowNarrowWidthSingleLine(t *testing.T) {
+	statuses := task.DefaultStatuses()
+	tk := task.Task{ID: 1, Title: "this-is-a-very-long-title-that-easily-overflows-narrow-pane-widths", StatusID: 1}
+	rows := buildDetailRows(nil)
+	// Title 行は detailRows[0]。focused かつ cursor=0 でカーソル反転表示。
+	for _, w := range []int{40, 24, 16, 10} {
+		out := renderDetail(&tk, statuses, nil, nil, rows, true, 0, w, 4)
+		stripped := strings.TrimRight(ansi.Strip(out), " \n")
+		// 1 行が w を超える幅で書かれた場合 lipgloss が wrap し、行数が増える。
+		// 期待: ちょうど 4 (height) 行に収まる。
+		lines := strings.Split(stripped, "\n")
+		if len(lines) > 4 {
+			t.Errorf("width=%d: lines=%d > height=4 (word-wrap regression):\n%s", w, len(lines), stripped)
+		}
+	}
+}
+
+// #18 の回帰テスト: file 行カーソルが narrow width でも 2 行に分裂しない。
+// 元コードでは styleCursorRow.Width(width).Render(raw) が word-wrap し、
+// 後続行が押し下げられて height で切れる現象があった。
+func TestRenderFileNamesListNarrowWidthSingleLine(t *testing.T) {
+	rows := []fileRow{
+		{name: "very-long-filename-that-overflows-narrow-width.md", relPath: "very-long-filename-that-overflows-narrow-width.md"},
+	}
+	for _, w := range []int{30, 20, 14, 10, 6} {
+		out := renderFileNamesList(rows, true, true, 0, w, 1)
+		stripped := strings.TrimRight(ansi.Strip(out), " \n")
+		lines := strings.Split(stripped, "\n")
+		if len(lines) != 1 {
+			t.Errorf("width=%d: cursor row should stay on 1 line, got %d:\n%s", w, len(lines), stripped)
+		}
 	}
 }

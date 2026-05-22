@@ -55,7 +55,7 @@ func renderDetail(t *task.Task, statuses task.StatusList, fields task.FieldDefLi
 		width = 40
 	}
 	if t == nil {
-		return lipgloss.NewStyle().Width(width).Height(height).Render("")
+		return renderPaneBlock("", width, height)
 	}
 
 	status, ok := statuses.ByID(t.StatusID)
@@ -103,7 +103,7 @@ func renderDetail(t *task.Task, statuses task.StatusList, fields task.FieldDefLi
 	}
 
 	body := strings.Join(bodyLines, "\n")
-	return lipgloss.NewStyle().Width(width).Height(height).Render(body)
+	return renderPaneBlock(body, width, height)
 }
 
 // renderDetailField は label と value の 1 行を描画する。
@@ -114,7 +114,7 @@ func renderDetailField(label, value string, focused, hasCursor bool, valueStatus
 	padded := padDetailLabel(label, labelW)
 	if hasCursor {
 		raw := "  " + padded + " " + value
-		return styleCursorRow.Width(width).Render(raw)
+		return renderSingleLineRow(styleCursorRow, raw, width)
 	}
 	var labelRendered, valueRendered string
 	if focused {
@@ -214,7 +214,7 @@ func renderTagsRow(t task.Task, tags task.TagList, focused, hasCursor bool, labe
 			if hasCursor && focused {
 				// 先頭行はカーソル反転で行全体を塗る。チップ色は失うがプレーン文字列で安定描画。
 				raw := "  " + paddedLabel + " " + ln.plain
-				out = append(out, styleCursorRow.Width(width).Render(raw))
+				out = append(out, renderSingleLineRow(styleCursorRow, raw, width))
 			} else {
 				out = append(out, "  "+styleLabel.Render(paddedLabel)+" "+ln.rendered)
 			}
@@ -280,7 +280,7 @@ func renderFileNamesList(files []fileRow, focused, blockFocused bool, fileCursor
 	}
 	if len(files) == 0 {
 		empty := strings.Repeat(" ", fileBaseLeftPad) + styleValueDim.Render("(no files)")
-		return lipgloss.NewStyle().Width(width).Height(height).Render(empty)
+		return renderPaneBlock(empty, width, height)
 	}
 
 	// fileCursor を表示範囲に含めるためのオフセット計算 (シンプルなウィンドウスクロール)。
@@ -313,7 +313,7 @@ func renderFileNamesList(files []fileRow, focused, blockFocused bool, fileCursor
 
 		isCursor := blockFocused && focused && i == fileCursor
 		if isCursor {
-			lines = append(lines, styleCursorRow.Width(width).Render(raw))
+			lines = append(lines, renderSingleLineRow(styleCursorRow, raw, width))
 			continue
 		}
 		if focused {
@@ -322,7 +322,7 @@ func renderFileNamesList(files []fileRow, focused, blockFocused bool, fileCursor
 			lines = append(lines, indent+marker+styleValueDim.Render(name))
 		}
 	}
-	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
+	return renderPaneBlock(strings.Join(lines, "\n"), width, height)
 }
 
 // ファイルリストのインデント定数。タスクリストと同じ階層 2 cell で揃える。

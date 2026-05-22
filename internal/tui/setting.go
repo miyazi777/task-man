@@ -73,15 +73,15 @@ func renderSettingMenu(menuCursor int, focused bool, width, height int) string {
 	for i, label := range settingMenuLabels {
 		row := " " + label + " "
 		if i == menuCursor && focused {
-			lines = append(lines, styleCursorRow.Width(width).Render(row))
+			lines = append(lines, renderSingleLineRow(styleCursorRow, row, width))
 		} else if i == menuCursor {
 			// 非フォーカス時もカーソル行は控えめに見せる
-			lines = append(lines, lipgloss.NewStyle().Width(width).Foreground(colorText).Render(row))
+			lines = append(lines, renderSingleLineRow(lipgloss.NewStyle().Foreground(colorText), row, width))
 		} else {
-			lines = append(lines, lipgloss.NewStyle().Width(width).Foreground(colorMuted).Render(row))
+			lines = append(lines, renderSingleLineRow(lipgloss.NewStyle().Foreground(colorMuted), row, width))
 		}
 	}
-	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
+	return renderPaneBlock(strings.Join(lines, "\n"), width, height)
 }
 
 // renderSettingGeneralPane は設定画面の general 詳細を描画する。
@@ -124,7 +124,7 @@ func renderSettingGeneralPane(yamlPath, dataBaseDir string, cursor int, focused 
 	if focused && cursor == 0 {
 		// 行全体をカーソル反転で塗る。プレーン文字列で安定描画。
 		raw := dbdLabel + dbdDisplay
-		dbdRow = styleCursorRow.Width(width).Render(raw)
+		dbdRow = renderSingleLineRow(styleCursorRow, raw, width)
 	} else {
 		valueStyle := lipgloss.NewStyle().Foreground(colorText)
 		if dataBaseDir == "" {
@@ -135,7 +135,7 @@ func renderSettingGeneralPane(yamlPath, dataBaseDir string, cursor int, focused 
 	}
 
 	body := strings.Join([]string{header, yamlRow, dbdRow}, "\n")
-	return lipgloss.NewStyle().Width(width).Height(height).Render(body)
+	return renderPaneBlock(body, width, height)
 }
 
 func renderSettingStatusPane(statuses task.StatusList, statusCursor int, focused, inMoveMode bool, width, height int) string {
@@ -147,7 +147,7 @@ func renderSettingStatusPane(statuses task.StatusList, statusCursor int, focused
 		highlight := i == statusCursor && focused
 		lines = append(lines, renderStatusSettingRow(s, highlight, inMoveMode, width))
 	}
-	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
+	return renderPaneBlock(strings.Join(lines, "\n"), width, height)
 }
 
 // renderStatusSettingRow は status 一行をタスクリスト内のステータス表示 (statusRowStyleFor)
@@ -157,11 +157,11 @@ func renderSettingStatusPane(statuses task.StatusList, statusCursor int, focused
 func renderStatusSettingRow(s task.Status, highlight, inMoveMode bool, width int) string {
 	if highlight {
 		raw := "  " + s.Label + " "
-		return cursorStyleFor(inMoveMode).Width(width).Render(raw)
+		return renderSingleLineRow(cursorStyleFor(inMoveMode), raw, width)
 	}
 	prefix := " "
 	labelPart := statusRowStyleFor(s).Render(" " + s.Label + " ")
-	return lipgloss.NewStyle().Width(width).Render(prefix + labelPart)
+	return renderSingleLineRow(lipgloss.NewStyle(), prefix+labelPart, width)
 }
 
 // renderSettingFieldPane は設定画面 field モード時の中央ペインを描画する。
@@ -178,7 +178,7 @@ func renderSettingFieldPane(fields task.FieldDefList, fieldCursor int, focused, 
 		highlight := i == fieldCursor && focused
 		lines = append(lines, renderFieldSettingRow(f, highlight, inMoveMode, width))
 	}
-	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
+	return renderPaneBlock(strings.Join(lines, "\n"), width, height)
 }
 
 // renderFieldSettingRow は field 一行を描画する。highlight=true で行全体を反転、
@@ -186,9 +186,9 @@ func renderSettingFieldPane(fields task.FieldDefList, fieldCursor int, focused, 
 func renderFieldSettingRow(f task.FieldDef, highlight, inMoveMode bool, width int) string {
 	if highlight {
 		raw := "  " + f.Name
-		return cursorStyleFor(inMoveMode).Width(width).Render(raw)
+		return renderSingleLineRow(cursorStyleFor(inMoveMode), raw, width)
 	}
-	return lipgloss.NewStyle().Width(width).Foreground(colorText).Render("  " + f.Name)
+	return renderSingleLineRow(lipgloss.NewStyle().Foreground(colorText), "  "+f.Name, width)
 }
 
 // renderSettingFieldAttributePane は設定画面 field モード時の右ペインを描画する。
@@ -200,7 +200,7 @@ func renderSettingFieldAttributePane(fields task.FieldDefList, fieldCursor, attr
 	lines := []string{header}
 	if fieldCursor < 0 || fieldCursor >= len(sorted) {
 		// 対応する field が無いときは空ペイン (header のみ)
-		return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
+		return renderPaneBlock(strings.Join(lines, "\n"), width, height)
 	}
 	f := sorted[fieldCursor]
 
@@ -225,23 +225,23 @@ func renderSettingFieldAttributePane(fields task.FieldDefList, fieldCursor, attr
 			if isCursor {
 				// カーソル行: 行全体を反転背景にして注釈もまとめて反転させる。
 				raw := leftPart + strings.Repeat(" ", padLen) + typeReadonlyNote
-				lines = append(lines, styleCursorRow.Width(width).Render(raw))
+				lines = append(lines, renderSingleLineRow(styleCursorRow, raw, width))
 			} else {
 				leftStyled := lipgloss.NewStyle().Foreground(colorText).Render(leftPart)
 				noteStyled := lipgloss.NewStyle().Foreground(colorMuted).Italic(true).Render(typeReadonlyNote)
 				line := leftStyled + strings.Repeat(" ", padLen) + noteStyled
-				lines = append(lines, lipgloss.NewStyle().Width(width).Render(line))
+				lines = append(lines, renderSingleLineRow(lipgloss.NewStyle(), line, width))
 			}
 			continue
 		}
 
 		if isCursor {
-			lines = append(lines, styleCursorRow.Width(width).Render(leftPart))
+			lines = append(lines, renderSingleLineRow(styleCursorRow, leftPart, width))
 		} else {
-			lines = append(lines, lipgloss.NewStyle().Width(width).Foreground(colorText).Render(leftPart))
+			lines = append(lines, renderSingleLineRow(lipgloss.NewStyle().Foreground(colorText), leftPart, width))
 		}
 	}
-	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
+	return renderPaneBlock(strings.Join(lines, "\n"), width, height)
 }
 
 // overlayFieldAddPopup は field 追加用の 2 行モーダルを描画する。
@@ -327,7 +327,7 @@ func overlayFieldAddPopup(bg, nameInputView string, nameErr error, focus int, cu
 		if w := ansi.StringWidth(errMsg); w > contentW {
 			errMsg = ansi.Truncate(errMsg, contentW, "")
 		}
-		errPadded := stylePopupFill.Width(contentW).Render(errMsg)
+		errPadded := renderSingleLineRow(stylePopupFill, errMsg, contentW)
 		rows = append(rows, wrap(errPadded))
 	}
 	rows = append(rows, bottomRow)
@@ -588,12 +588,12 @@ func renderSettingApplicationPane(apps []storage.Application, cursor int, focuse
 		highlight := i == cursor && focused
 		raw := "  " + a.Name
 		if highlight {
-			lines = append(lines, cursorStyleFor(inMoveMode).Width(width).Render(raw))
+			lines = append(lines, renderSingleLineRow(cursorStyleFor(inMoveMode), raw, width))
 		} else {
-			lines = append(lines, lipgloss.NewStyle().Width(width).Foreground(colorText).Render(raw))
+			lines = append(lines, renderSingleLineRow(lipgloss.NewStyle().Foreground(colorText), raw, width))
 		}
 	}
-	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
+	return renderPaneBlock(strings.Join(lines, "\n"), width, height)
 }
 
 // renderSettingApplicationAttributePane は右ペイン (id/name/run の 3 行) を描画する。
@@ -602,7 +602,7 @@ func renderSettingApplicationAttributePane(apps []storage.Application, appCursor
 	header := lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("-- attributes --")
 	lines := []string{header}
 	if appCursor < 0 || appCursor >= len(apps) {
-		return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
+		return renderPaneBlock(strings.Join(lines, "\n"), width, height)
 	}
 	a := apps[appCursor]
 	rows := [][2]string{
@@ -624,21 +624,21 @@ func renderSettingApplicationAttributePane(apps []storage.Application, appCursor
 			}
 			if isCursor {
 				raw := leftPart + strings.Repeat(" ", padLen) + idReadonlyNote
-				lines = append(lines, styleCursorRow.Width(width).Render(raw))
+				lines = append(lines, renderSingleLineRow(styleCursorRow, raw, width))
 			} else {
 				leftStyled := lipgloss.NewStyle().Foreground(colorText).Render(leftPart)
 				noteStyled := lipgloss.NewStyle().Foreground(colorMuted).Italic(true).Render(idReadonlyNote)
-				lines = append(lines, lipgloss.NewStyle().Width(width).Render(leftStyled+strings.Repeat(" ", padLen)+noteStyled))
+				lines = append(lines, renderSingleLineRow(lipgloss.NewStyle(), leftStyled+strings.Repeat(" ", padLen)+noteStyled, width))
 			}
 			continue
 		}
 		if isCursor {
-			lines = append(lines, styleCursorRow.Width(width).Render(leftPart))
+			lines = append(lines, renderSingleLineRow(styleCursorRow, leftPart, width))
 		} else {
-			lines = append(lines, lipgloss.NewStyle().Width(width).Foreground(colorText).Render(leftPart))
+			lines = append(lines, renderSingleLineRow(lipgloss.NewStyle().Foreground(colorText), leftPart, width))
 		}
 	}
-	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
+	return renderPaneBlock(strings.Join(lines, "\n"), width, height)
 }
 
 // renderSettingFileOpenerPane は中央ペイン (file_opener 一覧、行は extension) を描画する。
@@ -652,12 +652,12 @@ func renderSettingFileOpenerPane(openers []storage.FileOpener, cursor int, focus
 		highlight := i == cursor && focused
 		raw := "  ." + op.Extension
 		if highlight {
-			lines = append(lines, cursorStyleFor(inMoveMode).Width(width).Render(raw))
+			lines = append(lines, renderSingleLineRow(cursorStyleFor(inMoveMode), raw, width))
 		} else {
-			lines = append(lines, lipgloss.NewStyle().Width(width).Foreground(colorText).Render(raw))
+			lines = append(lines, renderSingleLineRow(lipgloss.NewStyle().Foreground(colorText), raw, width))
 		}
 	}
-	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
+	return renderPaneBlock(strings.Join(lines, "\n"), width, height)
 }
 
 // renderSettingFileOpenerAttributePane は右ペイン (extension/applications/default_app) を描画する。
@@ -666,7 +666,7 @@ func renderSettingFileOpenerAttributePane(openers []storage.FileOpener, apps []s
 	header := lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("-- attributes --")
 	lines := []string{header}
 	if openerCursor < 0 || openerCursor >= len(openers) {
-		return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
+		return renderPaneBlock(strings.Join(lines, "\n"), width, height)
 	}
 	op := openers[openerCursor]
 	byID := make(map[int]storage.Application, len(apps))
@@ -697,12 +697,12 @@ func renderSettingFileOpenerAttributePane(openers []storage.FileOpener, apps []s
 		}
 		isCursor := focused && i == attrCursor
 		if isCursor {
-			lines = append(lines, styleCursorRow.Width(width).Render(leftPart))
+			lines = append(lines, renderSingleLineRow(styleCursorRow, leftPart, width))
 		} else {
-			lines = append(lines, lipgloss.NewStyle().Width(width).Foreground(colorText).Render(leftPart))
+			lines = append(lines, renderSingleLineRow(lipgloss.NewStyle().Foreground(colorText), leftPart, width))
 		}
 	}
-	return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
+	return renderPaneBlock(strings.Join(lines, "\n"), width, height)
 }
 
 // overlayApplicationAddPopup は application 追加用の 2 行モーダル (name + run) を描画する。
@@ -814,9 +814,9 @@ func overlayFileOpenerAppsPicker(bg string, apps []storage.Application, selected
 		}
 		var rendered string
 		if i == cursor {
-			rendered = stylePopupCursorRow.Width(contentW).Render(raw)
+			rendered = renderSingleLineRow(stylePopupCursorRow, raw, contentW)
 		} else {
-			rendered = stylePopupFill.Foreground(colorText).Width(contentW).Render(raw)
+			rendered = renderSingleLineRow(stylePopupFill.Foreground(colorText), raw, contentW)
 		}
 		rows = append(rows, stylePopupBorder.Render("│")+stylePopupFill.Render(" ")+rendered+stylePopupFill.Render(" ")+stylePopupBorder.Render("│"))
 	}
@@ -853,9 +853,9 @@ func overlayFileOpenerDefaultPicker(bg string, apps []storage.Application, curso
 		}
 		var rendered string
 		if i == cursor {
-			rendered = stylePopupCursorRow.Width(contentW).Render(raw)
+			rendered = renderSingleLineRow(stylePopupCursorRow, raw, contentW)
 		} else {
-			rendered = stylePopupFill.Foreground(colorText).Width(contentW).Render(raw)
+			rendered = renderSingleLineRow(stylePopupFill.Foreground(colorText), raw, contentW)
 		}
 		rows = append(rows, stylePopupBorder.Render("│")+stylePopupFill.Render(" ")+rendered+stylePopupFill.Render(" ")+stylePopupBorder.Render("│"))
 	}
