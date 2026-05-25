@@ -22,6 +22,7 @@ type keyMap struct {
 	AddFile       key.Binding // a (Files セクション)
 	RenameFile    key.Binding // r (Files セクション)
 	DeleteFile    key.Binding // d (Files セクション)
+	CopyPath      key.Binding // p - カーソル位置のタスク / ファイルの絶対パスをクリップボードへコピー
 	Quit          key.Binding
 	Back          key.Binding
 	ConfirmY      key.Binding
@@ -49,6 +50,7 @@ func newKeyMap() keyMap {
 		AddFile:       key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
 		RenameFile:    key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "rename")),
 		DeleteFile:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
+		CopyPath:      key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "path")),
 		Quit:          key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
 		Back:          key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 		ConfirmY:      key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "yes")),

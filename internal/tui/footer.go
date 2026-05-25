@@ -41,6 +41,7 @@ func renderFooter(mode, prevMode Mode, onFilesRow bool, onURLRow bool, viewTrash
 			{"a", "new/subtask"},
 			{"d", "delete"},
 			{"o", "operation"},
+			{"p", "path"},
 			{";", "prefix"},
 			{"q", "quit"},
 		})
@@ -55,16 +56,17 @@ func renderFooter(mode, prevMode Mode, onFilesRow bool, onURLRow bool, viewTrash
 				{"enter", "open/toggle"},
 				{"l", "expand"}, {"h", "collapse"},
 				{"a", "add"}, {"r", "rename"}, {"d", "delete"},
+				{"p", "path"},
 				{"esc", "back"}, {"q", "quit"},
 			})
 		case onURLRow:
 			content = renderHints([]hintItem{
-				{"enter", "edit"}, {"o", "open"},
+				{"enter", "edit"}, {"o", "open"}, {"p", "path"},
 				{"esc", "back"}, {"q", "quit"},
 			})
 		default:
 			content = renderHints([]hintItem{
-				{"enter", "edit"}, {"esc", "back"}, {"q", "quit"},
+				{"enter", "edit"}, {"p", "path"}, {"esc", "back"}, {"q", "quit"},
 			})
 		}
 	case ModeNewTask, ModeNewSubtask:

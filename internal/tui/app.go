@@ -462,6 +462,30 @@ func parentRelPath(relPath string) string {
 	return relPath[:idx]
 }
 
+// pathForCopy はカーソル位置に応じてクリップボードへ送るファイルシステム上の
+// 絶対パスを返す。対象が無い (status 行・空のファイルリスト等) 場合は ok=false。
+//
+//   - ModeList でタスク行 → そのタスクのデータディレクトリ (<yamlDir>/<dataBaseDir>/task-<id>)
+//   - ModeDetail で Files 行 → カーソルが指すファイル / サブディレクトリの絶対パス
+//   - ModeDetail のその他の行 → タスクのデータディレクトリ
+func (m Model) pathForCopy() (string, bool) {
+	t, _, ok := m.currentTask()
+	if !ok {
+		return "", false
+	}
+	taskDir := storage.TaskDir(m.yamlDir, m.cfg.DataBaseDirectory, t.ID)
+	if m.mode == ModeDetail {
+		if row, ok := m.currentDetailRow(); ok && row.kind == detailRowFiles {
+			cur, ok := m.currentFileRow()
+			if !ok {
+				return "", false
+			}
+			return filepath.Join(taskDir, filepath.FromSlash(cur.relPath)), true
+		}
+	}
+	return taskDir, true
+}
+
 // Init は Bubble Tea プログラム開始時に呼ばれる。本 TUI は起動コマンドを持たないので nil を返す。
 func (m Model) Init() tea.Cmd {
 	return nil
@@ -1160,6 +1184,18 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.prevMode = m.mode
 			m.mode = ModeDeleteFileConfirm
+			return m, nil
+		case key.Matches(msg, m.keys.CopyPath):
+			// p: カーソル位置に応じた絶対パスをクリップボードへ。
+			//   Files 行: 当該ファイル / サブディレクトリの絶対パス
+			//   それ以外: タスクのデータディレクトリ
+			path, ok := m.pathForCopy()
+			if !ok {
+				return m, nil
+			}
+			if err := copyToClipboard(path); err != nil {
+				m.saveErr = err
+			}
 			return m, nil
 		case msg.String() == "o":
 			// o:
@@ -3274,6 +3310,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// ;: prefix モードへ遷移。次のキー入力を待つ。
 			m.prevMode = m.mode
 			m.mode = ModePrefix
+			return m, nil
+		case key.Matches(msg, m.keys.CopyPath):
+			// p: カーソル位置のタスクのデータディレクトリ絶対パスをクリップボードへ。
+			path, ok := m.pathForCopy()
+			if !ok {
+				return m, nil
+			}
+			if err := copyToClipboard(path); err != nil {
+				m.saveErr = err
+			}
 			return m, nil
 		case msg.String() == "o":
 			// o: operation モードへ遷移 (タスク行のとき)。t: title / s: status を選べる。
