@@ -36,3 +36,16 @@ func TestRenderFooterModeDetailFilesRowContainsRefreshHint(t *testing.T) {
 		t.Errorf("ModeDetail non-files-row footer should not surface R:refresh hint, got %q", ansi.Strip(nonFiles))
 	}
 }
+
+// issue #33: Files 行のヒントに o (file_opener picker) と f (OS ファイラー) が含まれる。
+// `o` は spec には記載されていたが footer のヒントに抜けていた既知の漏れ。
+func TestRenderFooterModeDetailFilesRowContainsOpenAndFilerHints(t *testing.T) {
+	out := renderFooter(ModeDetail, ModeList, true, false, false, layoutFocusTaskList, 200)
+	plain := ansi.Strip(out)
+	if !strings.Contains(plain, "o:open") {
+		t.Errorf("ModeDetail Files-row footer should contain o:open hint, got %q", plain)
+	}
+	if !strings.Contains(plain, "f:filer") {
+		t.Errorf("ModeDetail Files-row footer should contain f:filer hint, got %q", plain)
+	}
+}
