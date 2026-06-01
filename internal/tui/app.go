@@ -1202,6 +1202,28 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.saveErr = err
 			}
 			return m, nil
+		case msg.String() == "f":
+			// f: Files 行カーソル時、OS のデフォルトファイラーで該当ファイル / ディレクトリを開く。
+			//   ファイル     : 親フォルダを開き、可能なら選択状態にする (macOS=open -R / windows=/select,)
+			//   ディレクトリ : そのフォルダを開く
+			row, ok := m.currentDetailRow()
+			if !ok || row.kind != detailRowFiles {
+				return m, nil
+			}
+			cur, ok := m.currentFileRow()
+			if !ok {
+				return m, nil
+			}
+			t, _, ok := m.currentTask()
+			if !ok {
+				return m, nil
+			}
+			taskDir := storage.TaskDir(m.yamlDir, m.cfg.DataBaseDirectory, t.ID)
+			target := filepath.Join(taskDir, filepath.FromSlash(cur.relPath))
+			if err := openInOSFileManager(target, cur.isDir); err != nil {
+				m.saveErr = err
+			}
+			return m, nil
 		case msg.String() == "o":
 			// o:
 			//   - url 型項目: 値を OS のデフォルトブラウザで開く。

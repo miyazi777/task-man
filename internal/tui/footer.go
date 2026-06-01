@@ -56,6 +56,7 @@ func renderFooter(mode, prevMode Mode, onFilesRow bool, onURLRow bool, viewTrash
 			content = renderHints([]hintItem{
 				{"enter", "open/toggle"},
 				{"l", "expand"}, {"h", "collapse"},
+				{"o", "open"}, {"f", "filer"},
 				{"a", "add"}, {"r", "rename"}, {"d", "delete"},
 				{"p", "path"},
 				{"R", "refresh"},
