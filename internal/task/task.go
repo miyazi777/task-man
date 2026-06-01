@@ -16,15 +16,16 @@ const MaxNestDepth = 4
 
 // Task はドメインモデルの中心。yaml の各 task エントリと 1 対 1 に対応する。
 type Task struct {
-	ID         int
-	Title      string
-	StatusID   int
-	ParentID   int           // 親タスクの ID。0 ならトップレベル。
-	Position   int           // 同じ ParentID を持つ兄弟内での表示順 (1 始まり、昇順)
-	Collapsed  bool          // サブタスクをタスクリスト上で折りたたんでいるか (永続化対象)
-	IsTrashBox bool          // ゴミ箱に入っているか。true のとき通常リストでは非表示、トラッシュ箱ビューで表示される。status_id は元のまま保持される。
-	Fields     TaskFieldList // 拡張項目の値。スキーマは top-level FieldDefList で別管理。
-	Tags       []int         // タグ ID 参照。スキーマは top-level TagList で別管理。最大 MaxTagsPerTask 個。
+	ID            int
+	Title         string
+	StatusID      int
+	ParentID      int           // 親タスクの ID。0 ならトップレベル。
+	Position      int           // 同じ ParentID を持つ兄弟内での表示順 (1 始まり、昇順)
+	Collapsed     bool          // サブタスクをタスクリスト上で折りたたんでいるか (永続化対象)
+	CollapsedDirs []string      // タスク詳細のファイル一覧で折りたたみ中のディレクトリ relPath。展開がデフォルトなので折りたたみ中のものだけ列挙する。
+	IsTrashBox    bool          // ゴミ箱に入っているか。true のとき通常リストでは非表示、トラッシュ箱ビューで表示される。status_id は元のまま保持される。
+	Fields        TaskFieldList // 拡張項目の値。スキーマは top-level FieldDefList で別管理。
+	Tags          []int         // タグ ID 参照。スキーマは top-level TagList で別管理。最大 MaxTagsPerTask 個。
 }
 
 // Task のバリデーションエラー。Task.Validate / Task 系操作が返す。

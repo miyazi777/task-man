@@ -60,15 +60,16 @@ type yamlTagEntry struct {
 }
 
 type yamlTask struct {
-	ID         int                  `yaml:"id"`
-	Title      string               `yaml:"title"`
-	StatusID   int                  `yaml:"status_id"`
-	ParentID   int                  `yaml:"parent_id,omitempty"`
-	Position   int                  `yaml:"position,omitempty"`
-	Collapsed  bool                 `yaml:"collapsed,omitempty"`
-	IsTrashBox bool                 `yaml:"is_trash_box,omitempty"`
-	Tags       []int                `yaml:"tags,omitempty"`
-	Fields     []yamlTaskFieldEntry `yaml:"fields,omitempty"`
+	ID            int                  `yaml:"id"`
+	Title         string               `yaml:"title"`
+	StatusID      int                  `yaml:"status_id"`
+	ParentID      int                  `yaml:"parent_id,omitempty"`
+	Position      int                  `yaml:"position,omitempty"`
+	Collapsed     bool                 `yaml:"collapsed,omitempty"`
+	CollapsedDirs []string             `yaml:"collapsed_dirs,omitempty"`
+	IsTrashBox    bool                 `yaml:"is_trash_box,omitempty"`
+	Tags          []int                `yaml:"tags,omitempty"`
+	Fields        []yamlTaskFieldEntry `yaml:"fields,omitempty"`
 }
 
 type yamlEntry struct {
@@ -445,16 +446,27 @@ func loadTasks(entries []yamlEntry, statuses task.StatusList, defs task.FieldDef
 			copy(taskTags, e.Task.Tags)
 		}
 
+		// collapsed_dirs は順序を安定させるため Load 時に sort して保持する。
+		// 既に存在しないディレクトリ relPath が混ざっていても TUI 側の flatten で
+		// 自然に無視されるため、ロード時には検証しない。
+		var collapsedDirs []string
+		if len(e.Task.CollapsedDirs) > 0 {
+			collapsedDirs = make([]string, len(e.Task.CollapsedDirs))
+			copy(collapsedDirs, e.Task.CollapsedDirs)
+			sort.Strings(collapsedDirs)
+		}
+
 		t := task.Task{
-			ID:         e.Task.ID,
-			Title:      e.Task.Title,
-			StatusID:   e.Task.StatusID,
-			ParentID:   e.Task.ParentID,
-			Position:   e.Task.Position,
-			Collapsed:  e.Task.Collapsed,
-			IsTrashBox: e.Task.IsTrashBox,
-			Tags:       taskTags,
-			Fields:     assignedTFL,
+			ID:            e.Task.ID,
+			Title:         e.Task.Title,
+			StatusID:      e.Task.StatusID,
+			ParentID:      e.Task.ParentID,
+			Position:      e.Task.Position,
+			Collapsed:     e.Task.Collapsed,
+			CollapsedDirs: collapsedDirs,
+			IsTrashBox:    e.Task.IsTrashBox,
+			Tags:          taskTags,
+			Fields:        assignedTFL,
 		}
 		if err := t.Validate(statuses, tags); err != nil {
 			return nil, false, fmt.Errorf("tasks[%d]: %w", i, err)
@@ -593,17 +605,26 @@ func (r *YAMLRepository) Save(lr LoadResult) error {
 			copy(tagsCopy, t.Tags)
 		}
 
+		// collapsed_dirs は yaml 上の diff を安定させるため出力時にも sort してコピーする。
+		var collapsedDirsCopy []string
+		if len(t.CollapsedDirs) > 0 {
+			collapsedDirsCopy = make([]string, len(t.CollapsedDirs))
+			copy(collapsedDirsCopy, t.CollapsedDirs)
+			sort.Strings(collapsedDirsCopy)
+		}
+
 		taskEntries = append(taskEntries, yamlEntry{
 			Task: yamlTask{
-				ID:         t.ID,
-				Title:      t.Title,
-				StatusID:   t.StatusID,
-				ParentID:   t.ParentID,
-				Position:   t.Position,
-				Collapsed:  t.Collapsed,
-				IsTrashBox: t.IsTrashBox,
-				Tags:       tagsCopy,
-				Fields:     fieldEntriesPerTask,
+				ID:            t.ID,
+				Title:         t.Title,
+				StatusID:      t.StatusID,
+				ParentID:      t.ParentID,
+				Position:      t.Position,
+				Collapsed:     t.Collapsed,
+				CollapsedDirs: collapsedDirsCopy,
+				IsTrashBox:    t.IsTrashBox,
+				Tags:          tagsCopy,
+				Fields:        fieldEntriesPerTask,
 			},
 		})
 	}
