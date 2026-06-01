@@ -42,6 +42,7 @@ func renderFooter(mode, prevMode Mode, onFilesRow bool, onURLRow bool, viewTrash
 			{"d", "delete"},
 			{"o", "operation"},
 			{"p", "path"},
+			{"R", "refresh"},
 			{";", "prefix"},
 			{"q", "quit"},
 		})
@@ -57,6 +58,7 @@ func renderFooter(mode, prevMode Mode, onFilesRow bool, onURLRow bool, viewTrash
 				{"l", "expand"}, {"h", "collapse"},
 				{"a", "add"}, {"r", "rename"}, {"d", "delete"},
 				{"p", "path"},
+				{"R", "refresh"},
 				{"esc", "back"}, {"q", "quit"},
 			})
 		case onURLRow:

@@ -1002,6 +1002,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.prevMode = m.mode
 			m.mode = ModePrefix
 			return m, nil
+		case key.Matches(msg, m.keys.Refresh):
+			// R: 現在タスクのファイル一覧を再読込する。Files 行以外にカーソルがあっても受け付ける。
+			// 外部 (Finder / mv / 他プロセス) で発生したファイル変更を取り込むためのキー。
+			m = m.withFilesRefreshed()
+			return m, nil
 		case key.Matches(msg, m.keys.Up):
 			row, ok := m.currentDetailRow()
 			if !ok {
@@ -3247,6 +3252,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Quit):
 			m.prevMode = m.mode
 			m.mode = ModeQuitConfirm
+			return m, nil
+		case key.Matches(msg, m.keys.Refresh):
+			// R: 現在カーソルが指すタスクのファイル一覧を再読込する。
+			// 外部 (Finder / mv / 他プロセス) で発生したファイル変更を取り込むためのキー。
+			m = m.withFilesRefreshed()
 			return m, nil
 		case key.Matches(msg, m.keys.Up):
 			if next := prevNavigable(m.rows, m.cursor); next != m.cursor {
