@@ -182,6 +182,7 @@ tasks:
 | `task.parent_id` | int | 任意 | 親タスクの id。`0` または未指定でトップレベル。存在しない id はロードエラー。循環は検出してエラー。 |
 | `task.position` | int | 任意 | 同一 parent / status グループ内での昇順表示順。0 のタスクは出現順に自動採番。 |
 | `task.collapsed` | bool | 任意 | サブタスクのリスト上折りたたみ状態。 |
+| `task.collapsed_dirs` | []string | 任意 | タスク詳細のファイル一覧で折りたたみ中のディレクトリ relPath (POSIX 形式)。展開がデフォルトのため、折りたたみ中のパスのみ列挙する。Save 時に `sort.Strings` 順に正規化される。存在しないパスが残っていてもロードエラーにはならず無視される。 |
 | `task.is_trash_box` | bool | 任意 | true ならゴミ箱に入っている扱い。 |
 | `task.tags` | []int | 任意 | 紐付けられたタグ id 配列。最大 5、重複不可、未知 id はロードエラー。 |
 | `task.fields` | array | 任意 | タスク内の拡張項目値。 |

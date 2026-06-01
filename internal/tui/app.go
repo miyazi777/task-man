@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -195,14 +196,29 @@ func (m Model) currentDetailRow() (detailRow, bool) {
 	return m.detailRows[m.detailCursor], true
 }
 
-// persist は m.collapsed / m.taskCollapsed を m.statuses / m.tasks に同期した上で yaml へ書き出す。
+// persist は m.collapsed / m.taskCollapsed / m.fileCollapsed を
+// m.statuses / m.tasks に同期した上で yaml へ書き出す。
 // 折りたたみ状態を含むあらゆる永続化はこの関数経由で行う。
+//
+// fileCollapsed は ModeDetail を開いていたタスク (filesTaskID) に紐づくため、
+// そのタスクの CollapsedDirs だけを書き換える。
+// 別タスクへ切り替えた瞬間に withFilesRefreshed が当該タスクの CollapsedDirs から
+// fileCollapsed を読み直すため、ここで他タスクの値を破壊する心配はない。
 func (m *Model) persist() error {
 	for i := range m.statuses {
 		m.statuses[i].Collapsed = m.collapsed[m.statuses[i].ID]
 	}
 	for i := range m.tasks {
 		m.tasks[i].Collapsed = m.taskCollapsed[m.tasks[i].ID]
+	}
+	if m.filesTaskID > 0 {
+		dirs := collapsedDirsFromMap(m.fileCollapsed)
+		for i := range m.tasks {
+			if m.tasks[i].ID == m.filesTaskID {
+				m.tasks[i].CollapsedDirs = dirs
+				break
+			}
+		}
 	}
 	return m.repo.Save(storage.LoadResult{
 		Tasks:    m.tasks,
@@ -211,6 +227,26 @@ func (m *Model) persist() error {
 		Tags:     m.tags,
 		Config:   m.cfg,
 	})
+}
+
+// collapsedDirsFromMap は m.fileCollapsed (relPath -> 折りたたみ中) を
+// yaml 永続化用のリストに変換する。true な値のキーだけを sort.Strings 順で並べる。
+// 値が空のときは nil を返し、yaml 上は omitempty で消える。
+func collapsedDirsFromMap(m map[string]bool) []string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(m))
+	for k, v := range m {
+		if v {
+			out = append(out, k)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	sort.Strings(out)
+	return out
 }
 
 // withRowsRebuilt はステータスとタスクの構成・折りたたみ状態から rows を再構築し、
@@ -360,8 +396,9 @@ func (m Model) currentStatusID() int {
 // withFilesRefreshed は cursor が指すタスクのディレクトリ配下のファイル一覧を再読込する。
 // status 行・separator 行や、ディレクトリ無しの場合は空にする。エラーは握り潰し (UX 上は空表示で十分)。
 //
-// タスク ID が前回読み込み時から変わっていた場合は折りたたみ状態をリセットする
-// (フォルダ構成が大きく異なるタスク間で持ち越すと混乱の元になるため)。
+// タスク ID が前回読み込み時から変わっていた場合は、対象タスクの CollapsedDirs
+// (yaml に永続化されている折りたたみディレクトリ relPath のリスト) を fileCollapsed に
+// 復元する。ファイル構成が消滅したパスが含まれていても flattenFileTree が単に無視する。
 func (m Model) withFilesRefreshed() Model {
 	t, _, ok := m.currentTask()
 	if !ok {
@@ -371,7 +408,13 @@ func (m Model) withFilesRefreshed() Model {
 		return m
 	}
 	if t.ID != m.filesTaskID {
-		m.fileCollapsed = nil
+		m.fileCollapsed = make(map[string]bool, len(t.CollapsedDirs))
+		for _, p := range t.CollapsedDirs {
+			if p == "" {
+				continue
+			}
+			m.fileCollapsed[p] = true
+		}
 		m.filesTaskID = t.ID
 	}
 	tree, _ := storage.ListTaskFileTree(m.yamlDir, m.cfg.DataBaseDirectory, t.ID)
@@ -414,6 +457,7 @@ func (m Model) currentFileRow() (fileRow, bool) {
 // toggleFileCollapse はディレクトリ row の折りたたみ状態を反転して再フラット化する。
 // row.hasChildren==false のときは状態を持たないため何もしない。
 // カーソルはトグル対象のディレクトリ自身に追従する (折りたたみで子が消えた / 展開で子が現れた場合の安定性のため)。
+// 変更後は persist を呼んで yaml に開閉状態を書き戻す (Save エラーは UX 優先で握り潰す)。
 func (m Model) toggleFileCollapse(row fileRow) Model {
 	if !row.isDir || !row.hasChildren {
 		return m
@@ -433,6 +477,7 @@ func (m Model) toggleFileCollapse(row fileRow) Model {
 			break
 		}
 	}
+	_ = m.persist()
 	return m
 }
 

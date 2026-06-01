@@ -442,6 +442,87 @@ func TestYAMLTaskCollapsedRoundTrip(t *testing.T) {
 	}
 }
 
+func TestYAMLTaskCollapsedDirsRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	repo := NewYAMLRepository(path)
+	statuses := task.DefaultStatuses()
+	// 入力順がバラバラでも Save/Load 後は sort.Strings 順に正規化される。
+	in := []task.Task{
+		{ID: 1, Title: "t1", StatusID: 1, CollapsedDirs: []string{"src/internal", "docs/images"}},
+		{ID: 2, Title: "t2", StatusID: 1},
+	}
+	if err := repo.Save(LoadResult{Tasks: in, Statuses: statuses}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	lr, err := repo.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	out := lr.Tasks
+	wantSorted := []string{"docs/images", "src/internal"}
+	if !reflect.DeepEqual(out[0].CollapsedDirs, wantSorted) {
+		t.Errorf("tasks[0].CollapsedDirs: got %#v, want %#v", out[0].CollapsedDirs, wantSorted)
+	}
+	if out[1].CollapsedDirs != nil {
+		t.Errorf("tasks[1].CollapsedDirs: got %#v, want nil", out[1].CollapsedDirs)
+	}
+
+	// 二度目の Save → Load でも値が破壊されないこと (ラウンドトリップの冪等性)。
+	if err := repo.Save(lr); err != nil {
+		t.Fatalf("Save (round 2): %v", err)
+	}
+	lr2, err := repo.Load()
+	if err != nil {
+		t.Fatalf("Load (round 2): %v", err)
+	}
+	if !reflect.DeepEqual(lr2.Tasks[0].CollapsedDirs, wantSorted) {
+		t.Errorf("round 2 tasks[0].CollapsedDirs: got %#v, want %#v", lr2.Tasks[0].CollapsedDirs, wantSorted)
+	}
+}
+
+func TestYAMLTaskCollapsedDirsOmittedKeepsNil(t *testing.T) {
+	// collapsed_dirs キーを書かない yaml をロードしたとき、Task.CollapsedDirs が nil のまま
+	// 維持されること。空配列を持たせると yaml 上に `collapsed_dirs: []` が残ってしまうため。
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	yamlSrc := `version: 1
+statuses:
+  - status:
+      id: 1
+      sequence: 1
+      label: todo
+tasks:
+  - task:
+      id: 1
+      title: t1
+      status_id: 1
+`
+	if err := os.WriteFile(path, []byte(yamlSrc), 0o644); err != nil {
+		t.Fatalf("write yaml: %v", err)
+	}
+	repo := NewYAMLRepository(path)
+	lr, err := repo.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if lr.Tasks[0].CollapsedDirs != nil {
+		t.Errorf("CollapsedDirs: got %#v, want nil", lr.Tasks[0].CollapsedDirs)
+	}
+
+	// Save 後の yaml に collapsed_dirs 行が含まれないこと (omitempty が効いていること)。
+	if err := repo.Save(lr); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read back yaml: %v", err)
+	}
+	if strings.Contains(string(saved), "collapsed_dirs") {
+		t.Errorf("yaml should not contain collapsed_dirs key for empty value, got:\n%s", saved)
+	}
+}
+
 func TestYAMLSubtaskRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tasks.yaml")
