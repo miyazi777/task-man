@@ -4057,7 +4057,11 @@ func (m Model) View() string {
 		detailBlock := renderDetail(current, m.statuses, m.fields, m.tags, m.detailRows, detailFocused, m.detailCursor, rightW, detailH)
 
 		// Files: header + 罫線 + 名前リスト。
-		filesHeader := renderSingleLineRow(lipgloss.NewStyle(), "  "+styleLabel.Render("Files:"), rightW)
+		var taskDir string
+		if current != nil {
+			taskDir = storage.TaskDir(m.yamlDir, m.cfg.DataBaseDirectory, current.ID)
+		}
+		filesHeader := renderFilesHeader(taskDir, rightW)
 		hDivider := styleDivider.Render(strings.Repeat("─", rightW))
 		hasCursorOnFiles := false
 		if row, ok := m.currentDetailRow(); ok && row.kind == detailRowFiles {

@@ -116,6 +116,61 @@ func TestRenderDetailTitleCursorRowNarrowWidthSingleLine(t *testing.T) {
 	}
 }
 
+// issue #40: Files ヘッダに taskDir を渡すとパスが "Files:" の右側に並ぶ。
+func TestRenderFilesHeaderShowsTaskDir(t *testing.T) {
+	taskDir := "/tmp/wsp/data/task-7"
+	out := renderFilesHeader(taskDir, 80)
+	plain := ansi.Strip(out)
+	if !strings.Contains(plain, "Files:") {
+		t.Errorf("output should contain 'Files:' label, got %q", plain)
+	}
+	if !strings.Contains(plain, taskDir) {
+		t.Errorf("output should contain task dir %q, got %q", taskDir, plain)
+	}
+	// "Files:" がパスの左にあること (ラベル → パスの順)。
+	labelIdx := strings.Index(plain, "Files:")
+	pathIdx := strings.Index(plain, taskDir)
+	if labelIdx < 0 || pathIdx < 0 || labelIdx >= pathIdx {
+		t.Errorf("'Files:' should appear before the path, got %q", plain)
+	}
+}
+
+// issue #40: taskDir が空文字 (= カーソル下にタスクが無い) なら path は表示せず "Files:" のみ。
+func TestRenderFilesHeaderEmptyTaskDir(t *testing.T) {
+	out := renderFilesHeader("", 80)
+	plain := ansi.Strip(out)
+	if !strings.Contains(plain, "Files:") {
+		t.Errorf("output should still contain 'Files:' label, got %q", plain)
+	}
+	// "Files:" の右側 (trim 後) には空白しか残らない。
+	rest := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(plain), "Files:"))
+	if rest != "" {
+		t.Errorf("expected nothing after 'Files:', got %q", rest)
+	}
+}
+
+// issue #40: 横幅を超える長いパスは ansi.Truncate("…") で右端が省略される。
+// 1 行に収まり (= word-wrap しない) かつ末尾が "…" になることを確認する。
+func TestRenderFilesHeaderTruncatesLongPath(t *testing.T) {
+	taskDir := "/tmp/very/long/path/that/easily/overflows/the/narrow/right/pane/width/task-9999"
+	width := 40
+	out := renderFilesHeader(taskDir, width)
+	plain := ansi.Strip(out)
+	// 1 行に収まる (width 強制で改行は起きない)。
+	lines := strings.Split(strings.TrimRight(plain, " \n"), "\n")
+	if len(lines) != 1 {
+		t.Errorf("expected 1 line, got %d:\n%s", len(lines), plain)
+	}
+	// 描画幅が width に丸まる。
+	if got := ansi.StringWidth(plain); got != width {
+		t.Errorf("rendered width=%d, want %d (plain=%q)", got, width, plain)
+	}
+	// 末尾は ellipsis (renderSingleLineRow が "…" でクランプするため)。
+	if !strings.HasSuffix(strings.TrimRight(plain, " "), "…") {
+		t.Errorf("expected suffix '…' after truncation, got %q", plain)
+	}
+}
+
 // #18 の回帰テスト: file 行カーソルが narrow width でも 2 行に分裂しない。
 // 元コードでは styleCursorRow.Width(width).Render(raw) が word-wrap し、
 // 後続行が押し下げられて height で切れる現象があった。

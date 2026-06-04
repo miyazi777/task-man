@@ -22,6 +22,7 @@
 
 - 左ペイン: ステータス見出し + 配下のタスクをツリー状に描画 (`internal/tui/rows.go`, `list.go`, `browser.go`)。
 - 右ペイン: Title / Status / Tags / 拡張項目 / Files セクションを縦に並べる (`internal/tui/detail.go`)。Files 行下に file list と file preview を表示。
+- Files セクション見出しは `Files: <タスクディレクトリ絶対パス>` の形式 (`renderFilesHeader`)。パスはカーソル下のタスクのデータディレクトリ (`storage.TaskDir`) で、右ペイン幅に収まらない場合は `ansi.Truncate` で末尾を `…` に省略する。
 
 ## モード一覧 (`internal/tui/mode.go`)
 
