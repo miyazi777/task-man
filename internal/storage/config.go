@@ -20,6 +20,21 @@ type AppConfig struct {
 	// FileOpeners は拡張子ごとに使用するアプリケーション (ID 配列) の対応表。
 	// 該当拡張子が無ければ $EDITOR にフォールバック。
 	FileOpeners []FileOpener
+
+	// Cursor はタスクリスト画面 (ModeList) の最終カーソル位置。
+	// 終了時に保存し、次回起動時に同じタスク / ステータス見出しへカーソルを寄せる。
+	// 両フィールドとも 0 なら未保存扱いで、起動時は先頭の navigable 行へフォールバックする。
+	Cursor CursorState
+}
+
+// CursorState は ModeList の最終カーソル位置を論理識別子で保存するための値型。
+// rows のインデックスはステータス並べ替えや折りたたみの影響を受けるため保存しない。
+//   - TaskID != 0: カーソルがタスク行を指していた。優先して復元する。
+//   - TaskID == 0 && StatusID != 0: カーソルがステータス見出し行を指していた。
+//   - 両 0: 未設定 (起動時フォールバック)。
+type CursorState struct {
+	TaskID   int
+	StatusID int
 }
 
 // Application は外部起動可能なアプリケーション 1 件分の情報。

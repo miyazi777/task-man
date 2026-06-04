@@ -221,6 +221,27 @@ func findRowForTask(rows []listRow, taskIndex int) int {
 	return -1
 }
 
+// findRowForTaskID は taskID と一致するタスク行のインデックスを返す。見つからなければ -1。
+// rows.taskIndex は tasks スライス上のインデックスなので、引き合わせのため tasks も受け取る。
+// 起動時のカーソル復元 (storage.CursorState.TaskID → m.cursor) で利用する。
+func findRowForTaskID(rows []listRow, tasks []task.Task, taskID int) int {
+	if taskID == 0 {
+		return -1
+	}
+	for i, r := range rows {
+		if r.kind != rowTask {
+			continue
+		}
+		if r.taskIndex < 0 || r.taskIndex >= len(tasks) {
+			continue
+		}
+		if tasks[r.taskIndex].ID == taskID {
+			return i
+		}
+	}
+	return -1
+}
+
 // findRowForStatus は statusID のヘッダ行を返す。見つからなければ -1。
 func findRowForStatus(rows []listRow, statusID int) int {
 	for i, r := range rows {
