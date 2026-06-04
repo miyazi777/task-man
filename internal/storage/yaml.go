@@ -115,6 +115,13 @@ type yamlLayout struct {
 	Main yamlLayoutMain `yaml:"main,omitempty"`
 }
 
+// yamlCursor は ModeList の最終カーソル位置を yaml に保存するための値型。
+// 両フィールドとも 0 のときは yamlFile.Cursor を nil にして cursor キーごと省略する。
+type yamlCursor struct {
+	TaskID   int `yaml:"task_id,omitempty"`
+	StatusID int `yaml:"status_id,omitempty"`
+}
+
 type yamlFile struct {
 	// Version は yaml スキーマのバージョン。task-man が読み書きする現行バージョンは
 	// CurrentSchemaVersion。version キーが無い旧 yaml は v1 として扱い、Load 後の
@@ -123,6 +130,7 @@ type yamlFile struct {
 	Applications      []yamlApplicationEntry `yaml:"applications,omitempty"`
 	DataBaseDirectory string                 `yaml:"data_base_directory,omitempty"`
 	Layout            *yamlLayout            `yaml:"layout,omitempty"`
+	Cursor            *yamlCursor            `yaml:"cursor,omitempty"`
 	FileOpener        []yamlFileOpenerEntry  `yaml:"file_opener,omitempty"`
 	Statuses          []yamlStatusEntry      `yaml:"statuses"`
 	Fields            []yamlFieldEntry       `yaml:"fields,omitempty"`
@@ -212,6 +220,7 @@ func (r *YAMLRepository) Load() (LoadResult, error) {
 		Layout:            loadLayout(f.Layout),
 		Applications:      apps,
 		FileOpeners:       openers,
+		Cursor:            loadCursor(f.Cursor),
 	}
 
 	lr := LoadResult{
@@ -317,6 +326,25 @@ func loadLayout(yl *yamlLayout) LayoutConfig {
 		FileListHeight:    yl.Main.FileList.Height,
 		FilePreviewHeight: yl.Main.FilePreview.Height,
 	}
+}
+
+// loadCursor は yaml の cursor セクションを CursorState に変換する。
+// セクション欠落 / 両フィールド 0 はゼロ値の CursorState (TaskID=0, StatusID=0) を返す。
+// 復元の優先度 (task_id > status_id) は TUI 層側で解釈する。
+func loadCursor(yc *yamlCursor) CursorState {
+	if yc == nil {
+		return CursorState{}
+	}
+	return CursorState{TaskID: yc.TaskID, StatusID: yc.StatusID}
+}
+
+// marshalCursor は CursorState を yaml 出力用にシリアライズする。
+// 両フィールド 0 なら nil を返す (= cursor キーごと省略)。
+func marshalCursor(cs CursorState) *yamlCursor {
+	if cs.TaskID == 0 && cs.StatusID == 0 {
+		return nil
+	}
+	return &yamlCursor{TaskID: cs.TaskID, StatusID: cs.StatusID}
 }
 
 // marshalLayout は LayoutConfig を yaml 出力用にシリアライズする。
@@ -653,6 +681,7 @@ func (r *YAMLRepository) Save(lr LoadResult) error {
 		Applications:      appEntries,
 		DataBaseDirectory: lr.Config.DataBaseDirectory,
 		Layout:            marshalLayout(lr.Config.Layout),
+		Cursor:            marshalCursor(lr.Config.Cursor),
 		FileOpener:        openerEntries,
 		Statuses:          statusEntries,
 		Fields:            fieldEntries,

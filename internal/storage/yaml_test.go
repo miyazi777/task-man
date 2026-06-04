@@ -1225,6 +1225,95 @@ func TestYAMLSaveWritesCurrentVersion(t *testing.T) {
 	}
 }
 
+// ---- Cursor のテスト ----
+
+// cursor キーが無い既存 yaml を読んでも cfg.Cursor はゼロ値 (両 0)。
+func TestYAMLCursorAbsent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	body := `version: 1
+statuses:
+  - status:
+      id: 1
+      sequence: 1
+      label: todo
+tasks: []
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	repo := NewYAMLRepository(path)
+	lr, err := repo.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if lr.Config.Cursor != (CursorState{}) {
+		t.Errorf("expected zero CursorState, got %+v", lr.Config.Cursor)
+	}
+}
+
+// task_id を保存 → Load で復元される。
+func TestYAMLCursorTaskIDRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	repo := NewYAMLRepository(path)
+	in := LoadResult{
+		Statuses: task.DefaultStatuses(),
+		Tasks: []task.Task{
+			{ID: 7, Title: "x", StatusID: 1, Position: 1},
+		},
+		Config: AppConfig{Cursor: CursorState{TaskID: 7}},
+	}
+	if err := repo.Save(in); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	lr, err := repo.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if lr.Config.Cursor.TaskID != 7 || lr.Config.Cursor.StatusID != 0 {
+		t.Errorf("cursor: got %+v, want {TaskID:7}", lr.Config.Cursor)
+	}
+}
+
+// status_id を保存 → Load で復元される。
+func TestYAMLCursorStatusIDRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	repo := NewYAMLRepository(path)
+	in := LoadResult{
+		Statuses: task.DefaultStatuses(),
+		Config:   AppConfig{Cursor: CursorState{StatusID: 2}},
+	}
+	if err := repo.Save(in); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	lr, err := repo.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if lr.Config.Cursor.TaskID != 0 || lr.Config.Cursor.StatusID != 2 {
+		t.Errorf("cursor: got %+v, want {StatusID:2}", lr.Config.Cursor)
+	}
+}
+
+// 両 0 の CursorState で Save → yaml に cursor キーが書かれない。
+func TestYAMLCursorMarshalEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yaml")
+	repo := NewYAMLRepository(path)
+	if err := repo.Save(LoadResult{Statuses: task.DefaultStatuses()}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if strings.Contains(string(data), "cursor:") {
+		t.Errorf("expected no 'cursor:' key in output, got:\n%s", string(data))
+	}
+}
+
 func TestYAMLNoFieldsKeyOK(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tasks.yaml")

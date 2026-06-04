@@ -1,6 +1,6 @@
 # データモデル (`tasks.yaml`)
 
-`tasks.yaml` は task-man の唯一の永続化先である。トップレベルのキーは `version` / `applications` / `file_opener` / `data_base_directory` / `layout` / `statuses` / `fields` / `tags` / `tasks` の 9 種類で、`statuses` 以外は省略可能 (空配列 / 未定義どちらでも可)。
+`tasks.yaml` は task-man の唯一の永続化先である。トップレベルのキーは `version` / `applications` / `file_opener` / `data_base_directory` / `layout` / `cursor` / `statuses` / `fields` / `tags` / `tasks` の 10 種類で、`statuses` 以外は省略可能 (空配列 / 未定義どちらでも可)。
 
 実装は `internal/storage/yaml.go` の `yamlFile` 型と `Load` / `Save` で行う。
 
@@ -136,6 +136,20 @@ tasks:
 | `main.file_preview.height` | float | 0.1 ～ 0.8 (3 値の合計が 1.0 になるよう正規化) |
 
 未設定の場合は描画時にデフォルト比率 (横 2/3、縦 各 1/3) を用いる。
+
+## `cursor`
+
+タスクリスト画面 (`ModeList`) の最終カーソル位置。`yamlCursor`。アプリ終了時 (`ModeQuitConfirm` 確定) と既存の `m.persist()` 経由の保存タイミングで書き出され、次回起動時に同じ行へカーソルを復元する。
+
+| キー | 型 | 任意 | 説明 |
+|---|---|---|---|
+| `cursor.task_id` | int | 任意 | カーソルがタスク行を指していた場合のタスク `id`。 |
+| `cursor.status_id` | int | 任意 | カーソルがステータス見出し行を指していた場合のステータス `id`。 |
+
+- `task_id != 0` のときは `status_id` より優先される。
+- 該当 id が現 rows に出てこない (タスク削除済 / ゴミ箱に移動済 / 所属ステータスが折りたたみ中 / 該当ステータス自体が削除済) ときは先頭 navigable 行へフォールバックする (`restoreCursor` in `internal/tui/app.go`)。
+- 両フィールドが 0 のときは yaml に `cursor` キーごと書き出さない。
+- `viewTrash` (ゴミ箱ビュー) はカーソル位置とは独立で、yaml には保存しない。
 
 ## `statuses`
 

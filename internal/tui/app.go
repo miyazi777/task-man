@@ -169,10 +169,52 @@ func NewModel(repo storage.Repository, initial []task.Task, statuses task.Status
 	}
 	m = m.withRowsRebuilt()
 	m = m.withDetailRowsRebuilt()
-	if first := firstNavigable(m.rows); first >= 0 {
-		m.cursor = first
-	}
+	m.cursor = restoreCursor(m.rows, m.tasks, cfg.Cursor)
 	return m.withFilesRefreshed()
+}
+
+// restoreCursor は前回保存された CursorState を現在の rows に合わせて解釈し、
+// 復元先の行インデックスを返す。
+//   - cur.TaskID != 0 で該当タスクが rows 上に存在 → そこへ復元
+//   - cur.StatusID != 0 で該当ステータス見出しが存在 → そこへ復元
+//   - 上記いずれでも見つからない (削除済 / ゴミ箱 / 折りたたまれた status 配下 / 未保存) →
+//     firstNavigable へフォールバック
+//
+// firstNavigable も見つからない (rows 空) ときは 0 を返す。
+func restoreCursor(rows []listRow, tasks []task.Task, cur storage.CursorState) int {
+	if cur.TaskID != 0 {
+		if r := findRowForTaskID(rows, tasks, cur.TaskID); r >= 0 {
+			return r
+		}
+	}
+	if cur.StatusID != 0 {
+		if r := findRowForStatus(rows, cur.StatusID); r >= 0 {
+			return r
+		}
+	}
+	if first := firstNavigable(rows); first >= 0 {
+		return first
+	}
+	return 0
+}
+
+// currentCursorState は今のカーソル行から永続化用の CursorState を作る。
+// タスク行のときは TaskID のみ、ステータス見出し行のときは StatusID のみが入る。
+// 範囲外 / separator / rows 空 のときはゼロ値 (= 次回起動時は firstNavigable へ)。
+func (m Model) currentCursorState() storage.CursorState {
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
+		return storage.CursorState{}
+	}
+	r := m.rows[m.cursor]
+	switch r.kind {
+	case rowTask:
+		if r.taskIndex >= 0 && r.taskIndex < len(m.tasks) {
+			return storage.CursorState{TaskID: m.tasks[r.taskIndex].ID}
+		}
+	case rowStatus:
+		return storage.CursorState{StatusID: r.statusID}
+	}
+	return storage.CursorState{}
 }
 
 // withDetailRowsRebuilt は m.fields から詳細画面の論理行リストを再構築する。
@@ -211,6 +253,7 @@ func (m *Model) persist() error {
 	for i := range m.tasks {
 		m.tasks[i].Collapsed = m.taskCollapsed[m.tasks[i].ID]
 	}
+	m.cfg.Cursor = m.currentCursorState()
 	if m.filesTaskID > 0 {
 		dirs := collapsedDirsFromMap(m.fileCollapsed)
 		for i := range m.tasks {
@@ -806,6 +849,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ModeQuitConfirm:
 		switch {
 		case key.Matches(msg, m.keys.ConfirmY):
+			// 終了直前にカーソル位置を含む最新状態を yaml に書き込む。
+			// 直前のキー操作が persist() を呼ばない種類 (j/k などのカーソル移動) でも
+			// 確実に最終カーソル位置が反映されるよう、ここで明示的に 1 度保存する。
+			// 失敗してもアプリは終了させる (saveErr に積んでも次回起動時には拾えないため無視)。
+			_ = m.persist()
 			return m, tea.Quit
 		case key.Matches(msg, m.keys.ConfirmN):
 			m.mode = m.prevMode
