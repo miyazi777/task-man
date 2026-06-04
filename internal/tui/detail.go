@@ -262,6 +262,18 @@ type fileRow struct {
 	collapsed   bool
 }
 
+// renderFilesHeader は Files セクションのヘッダ 1 行を組み立てる。
+// "Files:" ラベルの右横にタスクディレクトリの絶対パスを表示する (issue #40)。
+// taskDir が空文字 (= カーソル下にタスクが無い) なら path は出さず "Files:" のみ。
+// 横幅 width を超える長いパスは renderSingleLineRow の ansi.Truncate("…") で右端が省略される。
+func renderFilesHeader(taskDir string, width int) string {
+	label := "  " + styleLabel.Render("Files:")
+	if taskDir != "" {
+		label = label + " " + styleValueDim.Render(taskDir)
+	}
+	return renderSingleLineRow(lipgloss.NewStyle(), label, width)
+}
+
 // renderFileNamesList はファイル一覧を width × height の領域に描画する。
 // Files: ヘッダや罫線は含まない (新レイアウトで右ペインを上下分割するため、ヘッダ/罫線は呼び出し側で組み立てる)。
 //   - blockFocused: detailCursor が Files セクションを指しているか
