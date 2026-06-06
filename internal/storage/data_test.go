@@ -532,3 +532,121 @@ func TestRemoveAllTaskDataMissingRoot(t *testing.T) {
 		t.Errorf("removed: got %v, want empty", removed)
 	}
 }
+
+// setupListDirChildrenFixture は ListTaskDirChildren テスト用の共通フィクスチャを
+// 構築する。task-1 配下に複数ファイルと subdir/ を作成する。
+func setupListDirChildrenFixture(t *testing.T) string {
+	t.Helper()
+	yamlDir := t.TempDir()
+	taskDir := filepath.Join(yamlDir, "task-1")
+	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+		t.Fatalf("mkdir task: %v", err)
+	}
+	for _, name := range []string{"aaa.txt", "bbb.md", "zzz.md", "memo.md"} {
+		if err := os.WriteFile(filepath.Join(taskDir, name), nil, 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	subDir := filepath.Join(taskDir, "subdir")
+	if err := os.Mkdir(subDir, 0o755); err != nil {
+		t.Fatalf("mkdir subdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(subDir, "inner.md"), nil, 0o644); err != nil {
+		t.Fatalf("write inner: %v", err)
+	}
+	emptyDir := filepath.Join(taskDir, "empty")
+	if err := os.Mkdir(emptyDir, 0o755); err != nil {
+		t.Fatalf("mkdir empty: %v", err)
+	}
+	return yamlDir
+}
+
+func TestListTaskDirChildrenTopLevel(t *testing.T) {
+	yamlDir := setupListDirChildrenFixture(t)
+	got, err := ListTaskDirChildren(yamlDir, "", 1, "")
+	if err != nil {
+		t.Fatalf("ListTaskDirChildren: %v", err)
+	}
+	want := []FileEntry{
+		{Name: "aaa.txt", RelPath: "aaa.txt", IsDir: false},
+		{Name: "bbb.md", RelPath: "bbb.md", IsDir: false},
+		{Name: "empty", RelPath: "empty", IsDir: true},
+		{Name: "memo.md", RelPath: "memo.md", IsDir: false},
+		{Name: "subdir", RelPath: "subdir", IsDir: true},
+		{Name: "zzz.md", RelPath: "zzz.md", IsDir: false},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("len: got %d, want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i].Name != want[i].Name || got[i].RelPath != want[i].RelPath || got[i].IsDir != want[i].IsDir {
+			t.Errorf("entry[%d]: got %+v, want %+v", i, got[i], want[i])
+		}
+		if got[i].Children != nil {
+			t.Errorf("entry[%d].Children should be nil (shallow), got %v", i, got[i].Children)
+		}
+	}
+}
+
+func TestListTaskDirChildrenSubDir(t *testing.T) {
+	yamlDir := setupListDirChildrenFixture(t)
+	got, err := ListTaskDirChildren(yamlDir, "", 1, "subdir")
+	if err != nil {
+		t.Fatalf("ListTaskDirChildren: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "inner.md" || got[0].RelPath != "subdir/inner.md" || got[0].IsDir {
+		t.Errorf("got %+v, want one entry inner.md", got)
+	}
+}
+
+func TestListTaskDirChildrenDotAndEmptyEquivalent(t *testing.T) {
+	yamlDir := setupListDirChildrenFixture(t)
+	a, errA := ListTaskDirChildren(yamlDir, "", 1, "")
+	b, errB := ListTaskDirChildren(yamlDir, "", 1, ".")
+	if errA != nil || errB != nil {
+		t.Fatalf("err A=%v B=%v", errA, errB)
+	}
+	if len(a) != len(b) {
+		t.Fatalf("len mismatch: %d vs %d", len(a), len(b))
+	}
+	for i := range a {
+		if a[i].Name != b[i].Name || a[i].RelPath != b[i].RelPath || a[i].IsDir != b[i].IsDir {
+			t.Errorf("entry[%d]: %+v vs %+v", i, a[i], b[i])
+		}
+	}
+}
+
+func TestListTaskDirChildrenEmptyDir(t *testing.T) {
+	yamlDir := setupListDirChildrenFixture(t)
+	got, err := ListTaskDirChildren(yamlDir, "", 1, "empty")
+	if err != nil {
+		t.Fatalf("ListTaskDirChildren: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty, got %+v", got)
+	}
+}
+
+func TestListTaskDirChildrenNotADirectory(t *testing.T) {
+	yamlDir := setupListDirChildrenFixture(t)
+	_, err := ListTaskDirChildren(yamlDir, "", 1, "memo.md")
+	if !errors.Is(err, ErrNotADirectory) {
+		t.Errorf("expected ErrNotADirectory, got %v", err)
+	}
+}
+
+func TestListTaskDirChildrenNotFound(t *testing.T) {
+	yamlDir := setupListDirChildrenFixture(t)
+	_, err := ListTaskDirChildren(yamlDir, "", 1, "does-not-exist")
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("expected os.ErrNotExist, got %v", err)
+	}
+}
+
+func TestListTaskDirChildrenInvalidRelPath(t *testing.T) {
+	yamlDir := setupListDirChildrenFixture(t)
+	_, err := ListTaskDirChildren(yamlDir, "", 1, "../escape")
+	if !errors.Is(err, ErrInvalidRelPath) {
+		t.Errorf("expected ErrInvalidRelPath, got %v", err)
+	}
+}

@@ -30,6 +30,9 @@ var (
 	// ErrInvalidRelPath はタスクディレクトリ外を参照する相対パス (絶対パス指定や
 	// 親 (`..`) によるエスケープ等) を渡された場合に返される。
 	ErrInvalidRelPath = errors.New("invalid relative path")
+	// ErrNotADirectory はディレクトリを期待する API に通常ファイルなど非ディレクトリ
+	// が渡された場合に返される。
+	ErrNotADirectory = errors.New("not a directory")
 )
 
 // FileNameForbiddenCharError は使用できない文字がファイル名に含まれていることを示す。
@@ -184,6 +187,58 @@ type FileEntry struct {
 func ListTaskFileTree(yamlDir, dataBaseDir string, taskID int) ([]FileEntry, error) {
 	taskDir := TaskDir(yamlDir, dataBaseDir, taskID)
 	return readDirAsTree(taskDir, "")
+}
+
+// ListTaskDirChildren はタスクディレクトリ内 relPath が指すディレクトリの直下
+// エントリ (ファイル / サブディレクトリ) を Name 昇順で返す。再帰はしない。
+//   - relPath == "" / "." はタスクディレクトリ直下。
+//   - 対象が存在しない場合は os.ErrNotExist をラップしたエラーを返す。
+//   - 対象が通常ファイル等ディレクトリでない場合は ErrNotADirectory を返す。
+//   - relPath がタスクディレクトリ外を指す場合は ErrInvalidRelPath。
+//   - 通常ファイル / ディレクトリ以外 (symlink, FIFO, ソケット等) は ListTaskFileTree と
+//     統一して無視する。
+//   - 戻り値の FileEntry.Children は常に nil (浅い読み込み)。
+func ListTaskDirChildren(yamlDir, dataBaseDir string, taskID int, relPath string) ([]FileEntry, error) {
+	taskDir := TaskDir(yamlDir, dataBaseDir, taskID)
+	full, err := resolveTaskRelPath(taskDir, relPath)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(full)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("%w: %s", os.ErrNotExist, full)
+		}
+		return nil, fmt.Errorf("stat %s: %w", full, err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("%w: %s", ErrNotADirectory, full)
+	}
+	entries, err := os.ReadDir(full)
+	if err != nil {
+		return nil, fmt.Errorf("read dir %s: %w", full, err)
+	}
+	relPrefix := path.Clean(relPath)
+	if relPrefix == "." {
+		relPrefix = ""
+	}
+	out := make([]FileEntry, 0, len(entries))
+	for _, e := range entries {
+		typ := e.Type()
+		isDir := typ.IsDir()
+		isReg := typ.IsRegular()
+		if !isDir && !isReg {
+			continue
+		}
+		name := e.Name()
+		rel := name
+		if relPrefix != "" {
+			rel = relPrefix + "/" + name
+		}
+		out = append(out, FileEntry{Name: name, RelPath: rel, IsDir: isDir})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
 }
 
 func readDirAsTree(absDir, relPrefix string) ([]FileEntry, error) {
