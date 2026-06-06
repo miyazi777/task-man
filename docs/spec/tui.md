@@ -23,6 +23,7 @@
 - 左ペイン: ステータス見出し + 配下のタスクをツリー状に描画 (`internal/tui/rows.go`, `list.go`, `browser.go`)。
 - 右ペイン: Title / Status / Tags / 拡張項目 / Files セクションを縦に並べる (`internal/tui/detail.go`)。Files 行下に file list と file preview を表示。
 - Files セクション見出しは `Files: <タスクディレクトリ絶対パス>` の形式 (`renderFilesHeader`)。パスはカーソル下のタスクのデータディレクトリ (`storage.TaskDir`) で、右ペイン幅に収まらない場合は `ansi.Truncate` で末尾を `…` に省略する。
+- File preview (下段): カーソルがファイル行のときは内容を先頭 256KiB まで表示する (`.md` / `.txt` のみ。それ以外は `Preview not available`)。カーソルがディレクトリ行のときはそのディレクトリ直下のエントリ一覧 (Name 昇順、サブディレクトリは末尾 `/` 付き) を表示する (`renderDirPreview`)。空ディレクトリは `(empty)`、読み込み失敗は `(read error)` を表示する。折りたたみ状態とは独立で、`h` で閉じたディレクトリでもプレビューには直下の全エントリが出る。
 
 ## モード一覧 (`internal/tui/mode.go`)
 

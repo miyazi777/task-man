@@ -84,6 +84,57 @@ func previewLines(content string, width, height int) []string {
 	return out
 }
 
+// renderDirPreview は cursor が指すディレクトリの直下エントリ一覧をプレビューペイン
+// として描画する。
+//   - taskID==0 / relPath=="" : 空のペインを返す (プレビュー対象なし)。
+//   - 対象が空ディレクトリ : "(empty)" を表示。
+//   - 読み込みエラー : "(read error)" を表示 (renderPreview と統一)。
+//   - 通常時 : ListTaskDirChildren が返した順 (Name 昇順) に、ディレクトリは末尾 "/" 付き、
+//     ファイルは name のみで 1 行ずつ並べる。
+//
+// 行数が height を超える場合は単純に末尾を切り詰める (renderPreview の previewLines と
+// 同じ方針)。各行の幅は ansi.Truncate で末尾 "…" 省略。
+func renderDirPreview(yamlDir, dataBaseDir string, taskID int, relPath string, width, height int) string {
+	if width <= 0 {
+		width = 1
+	}
+	if height <= 0 {
+		height = 1
+	}
+	frame := lipgloss.NewStyle().Width(width).Height(height)
+
+	if taskID == 0 || relPath == "" {
+		return frame.Render("")
+	}
+
+	entries, err := storage.ListTaskDirChildren(yamlDir, dataBaseDir, taskID, relPath)
+	if err != nil {
+		body := lipgloss.NewStyle().Foreground(colorDanger).Render("(read error)")
+		return frame.Render(body)
+	}
+	if len(entries) == 0 {
+		body := lipgloss.NewStyle().Foreground(colorMuted).Italic(true).Render("(empty)")
+		return frame.Render(body)
+	}
+
+	limit := len(entries)
+	if limit > height {
+		limit = height
+	}
+	lines := make([]string, 0, limit)
+	for i := 0; i < limit; i++ {
+		name := entries[i].Name
+		if entries[i].IsDir {
+			name += "/"
+		}
+		if w := ansi.StringWidth(name); w > width {
+			name = ansi.Truncate(name, width, "…")
+		}
+		lines = append(lines, name)
+	}
+	return frame.Render(strings.Join(lines, "\n"))
+}
+
 // stripControlChars は表示を破壊しうる制御文字を空文字に置換する。
 // 改行 (\n) は呼び出し側が事前に分割しているのでここでは現れない想定。
 func stripControlChars(s string) string {

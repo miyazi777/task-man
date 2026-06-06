@@ -4117,17 +4117,21 @@ func (m Model) View() string {
 		}
 		fileNamesBlock := renderFileNamesList(m.files, detailFocused, hasCursorOnFiles, m.fileCursor, rightW, namesH)
 
-		// プレビュー: 現在タスクの fileCursor が指す通常ファイルを対象にする。
-		// カーソルがディレクトリ行のときは空ペインを返す (renderPreview の空指定経路)。
-		var previewFile string
-		var previewTaskID int
-		if current != nil && len(m.files) > 0 && m.fileCursor >= 0 && m.fileCursor < len(m.files) {
-			if cur := m.files[m.fileCursor]; !cur.isDir {
-				previewFile = cur.relPath
-				previewTaskID = current.ID
+		// プレビュー: 現在タスクの fileCursor が指す行を対象にする。
+		// ファイル行なら内容、ディレクトリ行ならそのディレクトリ直下のエントリ一覧を表示する。
+		// 範囲外/未選択時は renderPreview の空指定経路で空ペインを返す。
+		var previewBlock string
+		switch {
+		case current == nil || len(m.files) == 0 || m.fileCursor < 0 || m.fileCursor >= len(m.files):
+			previewBlock = renderPreview(m.yamlDir, m.cfg.DataBaseDirectory, 0, "", rightW, previewH)
+		default:
+			cur := m.files[m.fileCursor]
+			if cur.isDir {
+				previewBlock = renderDirPreview(m.yamlDir, m.cfg.DataBaseDirectory, current.ID, cur.relPath, rightW, previewH)
+			} else {
+				previewBlock = renderPreview(m.yamlDir, m.cfg.DataBaseDirectory, current.ID, cur.relPath, rightW, previewH)
 			}
 		}
-		previewBlock := renderPreview(m.yamlDir, m.cfg.DataBaseDirectory, previewTaskID, previewFile, rightW, previewH)
 
 		right := lipgloss.JoinVertical(lipgloss.Left,
 			detailBlock,
