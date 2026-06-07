@@ -98,6 +98,8 @@
 
 ファイルリストはタスクディレクトリ配下を再帰的に表示し、ディレクトリの折りたたみ状態はセッション内・現在タスクに限り保持される (タスク切り替えでリセット)。マーカーは hasChildren を持つディレクトリのみ `+ `/`- ` を出し、葉ファイルや空ディレクトリは空白 2 cell。
 
+Files セクションは fsnotify で現在カーソル位置のタスクディレクトリを監視し、外部からの `touch` / `mv` / `rm` を 100ms の debounce 後に自動反映する (`internal/tui/watcher.go` の `TaskDirWatcher`)。タスク切替時 (`withFilesRefreshed` 内の `filesTaskID` 変化検出) には旧 watch を解放して新ディレクトリへ Add し直し、status 行カーソル時には watch を完全に解放する。Linux の inotify が再帰 watch をサポートしないため、初回 Switch と Create イベント時にサブディレクトリを `filepath.Walk` で個別に Add する。watcher の作成 / Add に失敗した場合は静かに諦め、`R` キーでの手動 refresh が引き続き fallback として機能する。アプリ終了時には `main.go` の defer で watcher を Close する。
+
 ### 移動モード (`ModeMove`)
 
 - 開始: `m` で対象タスクを選択。スナップショットを `moveSnapshot` に退避する。

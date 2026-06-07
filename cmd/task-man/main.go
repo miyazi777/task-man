@@ -52,6 +52,15 @@ func run() error {
 	}
 
 	model := tui.NewModel(repo, lr.Tasks, lr.Statuses, lr.Fields, lr.Tags, absPath, lr.Config)
+
+	// fsnotify watcher を起動して Files セクションの自動 refresh を有効化する。
+	// 作成に失敗した場合 (権限不足 / inotify 上限超過 等) はアプリは起動し続け、
+	// `R` キーでの手動 refresh で運用継続する。
+	if w, werr := tui.NewTaskDirWatcher(); werr == nil {
+		defer func() { _ = w.Close() }()
+		model = model.WithWatcher(w)
+	}
+
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		return err
