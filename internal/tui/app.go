@@ -134,7 +134,19 @@ type Model struct {
 	width  int
 	height int
 
+	// watcher は現タスクディレクトリの自動 refresh 用 fsnotify ラッパー。
+	// main.go で WithWatcher() を通じて注入される。Setup 失敗時は nil のまま
+	// (R キー fallback)。nil レシーバでも全メソッド呼び出しが安全。
+	watcher *TaskDirWatcher
+
 	saveErr error
+}
+
+// WithWatcher は Model に fsnotify watcher を注入する。main.go から
+// tea.NewProgram に渡す前に呼ぶ想定。watcher == nil の注入も許容する。
+func (m Model) WithWatcher(w *TaskDirWatcher) Model {
+	m.watcher = w
+	return m
 }
 
 // NewModel は初期データから Model を組み立てて返す。Bubble Tea program に渡す Model はここで作る。
@@ -445,6 +457,10 @@ func (m Model) currentStatusID() int {
 func (m Model) withFilesRefreshed() Model {
 	t, _, ok := m.currentTask()
 	if !ok {
+		// status 行等にカーソルが乗った: 以前 watch 中だった場合は解放する。
+		if m.filesTaskID != 0 {
+			_ = m.watcher.Switch(0, "")
+		}
 		m.files = nil
 		m.fileCursor = 0
 		m.filesTaskID = 0
@@ -459,6 +475,8 @@ func (m Model) withFilesRefreshed() Model {
 			m.fileCollapsed[p] = true
 		}
 		m.filesTaskID = t.ID
+		// fsnotify watcher を新ディレクトリへ rewire (nil-safe, silent fallback)。
+		_ = m.watcher.Switch(t.ID, storage.TaskDir(m.yamlDir, m.cfg.DataBaseDirectory, t.ID))
 	}
 	tree, _ := storage.ListTaskFileTree(m.yamlDir, m.cfg.DataBaseDirectory, t.ID)
 	m.files = flattenFileTree(tree, 0, m.fileCollapsed)
@@ -574,9 +592,17 @@ func (m Model) pathForCopy() (string, bool) {
 	return taskDir, true
 }
 
-// Init は Bubble Tea プログラム開始時に呼ばれる。本 TUI は起動コマンドを持たないので nil を返す。
+// Init は Bubble Tea プログラム開始時に呼ばれる。
+// watcher が注入されていれば、起動時カーソル位置のタスクで初期 Switch を行い、
+// fsnotifyMsg 受信のための Wait Cmd を返す。watcher が nil なら従来通り nil。
 func (m Model) Init() tea.Cmd {
-	return nil
+	if m.watcher == nil {
+		return nil
+	}
+	if t, _, ok := m.currentTask(); ok {
+		_ = m.watcher.Switch(t.ID, storage.TaskDir(m.yamlDir, m.cfg.DataBaseDirectory, t.ID))
+	}
+	return m.watcher.Wait()
 }
 
 // Update は Bubble Tea のメッセージを受け取り、新しい Model と次に発行するコマンドを返す。
@@ -592,6 +618,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m = m.withFilesRefreshed()
 		return m, nil
+	case fsnotifyMsg:
+		// fsnotify が debounce 後に通知してきた = 現タスクディレクトリ配下で変更あり。
+		// 全件再読込で済ませる (fsnotifyMsg は payload 空、何が変わったか見ない)。
+		if m.filesTaskID != 0 {
+			m = m.withFilesRefreshed()
+		}
+		return m, m.watcher.Wait()
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
