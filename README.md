@@ -14,7 +14,7 @@ A Japanese-friendly UI built with [Bubble Tea](https://github.com/charmbracelet/
 - **Tags**: Up to 5 tags per task; manage tags from the settings screen
 - **Custom fields**: Add `text` / `date` / `URL` typed fields to a task
 - **Trash**: Temporarily store deleted tasks, restore them, or permanently delete
-- **File preview**: Show task-attached files (md / txt / csv) in the right pane
+- **File preview**: Show task-attached files (md / txt) in the right pane
 - **File opener**: Configure per-extension launch applications in yaml; launch directly from a file
 - **Layout adjustment**: Interactively resize each pane on the task list screen and persist it
 - **Multiple workspaces**: Specify a different `tasks.yaml` at startup with the `-t` option
@@ -96,6 +96,9 @@ alias tm='task-man -t ~/private/tasks.yaml'
 | `d` | Move task to trash (in trash view: permanently delete) |
 | `m` | Start / confirm move mode |
 | `o` | Operation mode (`r`=rename, `s`=status, `g`=tag, `f`=files) |
+| `T` | Exit trash view (return to normal list; trash view only) |
+| `p` | Copy path of cursor task to clipboard |
+| `R` | Refresh file list (reload external mv / add / delete) |
 | `;` | Prefix mode |
 | `q` | Quit |
 
@@ -118,6 +121,8 @@ alias tm='task-man -t ~/private/tasks.yaml'
 | `a` | Create a new file in the Files section |
 | `r` | Rename a file in the Files section |
 | `d` | Delete a file in the Files section |
+| `p` | Copy path (Files row: file path / other: task dir path) |
+| `R` | Refresh file list |
 | `;` | Prefix mode |
 | `esc` | Return to the list |
 
@@ -168,13 +173,13 @@ data_base_directory: ./tasks_data   # base for task attachment dirs (defaults to
 layout:
   main:
     task_list:
-      width: 0.6      # ratio 0.0–1.0 (task list's share of screen width)
+      width: 0.6      # ratio 0.1–0.9 (task list's share of screen width)
     task_detail:
-      height: 0.4
+      height: 0.4    # ratio 0.1–0.8 (sum of the 3 heights is normalized to 1.0)
     file_list:
-      height: 0.3
+      height: 0.3    # ratio 0.1–0.8
     file_preview:
-      height: 0.3
+      height: 0.3    # ratio 0.1–0.8
 
 statuses:
   - status:
